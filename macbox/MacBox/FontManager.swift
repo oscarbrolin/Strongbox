@@ -7,134 +7,59 @@
 //
 
 import Cocoa
+import SwiftUI
 
 class FontManager: NSObject {
     @objc
     static let shared = FontManager()
+    @objc
+    static func sharedInstance() -> FontManager {
+        shared
+    }
 
-    static let EasyReadFontName: String = "Menlo"
+    static let BodyPointSize: CGFloat = NSFont.preferredFont(forTextStyle: .body).pointSize
 
-    static let BodyPointSize: CGFloat = {
-        let pointSize: CGFloat
-        if #available(macOS 11.0, *) {
-            pointSize = NSFont.preferredFont(forTextStyle: .body).pointSize
-        } else {
-            pointSize = 13.0
-        }
+    static let Caption1PointSize: CGFloat = NSFont.preferredFont(forTextStyle: .caption1).pointSize
 
-        return pointSize
-    }()
+    static let HeadLinePointSize: CGFloat = NSFont.preferredFont(forTextStyle: .headline).pointSize
 
-    static let Caption1PointSize: CGFloat = {
-        let pointSize: CGFloat
-        if #available(macOS 11.0, *) {
-            pointSize = NSFont.preferredFont(forTextStyle: .caption1).pointSize
-        } else {
-            pointSize = 11.0
-        }
-
-        return pointSize
-    }()
-
-    static let HeadLinePointSize: CGFloat = {
-        let pointSize: CGFloat
-        if #available(macOS 11.0, *) {
-            pointSize = NSFont.preferredFont(forTextStyle: .headline).pointSize
-        } else {
-            pointSize = 13.0
-        }
-
-        return pointSize
-    }()
-
-    static let LargeTitlePointSize: CGFloat = {
-        let pointSize: CGFloat
-        if #available(macOS 11.0, *) {
-            pointSize = NSFont.preferredFont(forTextStyle: .largeTitle).pointSize
-        } else {
-            pointSize = 32
-        }
-
-        return pointSize
-    }()
+    static let LargeTitlePointSize: CGFloat = NSFont.preferredFont(forTextStyle: .largeTitle).pointSize
 
     @objc
-    let easyReadFont: NSFont = {
-
-
-
-
-
-        NSFont(name: EasyReadFontName, size: BodyPointSize) ?? NSFont.systemFont(ofSize: BodyPointSize)
-
-    }()
+    let easyReadFont: NSFont = .monospacedSystemFont(ofSize: BodyPointSize, weight: .regular)
 
     @objc
-    let largeTextEasyReadFont: NSFont = {
-
-
-
-
-
-        NSFont(name: EasyReadFontName, size: LargeTitlePointSize) ?? NSFont.systemFont(ofSize: LargeTitlePointSize)
-
-    }()
+    let easyReadBoldFont: NSFont = .monospacedSystemFont(ofSize: BodyPointSize, weight: .bold)
 
     @objc
-    let bodyFont: NSFont = {
-        if #available(macOS 11.0, *) {
-            return NSFont.preferredFont(forTextStyle: .body)
-        } else {
-            return NSFont.systemFont(ofSize: BodyPointSize)
-        }
-    }()
+    let largeTextEasyReadFont: NSFont = .monospacedSystemFont(ofSize: LargeTitlePointSize, weight: .regular)
+
+    @objc
+    let bodyFont: NSFont = .preferredFont(forTextStyle: .body)
 
     @objc
     let italicBodyFont: NSFont = {
-        let bodyFont: NSFont
-
-        if #available(macOS 11.0, *) {
-            bodyFont = NSFont.preferredFont(forTextStyle: .body)
-        } else {
-            bodyFont = NSFont.systemFont(ofSize: BodyPointSize)
-        }
+        let bodyFont = NSFont.preferredFont(forTextStyle: .body)
 
         let ret = NSFontManager.shared.convert(bodyFont, toHaveTrait: .italicFontMask)
+
         return ret
     }()
 
     @objc
     let boldBodyFont: NSFont = {
-        let bodyFont: NSFont
-
-        if #available(macOS 11.0, *) {
-            bodyFont = NSFont.preferredFont(forTextStyle: .body)
-        } else {
-            bodyFont = NSFont.systemFont(ofSize: BodyPointSize)
-        }
+        let bodyFont = NSFont.preferredFont(forTextStyle: .body)
 
         let ret = NSFontManager.shared.convert(bodyFont, toHaveTrait: .boldFontMask)
         return ret
     }()
 
     @objc
-    let headlineFont: NSFont = {
-        if #available(macOS 11.0, *) {
-            return NSFont.preferredFont(forTextStyle: .headline)
-        } else {
-            return NSFont.systemFont(ofSize: HeadLinePointSize)
-        }
-    }()
+    let headlineFont: NSFont = .preferredFont(forTextStyle: .headline)
 
     @objc
     let headlineItalicFont: NSFont = {
-        let font: NSFont
-
-        if #available(macOS 11.0, *) {
-            font = NSFont.preferredFont(forTextStyle: .headline)
-        } else {
-            font = NSFont.systemFont(ofSize: HeadLinePointSize)
-        }
+        let font = NSFont.preferredFont(forTextStyle: .headline)
 
         let ret = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask)
 
@@ -142,11 +67,33 @@ class FontManager: NSObject {
     }()
 
     @objc
-    let caption1Font: NSFont = {
-        if #available(macOS 11.0, *) {
-            return NSFont.preferredFont(forTextStyle: .caption1)
-        } else {
-            return NSFont.systemFont(ofSize: Caption1PointSize)
-        }
+    let entryTitleFont: NSFont = .systemFont(ofSize: HeadLinePointSize, weight: .semibold)
+
+    @objc
+    let caption1Font: NSFont = .preferredFont(forTextStyle: .caption1)
+
+    @objc
+    let boldCaption1Font: NSFont = {
+        let base = NSFont.preferredFont(forTextStyle: .caption1)
+
+        let ret = NSFontManager.shared.convert(base, toHaveTrait: .boldFontMask)
+        return ret
+    }()
+
+    @objc
+    let boldLargeTitleFont: NSFont = {
+        let bodyFont = NSFont.preferredFont(forTextStyle: .largeTitle)
+
+        let ret = NSFontManager.shared.convert(bodyFont, toHaveTrait: .boldFontMask)
+        return ret
+    }()
+
+    
+    @objc
+    let easyReadFontForTotp: NSFont = {
+        let bodyFont = NSFont.monospacedSystemFont(
+            ofSize: 24, weight: .medium
+        )
+        return bodyFont
     }()
 }

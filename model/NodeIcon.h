@@ -7,11 +7,12 @@
 //
 
 #import <Foundation/Foundation.h>
+#import "Utils.h"
 
-#if TARGET_OS_IPHONE
+#if TARGET_OS_IOS || TARGET_OS_WATCH
     #import <UIKit/UIKit.h>
     typedef UIImage* IMAGE_TYPE_PTR;
-#else
+#elif TARGET_OS_OSX
     #import <Cocoa/Cocoa.h>
     typedef NSImage* IMAGE_TYPE_PTR;
 #endif
@@ -20,10 +21,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface NodeIcon : NSObject
 
-#if !TARGET_OS_IPHONE
 + (instancetype _Nullable)withCustomImage:(IMAGE_TYPE_PTR)image;
-#endif
-
 + (instancetype)withCustom:(NSData*)custom;
 + (instancetype)withCustom:(NSData*)custom name:(NSString*_Nullable)name modified:(NSDate*_Nullable)modified;
 + (instancetype)withCustom:(NSData *)custom uuid:(NSUUID*)uuid name:(NSString*_Nullable)name modified:(NSDate*_Nullable)modified;
@@ -31,6 +29,8 @@ NS_ASSUME_NONNULL_BEGIN
 + (instancetype)withPreset:(NSInteger)preset;
 
 - (instancetype)init NS_UNAVAILABLE;
+
+@property (class, readonly) NodeIcon* defaultNodeIcon;
 
 @property (readonly) BOOL isCustom;
 @property (readonly) NSInteger preset;
@@ -41,7 +41,9 @@ NS_ASSUME_NONNULL_BEGIN
 @property (readonly, nullable) NSUUID* uuid;
 @property NSInteger preferredOrder;
 
-@property IMAGE_TYPE_PTR cachedImage;
+@property (readonly, nullable) IMAGE_TYPE_PTR customIcon; 
+@property (readonly) NSUInteger customIconWidth;
+@property (readonly) NSUInteger customIconHeight;
 
 @end
 

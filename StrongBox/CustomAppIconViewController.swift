@@ -26,12 +26,10 @@ class CustomAppIconViewController: UICollectionViewController, UICollectionViewD
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
 
-        if #available(iOS 10.3, *) {
-            if UIApplication.shared.alternateIconName == nil {
-                buttonReset.isEnabled = false
-                buttonReset.tintColor = UIColor.clear
-                navigationController?.isToolbarHidden = true
-            }
+        if UIApplication.shared.alternateIconName == nil {
+            buttonReset.isEnabled = false
+            buttonReset.tintColor = UIColor.clear
+            navigationController?.isToolbarHidden = true
         }
     }
 
@@ -43,23 +41,7 @@ class CustomAppIconViewController: UICollectionViewController, UICollectionViewD
                                 forSupplementaryViewOfKind: UICollectionView.elementKindSectionHeader,
                                 withReuseIdentifier: CustomAppIconSectionHeader.reuseIdentifier)
 
-
-        
-        let allowedIcons : [CustomAppIcon] = [
-            .proBadge,
-            .regular,
-            .zero,
-            .black,
-            .bluey,
-            .iridescent,
-            .lightBlue,
-            .midnightFire,
-            .red,
-            .water,
-            .original
-        ]
-        
-        let grouped = Dictionary(grouping: allowedIcons, by: { $0.category })
+        let grouped = Dictionary(grouping: CustomAppIcon.selectableIcons, by: { $0.category })
         icons = CustomAppIconCategory.allCases.compactMap { grouped[$0] }
 
         let layout = UICollectionViewFlowLayout() 
@@ -75,11 +57,11 @@ class CustomAppIconViewController: UICollectionViewController, UICollectionViewD
     }
 
     override func numberOfSections(in _: UICollectionView) -> Int {
-        return icons.count
+        icons.count
     }
 
     override func collectionView(_: UICollectionView, numberOfItemsInSection section: Int) -> Int {
-        return icons[section].count
+        icons[section].count
     }
 
     override func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
@@ -95,7 +77,7 @@ class CustomAppIconViewController: UICollectionViewController, UICollectionViewD
     }
 
     func collectionView(_ collectionView: UICollectionView, layout _: UICollectionViewLayout, referenceSizeForHeaderInSection _: Int) -> CGSize {
-        return CGSize(width: collectionView.frame.size.width * 0.8, height: 30)
+        CGSize(width: collectionView.frame.size.width * 0.8, height: 30)
     }
 
     override func collectionView(_ collectionView: UICollectionView, viewForSupplementaryElementOfKind kind: String, at indexPath: IndexPath) -> UICollectionReusableView {
@@ -121,7 +103,7 @@ class CustomAppIconViewController: UICollectionViewController, UICollectionViewD
     override func collectionView(_: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         let icon = icons[indexPath.section][indexPath.row]
 
-        if icon.isPro && !AppPreferences.sharedInstance().isPro {
+        if icon.isPro, !AppPreferences.sharedInstance().isPro {
             Alerts.info(self,
                         title: NSLocalizedString("mac_autofill_pro_feature_title", comment: "Pro Feature"),
                         message: NSLocalizedString("custom_app_icon_pro_only", comment: "This icon is only available for Pro users."))
@@ -140,14 +122,12 @@ class CustomAppIconViewController: UICollectionViewController, UICollectionViewD
     }
 
     func setTheIcon(_ icon: CustomAppIcon? = nil) {
-        if #available(iOS 10.3, *) {
-            UIApplication.shared.setAlternateIconName(icon?.plistKey) { [weak self] error in
-                if let error = error {
-                    NSLog("🔴 Error setting alternate app icon [%@]", String(describing: error))
-                    Alerts.error(self, error: error)
-                } else {
-                    self?.dismiss(animated: true, completion: nil)
-                }
+        UIApplication.shared.setAlternateIconName(icon?.alternateIconName) { [weak self] error in
+            if let error {
+                swlog("🔴 Error setting alternate app icon [%@]", String(describing: error))
+                Alerts.error(self, error: error)
+            } else {
+                self?.dismiss(animated: true, completion: nil)
             }
         }
     }

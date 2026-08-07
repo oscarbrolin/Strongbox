@@ -16,7 +16,7 @@ extern NSString* _Nonnull const kDatabaseUpdatedNotification;
 
 @interface SafesList : NSObject
 
-+ (instancetype _Nullable)sharedInstance;
++ (instancetype)sharedInstance;
 @property (nonatomic, nonnull, readonly) NSArray<SafeMetaData*> *snapshot;
 
 - (SafeMetaData *)getById:(NSString*)uuid;
@@ -24,8 +24,8 @@ extern NSString* _Nonnull const kDatabaseUpdatedNotification;
 - (NSArray<SafeMetaData*>* _Nonnull)getSafesOfProvider:(StorageProvider)storageProvider;
 
 + (NSString *_Nonnull)trimDatabaseNickName:(NSString *_Nonnull)string;
-- (NSString*_Nullable)getSuggestedDatabaseNameUsingDeviceName;
-- (NSString*_Nullable)getUniqueNameFromSuggestedName:(NSString*)suggested;
+- (NSString*)getSuggestedNewDatabaseName;
+- (NSString*)getUniqueNameFromSuggestedName:(NSString*)suggested;
 
 - (BOOL)isUnique:(NSString *)nickName;
 - (BOOL)isValid:(NSString *)nickName;
@@ -34,23 +34,28 @@ extern NSString* _Nonnull const kDatabaseUpdatedNotification;
 
 - (void)remove:(NSString*_Nonnull)uuid;
 
-- (NSString*_Nullable)addWithDuplicateCheck:(SafeMetaData *)safe
-                      initialCache:(NSData *)initialCache
-               initialCacheModDate:(NSDate *)initialCacheModDate;
 
 
+- (BOOL)add:(SafeMetaData *)safe
+      error:(NSError *__autoreleasing  _Nullable *  _Nullable )error;
 
+- (BOOL)add:(SafeMetaData *)safe
+initialCache:(NSData * _Nullable )initialCache
+initialCacheModDate:(NSDate * _Nullable )initialCacheModDate
+      error:(NSError* _Nullable * _Nullable )error;
 
+- (BOOL)addWithDuplicateCheck:(SafeMetaData *)safe
+                 initialCache:(NSData * _Nullable )initialCache
+          initialCacheModDate:(NSDate * _Nullable )initialCacheModDate
+                        error:(NSError* _Nullable * _Nullable )error;
 
-- (void)add:(SafeMetaData *_Nonnull)safe initialCache:(NSData*_Nullable)initialCache initialCacheModDate:(NSDate*_Nullable)initialCacheModDate;
+- (BOOL)addWithDuplicateCheck:(SafeMetaData *)safe
+                 initialCache:(NSData * _Nullable )initialCache
+          initialCacheModDate:(NSDate * _Nullable )initialCacheModDate
+                duplicateUuid:(NSString* _Nullable * _Nullable )duplicatedUuid
+                        error:(NSError* _Nullable * _Nullable )error;
 
 - (void)move:(NSInteger)sourceIndex to:(NSInteger)destinationIndex;
-- (void)deleteAll;
-
-
-
-- (BOOL)isEditing:(SafeMetaData*)database;
-- (void)setEditing:(SafeMetaData*)database editing:(BOOL)editing;
 
 
 
@@ -68,7 +73,7 @@ extern NSString* _Nonnull const kDatabaseUpdatedNotification;
 
 
 
-- (void)reloadIfChangedByOtherComponent;
+- (BOOL)reloadIfChangedByOtherComponent;
 
 - (void)notifyDatabasesListChanged;
 - (void)notifyDatabaseChanged:(NSString*)databaseIdChanged;

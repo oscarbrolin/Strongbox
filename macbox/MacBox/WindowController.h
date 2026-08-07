@@ -13,6 +13,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface WindowController : NSWindowController <NSMenuItemValidation, NSMenuDelegate>
 
+- (void)copyConcealedAndMaybeMinimize:(NSString*)string;
 - (void)changeContentView;
 - (BOOL)placeItemsOnPasteboard:(NSPasteboard*)pasteboard items:(NSArray<Node*>*)items;
 - (NSUInteger)pasteItemsFromPasteboard:(NSPasteboard*)pasteboard
@@ -29,13 +30,29 @@ NS_ASSUME_NONNULL_BEGIN
 - (IBAction)onCopyNotes:(id)sender;
 - (IBAction)onCopyTotp:(id)sender;
 
-- (IBAction)onDelete:(id _Nullable)sender;
+
+- (void)onDeleteItems:(NSArray<Node*>*)items
+           completion:( void (^ _Nullable)(BOOL success) )completion;
+
+- (IBAction)onPrintGroupFromSideBar:(id)sender;
+- (IBAction)onExportGroupFromSideBar:(id)sender;
 
 - (IBAction)onGeneralDatabaseSettings:(id)sender;
 - (IBAction)onConvenienceUnlockProperties:(id)sender;
 - (IBAction)onDatabaseAutoFillSettings:(id)sender;
 - (IBAction)onDatabaseEncryptionSettings:(id)sender;
 - (IBAction)onChangeMasterPassword:(id)sender;
+- (IBAction)onEmptyRecycleBin:(id)sender;
+- (IBAction)onToggleKeeAgentSshKeyEnabled:(id)sender;
+- (IBAction)onToggleFavouriteItemInSideBar:(id)sender;
+- (IBAction)onSideBarCreateGroup:(id)sender;
+- (IBAction)onSideBarDuplicateItem:(id)sender;
+- (IBAction)onSideBarFindFavIcons:(id)sender;
+- (IBAction)onSideBarItemProperties:(id)sender;
+- (IBAction)onDeleteSideBarItem:(id)sender;
+- (IBAction)onSetSideBarItemIcon:(id)sender;
+- (IBAction)onRenameSideBarItem:(id)sender;
+- (IBAction)onMerge:(id)sender;
 
 - (Node*_Nullable)getSingleSelectedItem; 
 

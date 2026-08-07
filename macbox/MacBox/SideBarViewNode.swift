@@ -1,5 +1,5 @@
 //
-//  File.swift
+//  SideBarViewNode.swift
 //  MacBox
 //
 //  Created by Strongbox on 27/01/2022.
@@ -13,10 +13,10 @@ class SideBarViewNode {
     let title: String
     let image: NSImage
     var children: [SideBarViewNode]
-    let headerNode : HeaderNode?
+    let headerNode: HeaderNode?
     let color: NSColor?
-    let parent: SideBarViewNode?
-    let databaseNodeChildCount: Int?
+    weak var parent: SideBarViewNode? 
+    let databaseNodeChildCount: String?
 
     init(context: NavigationContext,
          title: String,
@@ -25,7 +25,7 @@ class SideBarViewNode {
          children: [SideBarViewNode] = [],
          headerNode: HeaderNode? = nil,
          color: NSColor? = nil,
-         databaseNodeChildCount: Int? = nil)
+         databaseNodeChildCount: String? = nil)
     {
         self.context = context
         self.title = title

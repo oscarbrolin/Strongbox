@@ -3,17 +3,32 @@
 
 #import <Foundation/Foundation.h>
 #import "Node.h"
-#import "DatabaseAttachment.h"
+#import "KeePassAttachmentAbstractionLayer.h"
 #import "DatabaseFormat.h"
 #import "UnifiedDatabaseMetadata.h"
 #import "NodeHierarchyReconstructionData.h"
 #import "CompositeKeyFactors.h"
+#import "NSString+Extensions.h"
+
+typedef enum : NSUInteger {
+    kDatabaseSearchMatchFieldTitle,
+    kDatabaseSearchMatchFieldUsername,
+    kDatabaseSearchMatchFieldEmail,
+    kDatabaseSearchMatchFieldUrl,
+    kDatabaseSearchMatchFieldTag,
+    kDatabaseSearchMatchFieldCustomField,
+    kDatabaseSearchMatchFieldNotes,
+    kDatabaseSearchMatchFieldPassword,
+    kDatabaseSearchMatchFieldAttachment,
+    kDatabaseSearchMatchFieldPath,
+} DatabaseSearchMatchField;
 
 NS_ASSUME_NONNULL_BEGIN
 
 @interface DatabaseModel : NSObject
 
 @property (nonatomic, readonly) Node* rootNode;
+@property (readonly) BOOL isKeePass2Format;
 
 @property (nonatomic, readonly) DatabaseFormat originalFormat;
 @property (nonatomic, readonly) Node* effectiveRootGroup;
@@ -22,7 +37,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 @property (nonatomic) NSDictionary<NSUUID*, NSDate*> *deletedObjects;
 
-@property (readonly) NSArray<DatabaseAttachment*> *attachmentPool;
+@property (readonly) NSArray<KeePassAttachmentAbstractionLayer*> *attachmentPool;
 @property (readonly) NSDictionary<NSUUID*, NodeIcon*>* iconPool;
 
 - (instancetype)init;
@@ -56,11 +71,14 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void)rebuildFastMaps; 
 
+- (BOOL)isInRecycled:(NSUUID *)itemId;
+- (void)emptyRecycleBin;
+
 
 
 - (void)changeKeePassFormat:(DatabaseFormat)newFormat;
 
-- (void)performPreSerializationTidy;
+- (void)preSerializationPerformMaintenanceOrMigrations;
 - (NSSet<Node*>*)getMinimalNodeSet:items;
 
 - (BOOL)setItemTitle:(Node*)item title:(NSString*)title;
@@ -131,22 +149,33 @@ NS_ASSUME_NONNULL_BEGIN
 - (NSString *)getSearchParentGroupPathDisplayString:(Node *)vm;
 - (NSString *)getSearchParentGroupPathDisplayString:(Node *)vm prependSlash:(BOOL)prependSlash;
 
-- (BOOL)isTitleMatches:(NSString*)searchText node:(Node*)node dereference:(BOOL)dereference checkPinYin:(BOOL)checkPinYin;
-- (BOOL)isUsernameMatches:(NSString*)searchText node:(Node*)node dereference:(BOOL)dereference checkPinYin:(BOOL)checkPinYin;
-- (BOOL)isPasswordMatches:(NSString*)searchText node:(Node*)node dereference:(BOOL)dereference checkPinYin:(BOOL)checkPinYin;
-- (BOOL)isUrlMatches:(NSString*)searchText node:(Node*)node dereference:(BOOL)dereference checkPinYin:(BOOL)checkPinYin;
-- (BOOL)isTagsMatches:(NSString*)searchText node:(Node*)node checkPinYin:(BOOL)checkPinYin;
-- (BOOL)isAllFieldsMatches:(NSString*)searchText node:(Node*)node dereference:(BOOL)dereference checkPinYin:(BOOL)checkPinYin;
+- (StringSearchMatchType)isTitleMatches:(NSString*)searchText node:(Node*)node dereference:(BOOL)dereference checkPinYin:(BOOL)checkPinYin;
+- (StringSearchMatchType)isUsernameMatches:(NSString*)searchText node:(Node*)node dereference:(BOOL)dereference checkPinYin:(BOOL)checkPinYin;
+- (StringSearchMatchType)isPasswordMatches:(NSString*)searchText node:(Node*)node dereference:(BOOL)dereference checkPinYin:(BOOL)checkPinYin;
+- (StringSearchMatchType)isUrlMatches:(NSString*)searchText node:(Node*)node dereference:(BOOL)dereference checkPinYin:(BOOL)checkPinYin includeAssociatedDomains:(BOOL)includeAssociatedDomains;
+- (StringSearchMatchType)isTagsMatches:(NSString*)searchText node:(Node*)node checkPinYin:(BOOL)checkPinYin;
+- (StringSearchMatchType)isAllFieldsMatches:(NSString*)searchText node:(Node*)node dereference:(BOOL)dereference checkPinYin:(BOOL)checkPinYin includeAssociatedDomains:(BOOL)includeAssociatedDomains;
+- (StringSearchMatchType)isAllFieldsMatches:(NSString*)searchText node:(Node*)node dereference:(BOOL)dereference checkPinYin:(BOOL)checkPinYin includeAssociatedDomains:(BOOL)includeAssociatedDomains matchField:(DatabaseSearchMatchField* _Nullable)matchField;
+
 - (NSArray<NSString*>*)getSearchTerms:(NSString *)searchText;
 
 - (NSString*)getHtmlPrintString:(NSString*)databaseName;
+- (NSString*)getHtmlPrintStringForItems:(NSString*)databaseName items:(NSArray<Node*>*)items;
 
 
 
+@property (nonatomic, readonly, nonnull) NSArray<Node*> *expirySetEntries;
 @property (nonatomic, readonly, nonnull) NSArray<Node*> *expiredEntries;
 @property (nonatomic, readonly, nonnull) NSArray<Node*> *nearlyExpiredEntries;
 @property (nonatomic, readonly, nonnull) NSArray<Node*> *totpEntries;
 @property (nonatomic, readonly, nonnull) NSArray<Node*> *attachmentEntries;
+@property (nonatomic, readonly, nonnull) NSArray<Node*> *keeAgentSSHKeyEntries;
+@property (nonatomic, readonly, nonnull) NSArray<Node*> *passkeyEntries;
+
+@property (nonatomic, readonly, nonnull) NSArray<Node*> *excludedFromAuditItems;
+- (BOOL)isExcludedFromAudit:(NSUUID*)nodeId;
+- (BOOL)isCreditCard:(NSUUID *)nodeID;
+- (void)excludeFromAudit:(NSUUID*)nodeId exclude:(BOOL)exclude;
 
 @property (nonatomic, readonly, nonnull) NSArray<Node*> *allSearchable;
 @property (nonatomic, readonly, nonnull) NSArray<Node*> *allSearchableTrueRoot;
@@ -164,19 +193,19 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, readonly, copy) NSSet<NSString*>* _Nonnull usernameSet;
 @property (nonatomic, readonly, copy) NSSet<NSString*>* _Nonnull emailSet;
 @property (nonatomic, readonly, copy) NSSet<NSString*>* _Nonnull urlSet;
-@property (nonatomic, readonly, copy) NSSet<NSString*>* _Nonnull passwordSet;
+
 @property (nonatomic, readonly, copy) NSSet<NSString*>* _Nonnull customFieldKeySet;
 @property (nonatomic, readonly, copy) NSSet<NSString*>* _Nonnull tagSet;
 
-@property (nonatomic, readonly) NSString* _Nonnull mostPopularUsername;
+@property (nonatomic, readonly, nullable) NSString* mostPopularUsername;
 @property (nonatomic, readonly) NSArray<NSString*>* mostPopularUsernames;
 
-@property (nonatomic, readonly) NSString* _Nonnull mostPopularEmail;
+@property (nonatomic, readonly, nullable) NSString* mostPopularEmail;
 @property (nonatomic, readonly) NSArray<NSString*>* mostPopularEmails;
 @property (nonatomic, readonly) NSArray<NSString*>* mostPopularTags;
 
-@property (nonatomic, readonly) NSInteger numberOfRecords;
-@property (nonatomic, readonly) NSInteger numberOfGroups;
+@property (nonatomic, readonly) NSInteger fastEntryTotalCount;
+@property (nonatomic, readonly) NSInteger fastGroupTotalCount;
 
 @property (readonly) BOOL isUsingKeePassGroupTitleRules;
 
@@ -187,10 +216,21 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (Node*_Nullable)getItemById:(NSUUID*)uuid;
 - (NSArray<Node*>*)getItemsById:(NSArray<NSUUID*>*)ids;
+
 - (NSArray<NSUUID*>*)getItemIdsForTag:(NSString*)tag;
 
 - (BOOL)addTag:(NSUUID*)itemId tag:(NSString*)tag;
 - (BOOL)removeTag:(NSUUID*)itemId tag:(NSString*)tag;
+- (void)deleteTag:(NSString*)tag;
+- (void)renameTag:(NSString*)from to:(NSString*)to;
+- (BOOL)addTagToItems:(NSArray<NSUUID *> *)ids tag:(NSString *)tag;
+- (BOOL)removeTagFromItems:(NSArray<NSUUID *> *)ids tag:(NSString *)tag;
+
+- (BOOL)mergeNode:(Node *)source
+         intoNode:(Node *)destination
+mergeLocationChangedDate:(BOOL)mergeLocationChangedDate
+   includeHistory:(BOOL)includeHistory
+    allowOverwrite:(BOOL)allowOverwrite;
 
 - (BOOL)preOrderTraverse:(BOOL (^)(Node* node))function; 
 

@@ -14,12 +14,19 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface FontManager : NSObject
 
+@property (class, readonly) FontManager* shared;
+
 + (instancetype)sharedInstance;
+
+#if !TARGET_OS_WATCH
 
 @property (readonly) UIFont* easyReadFont;
 @property (readonly) UIFont* easyReadBoldFont;
 @property (readonly) UIFont* easyReadFontForTotp;
 @property (readonly) UIFont* easyReadFontForLargeTextView;
+
+#endif
+
 @property (readonly) UIFont* regularFont;
 
 @property (readonly) UIFont* title1Font;
@@ -27,6 +34,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (readonly) UIFont* title3Font;
 
 @property (readonly) UIFont* headlineFont;
+@property (readonly) UIFont* subheadlineFont;
 @property (readonly) UIFont* headlineItalicFont;
 @property (readonly) UIFont* italicFont;
 @property (readonly) UIFont* caption1Font;

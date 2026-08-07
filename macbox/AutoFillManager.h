@@ -16,20 +16,20 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (instancetype)sharedInstance;
 
-@property (readonly) BOOL isPossible;
 @property (readonly) BOOL isOnForStrongbox;
 
-- (void)updateAutoFillQuickTypeDatabase:(Model*)database
-                           databaseUuid:(NSString*)databaseUuid
-                          displayFormat:(QuickTypeAutoFillDisplayFormat)displayFormat
-                        alternativeUrls:(BOOL)alternativeUrls
-                           customFields:(BOOL)customFields
-                                  notes:(BOOL)notes
-           concealedCustomFieldsAsCreds:(BOOL)concealedCustomFieldsAsCreds
-         unConcealedCustomFieldsAsCreds:(BOOL)unConcealedCustomFieldsAsCreds
-                               nickName:(NSString*)nickName;
+- (void)updateAutoFillQuickTypeDatabase:(Model *)database clearFirst:(BOOL)clearFirst;
 
 - (void)clearAutoFillQuickTypeDatabase;
+
+- (void)refreshQuickTypeSuggestionForEntry:(Node*)node database:(Model*)database previousSuggestionText:(NSString* _Nullable)previousSuggestionText;
+
+- (void)removeItemsFromQuickType:(const NSArray<Node*>*)items database:(Model*)database;
+
+- (NSString*)getQuickTypeUserText:(Model*)database
+                             node:(Node*)node
+                  usedEmailAsUser:(BOOL*_Nullable)usedEmailAsUser
+                         fieldKey:(NSString*_Nullable)fieldKey;
 
 @end
 

@@ -14,8 +14,9 @@
 #import "Alerts.h"
 #import "DatabasePreferences.h"
 #import "NSArray+Extensions.h"
+#import "Strongbox-Swift.h"
 
-#ifndef NO_SFTP_WEBDAV_SP
+#ifndef NO_NETWORKING
 #import "WebDAVStorageProvider.h"
 #endif
 
@@ -146,18 +147,17 @@
 }
 
 - (void)editConnection:(WebDAVSessionConfiguration*)existing {
-    WebDAVConfigurationViewController *vc = [[WebDAVConfigurationViewController alloc] init];
-    vc.initialConfiguration = existing;
-    
-    vc.onDone = ^(BOOL success, WebDAVSessionConfiguration * _Nullable configuration) {
+    UIViewController *vc = [SwiftUIViewFactory makeWebDAVConfigurationViewWithInitialConfiguration:existing
+                                                                                  parentController:self
+                                                                                        completion:^(BOOL success, WebDAVSessionConfiguration * _Nullable configuration) {
         [self dismissViewControllerAnimated:YES completion:^{
-            if(success) {
+            if (success) {
                 [WebDAVConnections.sharedInstance addOrUpdate:configuration];
                 [self refresh];
             }
         }];
-    };
-
+    }];
+    
     vc.modalPresentationStyle = UIModalPresentationFormSheet;
     [self presentViewController:vc animated:YES completion:nil];
 }
@@ -222,9 +222,24 @@
     
     dupe.name = newTitle;
     dupe.host = connection.host;
-    dupe.username = connection.username;
-    dupe.password = connection.password;
     dupe.allowUntrustedCertificate = connection.allowUntrustedCertificate;
+    
+    for (WebDAVSessionConfigurationCredential* existing in dupe.credentials) {
+        [dupe removeCredentialByIdentifier:existing.identifier];
+    }
+
+    for (WebDAVSessionConfigurationCredential* credential in connection.credentials) {
+        WebDAVSessionConfigurationCredential* cloned = [[WebDAVSessionConfigurationCredential alloc] init];
+        cloned.username = credential.username;
+        cloned.password = credential.password;
+        BOOL isSelected = [credential.identifier isEqualToString:connection.selectedCredentialIdentifier];
+        [dupe upsertCredential:cloned setAsSelected:isSelected];
+    }
+
+    if (connection.credentials.count == 0) {
+        WebDAVSessionConfigurationCredential* fallback = [[WebDAVSessionConfigurationCredential alloc] init];
+        [dupe upsertCredential:fallback setAsSelected:YES];
+    }
     
     [WebDAVConnections.sharedInstance addOrUpdate:dupe];
     [self refresh];
@@ -236,7 +251,7 @@
     }];
     
     NSArray<DatabasePreferences*>* using = [possibles filter:^BOOL(DatabasePreferences * _Nonnull obj) {
-#ifndef NO_SFTP_WEBDAV_SP
+#ifndef NO_NETWORKING
         WebDAVSessionConfiguration* config = [WebDAVStorageProvider.sharedInstance getConnectionFromDatabase:obj];
         return ( config && [config.identifier isEqualToString:connection.identifier] );
 #else

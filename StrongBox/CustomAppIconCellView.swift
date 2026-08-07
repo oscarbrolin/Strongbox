@@ -1,5 +1,5 @@
 //
-//  CustomAppIconCellViewCollectionViewCell.swift
+//  CustomAppIconCellView.swift
 //  Strongbox
 //
 //  Created by Strongbox on 16/02/2022.

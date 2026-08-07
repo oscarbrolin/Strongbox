@@ -7,14 +7,14 @@
 //
 
 #import "GenericOnboardingViewController.h"
-#import "RoundedBlueButton.h"
+#import "FontManager.h"
 
 @interface GenericOnboardingViewController ()
 
 @property (weak, nonatomic) IBOutlet UIImageView *imageView;
 @property (weak, nonatomic) IBOutlet UILabel *labelTitle;
 @property (weak, nonatomic) IBOutlet UILabel *labelMessage;
-@property (weak, nonatomic) IBOutlet RoundedBlueButton *labelButton1;
+
 @property (weak, nonatomic) IBOutlet RoundedBlueButton *labelButton2;
 @property (weak, nonatomic) IBOutlet RoundedBlueButton *labelButton3;
 
@@ -30,7 +30,6 @@
 
 @implementation GenericOnboardingViewController
 
-
 - (void)viewDidLoad {
     [super viewDidLoad];
 
@@ -40,6 +39,15 @@
     }
     
     self.imageView.image = self.image;
+    
+    if (@available(iOS 17.0, *)) {
+        if ( self.symbolEffect ) {
+            [self.imageView addSymbolEffect:self.symbolEffect
+                                    options:[NSSymbolEffectOptions optionsWithRepeating]
+                                   animated:YES];
+        }
+    }
+    
     self.labelTitle.text = self.header;
     self.labelMessage.text = self.message;
     [self.labelButton1 setTitle:self.button1 forState:UIControlStateNormal];

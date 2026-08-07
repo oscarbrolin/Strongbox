@@ -12,14 +12,12 @@
 #import "DatabasePreferences.h"
 #import "Model.h"
 #import "AppPreferences.h"
+#import "Strongbox-Swift.h"
 
-@interface BrowsePreferencesTableViewController () <UIAdaptivePresentationControllerDelegate> // Detect iOS13 swipe down dismiss
+@interface BrowsePreferencesTableViewController () <UIAdaptivePresentationControllerDelegate> 
 
-@property (weak, nonatomic) IBOutlet UISwitch *switchStartWithSearch;
-@property (weak, nonatomic) IBOutlet UISwitch *switchShowTotpBrowseView;
 @property (weak, nonatomic) IBOutlet UISwitch *switchShowRecycleBinInBrowse;
 @property (weak, nonatomic) IBOutlet UISwitch *showChildCountOnFolder;
-@property (weak, nonatomic) IBOutlet UISwitch *showFlagsInBrowse;
 @property (weak, nonatomic) IBOutlet UISwitch *switchShowIcons;
 
 @property (weak, nonatomic) IBOutlet UISwitch *switchShowRecycleBinInSearch;
@@ -30,17 +28,9 @@
 @property (weak, nonatomic) IBOutlet UITableViewCell *cellShowBackupFolder;
 @property (weak, nonatomic) IBOutlet UITableViewCell *cellShowRecycleBin;
 @property (weak, nonatomic) IBOutlet UITableViewCell *cellShowRecycleBinInSearch;
-@property (weak, nonatomic) IBOutlet UITableViewCell *cellViewAs;
-@property (weak, nonatomic) IBOutlet UILabel *labelViewAs;
 
 @property (weak, nonatomic) IBOutlet UITableViewCell *cellSingleTapAction;
-@property (weak, nonatomic) IBOutlet UITableViewCell *cellDoubleTapAction;
-@property (weak, nonatomic) IBOutlet UITableViewCell *cellTripleTapAction;
-@property (weak, nonatomic) IBOutlet UITableViewCell *cellLongPressAction;
 @property (weak, nonatomic) IBOutlet UILabel *labelSingleTapAction;
-@property (weak, nonatomic) IBOutlet UILabel *labelDoubleTapAction;
-@property (weak, nonatomic) IBOutlet UILabel *labelTripleTapAction;
-@property (weak, nonatomic) IBOutlet UILabel *labelLongPressAction;
 
 @property (weak, nonatomic) IBOutlet UISwitch *swtichShowExpiredInBrowse;
 @property (weak, nonatomic) IBOutlet UISwitch *switchShowExpiredInSearch;
@@ -52,26 +42,32 @@
 @property (weak, nonatomic) IBOutlet UITableViewCell *cellIconSet;
 @property (weak, nonatomic) IBOutlet UILabel *labelIconSet;
 
-@property (weak, nonatomic) IBOutlet UISwitch *switchShowTotp;
-@property (weak, nonatomic) IBOutlet UISwitch *switchAutoFavIcon;
-@property (weak, nonatomic) IBOutlet UISwitch *switchShowPasswordOnDetails;
-@property (weak, nonatomic) IBOutlet UISwitch *switchShowEmptyFields;
-@property (weak, nonatomic) IBOutlet UISwitch *easyReadFontForAll;
-@property (weak, nonatomic) IBOutlet UISwitch *switchShowTotpCustom;
-@property (weak, nonatomic) IBOutlet UISwitch *switchColorizePasswords;
-@property (weak, nonatomic) IBOutlet UISwitch *switchColorizeProtectedCustomFields;
-@property (weak, nonatomic) IBOutlet UITableViewCell *cellFetchFavIcon;
+@property (weak, nonatomic) IBOutlet UISwitch *switchStartWithLastViewedEntry;
 
-@property (weak, nonatomic) IBOutlet UISwitch *switchSortCustomFields;
-
+@property (readonly) DatabaseFormat format;
+@property (readonly) DatabasePreferences* databaseMetaData;
 
 @end
 
 @implementation BrowsePreferencesTableViewController
 
++ (instancetype)fromStoryboard {
+    UIStoryboard *sb = [UIStoryboard storyboardWithName:@"CustomizeView" bundle:nil];
+    BrowsePreferencesTableViewController* ret = [sb instantiateInitialViewController];
+    return ret;
+}
+
+- (DatabaseFormat)format {
+    return self.model.originalFormat;
+}
+
+- (DatabasePreferences *)databaseMetaData {
+    return self.model.metadata;
+}
+
 - (void)viewDidLoad {
     [super viewDidLoad];
-
+    
     self.navigationController.presentationController.delegate = self;
     
     [self bindPreferences];
@@ -84,34 +80,19 @@
     [self cell:self.cellShowRecycleBin setHidden:self.format != kKeePass && self.format != kKeePass4];
     [self cell:self.cellShowRecycleBinInSearch setHidden:self.format != kKeePass && self.format != kKeePass4];
     [self cell:self.cellIconSet setHidden:self.format == kPasswordSafe];
-    
-    if (@available(iOS 13, *)) {
-        
-
-        [self cell:self.cellDoubleTapAction setHidden:YES];
-        [self cell:self.cellTripleTapAction setHidden:YES];
-        [self cell:self.cellLongPressAction setHidden:YES];
-    }
-    
-    if ( AppPreferences.sharedInstance.disableFavIconFeature ) {
-        [self cell:self.cellFetchFavIcon setHidden:YES];
-    }
-    
+            
     [self reloadDataAnimated:NO];
 }
 
 - (IBAction)onGenericPreferencesChanged:(id)sender {
-    NSLog(@"Generic Preference Changed: [%@]", sender);
-    
     self.databaseMetaData.hideIconInBrowse = !self.switchShowIcons.on;
     self.databaseMetaData.showChildCountOnFolderInBrowse = self.showChildCountOnFolder.on;
-    self.databaseMetaData.showFlagsInBrowse = self.showFlagsInBrowse.on;
-    self.databaseMetaData.immediateSearchOnBrowse = self.switchStartWithSearch.on;
+    
+    self.databaseMetaData.showLastViewedEntryOnUnlock = self.switchStartWithLastViewedEntry.on;
     
     self.databaseMetaData.showKeePass1BackupGroup = self.switchShowKeePass1BackupFolder.on;
     self.databaseMetaData.showRecycleBinInSearchResults = self.switchShowRecycleBinInSearch.on;
 
-    self.databaseMetaData.hideTotpInBrowse = !self.switchShowTotpBrowseView.on;
     self.databaseMetaData.doNotShowRecycleBinInBrowse = !self.switchShowRecycleBinInBrowse.on;
     
     self.databaseMetaData.showExpiredInBrowse = self.swtichShowExpiredInBrowse.on;
@@ -120,19 +101,7 @@
     self.databaseMetaData.showQuickViewNearlyExpired = self.switchShowNearlyExpired.on;
     self.databaseMetaData.showQuickViewFavourites = self.switchShowFavourites.on;
     self.databaseMetaData.showQuickViewExpired = self.switchShowSpecialExpired.on;
-    
-    NSLog(@"Item Details Preferences Changed: [%@]", sender);
-    
-    self.databaseMetaData.tryDownloadFavIconForNewRecord = self.switchAutoFavIcon.on;
-    self.databaseMetaData.showPasswordByDefaultOnEditScreen = self.switchShowPasswordOnDetails.on;
-    self.databaseMetaData.hideTotp = !self.switchShowTotp.on;
-    self.databaseMetaData.showEmptyFieldsInDetailsView = self.switchShowEmptyFields.on;
-    self.databaseMetaData.easyReadFontForAll = self.easyReadFontForAll.on;
-    self.databaseMetaData.hideTotpCustomFieldsInViewMode = !self.switchShowTotpCustom.on;
-    self.databaseMetaData.colorizePasswords = self.switchColorizePasswords.on;
-    self.databaseMetaData.colorizeProtectedCustomFields = self.switchColorizeProtectedCustomFields.on;
-    self.databaseMetaData.customSortOrderForFields = !self.switchSortCustomFields.on;
-
+        
     [self bindPreferences];
 
     [self notifyDatabaseViewPreferencesChanged];
@@ -145,9 +114,9 @@
 - (void)bindPreferences {
     self.switchShowIcons.on = !self.databaseMetaData.hideIconInBrowse;
     self.showChildCountOnFolder.on = self.databaseMetaData.showChildCountOnFolderInBrowse;
-    self.showFlagsInBrowse.on = self.databaseMetaData.showFlagsInBrowse;
-    self.switchStartWithSearch.on = self.databaseMetaData.immediateSearchOnBrowse;
-        
+    
+    self.switchStartWithLastViewedEntry.on = self.databaseMetaData.showLastViewedEntryOnUnlock;
+    
     self.switchShowKeePass1BackupFolder.on = self.databaseMetaData.showKeePass1BackupGroup;
     self.switchShowRecycleBinInSearch.on = self.databaseMetaData.showRecycleBinInSearchResults;
     
@@ -155,10 +124,7 @@
     
     self.labelBrowseItemSubtitle.text = [self getBrowseItemSubtitleFieldName:effective];
     
-    self.switchShowTotpBrowseView.on = !self.databaseMetaData.hideTotpInBrowse;
     self.switchShowRecycleBinInBrowse.on = !self.databaseMetaData.doNotShowRecycleBinInBrowse;
-
-    self.labelViewAs.text = [BrowsePreferencesTableViewController getBrowseViewTypeName:self.databaseMetaData.browseViewType];
     
     
     
@@ -168,9 +134,6 @@
     
     
     self.labelSingleTapAction.text = [self getTapActionString:(self.databaseMetaData.tapAction)];
-    self.labelDoubleTapAction.text = [self getTapActionString:(self.databaseMetaData.doubleTapAction)];
-    self.labelTripleTapAction.text = [self getTapActionString:(self.databaseMetaData.tripleTapAction)];
-    self.labelLongPressAction.text = [self getTapActionString:(self.databaseMetaData.longPressTapAction)];
     
     
     
@@ -179,17 +142,6 @@
     self.switchShowSpecialExpired.on = self.databaseMetaData.showQuickViewExpired;
     
     self.labelIconSet.text = getIconSetName(self.databaseMetaData.keePassIconSet);
-    
-    self.switchAutoFavIcon.on = self.databaseMetaData.tryDownloadFavIconForNewRecord;
-    self.switchShowPasswordOnDetails.on = self.databaseMetaData.showPasswordByDefaultOnEditScreen;
-    self.switchShowTotp.on = !self.databaseMetaData.hideTotp;
-    self.switchShowEmptyFields.on = self.databaseMetaData.showEmptyFieldsInDetailsView;
-    self.easyReadFontForAll.on = self.databaseMetaData.easyReadFontForAll;
-    self.switchShowTotpCustom.on = !self.databaseMetaData.hideTotpCustomFieldsInViewMode;
-    
-    self.switchColorizePasswords.on = self.databaseMetaData.colorizePasswords;
-    self.switchColorizeProtectedCustomFields.on = self.databaseMetaData.colorizeProtectedCustomFields;
-    self.switchSortCustomFields.on = !self.databaseMetaData.customSortOrderForFields;
 }
 
 - (NSString*)getTapActionString:(BrowseTapAction)action {
@@ -219,7 +171,7 @@
             return NSLocalizedString(@"browse_prefs_tap_action_copy_copy_notes", @"Copy Notes");
             break;
         case kBrowseTapActionCopyTotp:
-            return NSLocalizedString(@"browse_prefs_tap_action_copy_copy_totp", @"Copy TOTP");
+            return NSLocalizedString(@"browse_prefs_tap_action_copy_copy_totp", @"Copy 2FA");
             break;
         case kBrowseTapActionEdit:
             return NSLocalizedString(@"browse_prefs_tap_action_edit", @"Edit Item");
@@ -236,16 +188,13 @@
     if (cell == self.cellBrowseItemSubtitle) {
         [self onChangeBrowseItemSubtitle];
     }
-    else if (cell == self.cellViewAs) {
-        [self onChangeViewType];
-    }
-    else if (cell == self.cellSingleTapAction || cell == self.cellDoubleTapAction || cell == self.cellTripleTapAction || cell == self.cellLongPressAction) {
-        [self onChangeTapAction:cell];
+    else if (cell == self.cellSingleTapAction ) {
+        [self onChangeSingleTapAction];
     }
     else if (cell == self.cellIconSet) {
         [self onChangeIconSet];
     }
-    
+
     [self.tableView deselectRowAtIndexPath:indexPath animated:YES];
 }
 
@@ -271,6 +220,10 @@
                completion:^(BOOL success, NSInteger selectedIdx) {
         if (success) {
            self.databaseMetaData.keePassIconSet = (KeePassIconSet)options[selectedIdx].integerValue;
+            
+            if ( self.databaseMetaData.appleWatchEnabled ) {
+                [WatchAppManager.shared expressUpdateEntriesWithModel:self.model];
+            }
         }
 
         [self bindPreferences];
@@ -278,7 +231,7 @@
     }];
 }
 
-- (void)onChangeTapAction:(UITableViewCell*)cell {
+- (void)onChangeSingleTapAction {
     NSArray<NSNumber*>* options = @[@(kBrowseTapActionNone),
                                     @(kBrowseTapActionOpenDetails),
                                     @(kBrowseTapActionEdit),
@@ -294,24 +247,8 @@
         return [self getTapActionString:(BrowseTapAction)obj.integerValue];
     }];
     
-    BrowseTapAction current;
-    NSString* title;
-    if(cell == self.cellSingleTapAction) {
-        current = self.databaseMetaData.tapAction;
-        title = NSLocalizedString(@"browse_prefs_single_tap_action", @"Single Tap Action");
-    }
-    else if(cell == self.cellDoubleTapAction) {
-        current = self.databaseMetaData.doubleTapAction;
-        title = NSLocalizedString(@"browse_prefs_double_tap_action", @"Double Tap Action");
-    }
-    else if(cell == self.cellTripleTapAction) {
-        current = self.databaseMetaData.tripleTapAction;
-        title = NSLocalizedString(@"browse_prefs_triple_tap_action", @"Triple Tap Action");
-    }
-    else {
-        current = self.databaseMetaData.longPressTapAction;
-        title = NSLocalizedString(@"browse_prefs_long_press_action", @"Long Press Action");
-    }
+    BrowseTapAction current = self.databaseMetaData.tapAction;
+    NSString* title = NSLocalizedString(@"browse_prefs_single_tap_action", @"Single Tap Action");
     
     NSInteger currentIndex = [options indexOfObjectPassingTest:^BOOL(NSNumber * _Nonnull obj, NSUInteger idx, BOOL * _Nonnull stop) {
         return obj.integerValue == current;
@@ -322,72 +259,16 @@
              currentIndex:currentIndex
                completion:^(BOOL success, NSInteger selectedIdx) {
                    if (success) {
-                       if(cell == self.cellSingleTapAction) {
-                           self.databaseMetaData.tapAction = (BrowseTapAction)options[selectedIdx].integerValue;
-                       }
-                       else if(cell == self.cellDoubleTapAction) {
-                           self.databaseMetaData.doubleTapAction = (BrowseTapAction)options[selectedIdx].integerValue;
-                       }
-                       else if(cell == self.cellTripleTapAction) {
-                           self.databaseMetaData.tripleTapAction = (BrowseTapAction)options[selectedIdx].integerValue;
-                       }
-                       else {
-                           self.databaseMetaData.longPressTapAction = (BrowseTapAction)options[selectedIdx].integerValue;
-                       }
+                       self.databaseMetaData.tapAction = (BrowseTapAction)options[selectedIdx].integerValue;
                    }
                    
                    [self bindPreferences];
                    [self notifyDatabaseViewPreferencesChanged];
                }];
-}
-
-- (void)onChangeViewType {
-    NSArray<NSNumber*>* options = @[@(kBrowseViewTypeHierarchy),
-                                    @(kBrowseViewTypeList),
-                                    @(kBrowseViewTypeTotpList)];
-    
-    NSArray* optionStrings = [options map:^id _Nonnull(NSNumber * _Nonnull obj, NSUInteger idx) {
-        return [BrowsePreferencesTableViewController getBrowseViewTypeName:(BrowseViewType)obj.integerValue];
-    }];
-    
-    BrowseViewType current = self.databaseMetaData.browseViewType;
-    
-    NSInteger currentIndex = [options indexOfObjectPassingTest:^BOOL(NSNumber * _Nonnull obj, NSUInteger idx, BOOL * _Nonnull stop) {
-        return obj.integerValue == current;
-    }];
-    
-    [self promptForString:NSLocalizedString(@"browse_prefs_view_as", @"View As")
-                  options:optionStrings
-             currentIndex:currentIndex
-               completion:^(BOOL success, NSInteger selectedIdx) {
-                   if (success) {
-                       self.databaseMetaData.browseViewType = (BrowseViewType)options[selectedIdx].integerValue;
-                   }
-                   
-                   [self bindPreferences];
-                   [self notifyDatabaseViewPreferencesChanged];
-               }];
-}
-
-+ (NSString*)getBrowseViewTypeName:(BrowseViewType)field {
-    switch (field) {
-        case kBrowseViewTypeHierarchy:
-            return NSLocalizedString(@"browse_prefs_view_as_folders", @"Folder Hierarchy");
-            break;
-        case kBrowseViewTypeList:
-            return NSLocalizedString(@"browse_prefs_view_as_flat_list", @"Flat List");
-            break;
-        case kBrowseViewTypeTotpList:
-            return NSLocalizedString(@"browse_prefs_view_as_totp_list", @"TOTP List");
-            break;
-        default:
-            return @"None";
-            break;
-    }
 }
 
 - (void)onChangeBrowseItemSubtitle {
-    NSArray<NSNumber*>* options = self.format != kPasswordSafe ?
+    NSArray<NSNumber*>* options = self.format == kKeePass1 ?
         @[@(kBrowseItemSubtitleNoField),
           @(kBrowseItemSubtitleUsername),
           @(kBrowseItemSubtitlePassword),

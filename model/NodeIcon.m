@@ -9,11 +9,22 @@
 #import "NodeIcon.h"
 #import "NSData+Extensions.h"
 #import "NSDate+Extensions.h"
+#import "Utils.h"
+
+@interface NodeIcon ()
+
+@property (nullable) IMAGE_TYPE_PTR customIconCache;
+
+@end
 
 @implementation NodeIcon
 
-#if !TARGET_OS_IPHONE
++ (NodeIcon *)defaultNodeIcon {
+    return [NodeIcon withPreset:0];
+}
+
 + (instancetype)withCustomImage:(IMAGE_TYPE_PTR)image {
+#if !TARGET_OS_IOS && !TARGET_OS_WATCH
     CGImageRef cgRef = [image CGImageForProposedRect:NULL context:nil hints:nil];
 
     if (cgRef) { 
@@ -23,8 +34,10 @@
     }
     
     return nil;
-}
+#else
+    return [NodeIcon withCustom:UIImagePNGRepresentation(image)]; 
 #endif
+}
 
 + (instancetype)withCustom:(NSData *)custom {
     return [NodeIcon withCustom:custom name:nil modified:nil];
@@ -69,7 +82,7 @@
 }
 
 - (NSUInteger)estimatedStorageBytes {
-    return self.isCustom ? (NSUInteger)((double)self.custom.length * 0.75f) : 0UL; 
+    return self.isCustom ? (NSUInteger)((double)self.custom.length) : 0UL; 
 }
 
 - (BOOL)isCustom {
@@ -100,7 +113,7 @@
         
         BOOL modsEqual =  !((self.modified == nil && other.modified != nil) || (self.modified != nil && ![self.modified isEqualToDateWithinEpsilon:other.modified] ));
         
-        BOOL dataEqual = [self.custom.sha1.hexString isEqualToString:other.custom.sha1.hexString];
+        BOOL dataEqual = [self.custom.sha1.upperHexString isEqualToString:other.custom.sha1.upperHexString];
         
         if ( namesEqual && modsEqual && dataEqual ) {
             return YES;
@@ -125,6 +138,60 @@
 
 - (NSString *)description {
     return [NSString stringWithFormat:self.isCustom ? @"Custom [%@]" : @"Preset: %@", self.isCustom ? self.uuid : @(self.preset)];
+}
+
+- (IMAGE_TYPE_PTR)customIcon {
+    if ( self.customIconCache ) {
+        
+        return self.customIconCache;
+    }
+    else {
+        return [self loadCustomIcon];
+    }
+}
+
+- (NSUInteger)customIconWidth {
+    return self.isCustom ? self.customIcon.size.width : 0;
+}
+
+- (NSUInteger)customIconHeight {
+    return self.isCustom ? self.customIcon.size.width : 0;
+}
+
+- (IMAGE_TYPE_PTR)loadCustomIcon {  
+    @try {
+        if ( !self.isCustom || self.custom == nil ) {
+            return nil;
+        }
+        
+        
+        
+#if TARGET_OS_IOS || TARGET_OS_WATCH
+        IMAGE_TYPE_PTR img = [UIImage imageWithData:self.custom];
+#else
+        IMAGE_TYPE_PTR img = [[NSImage alloc] initWithData:self.custom];
+#endif
+        
+        if(!img) {
+            return nil;
+        }
+        
+        IMAGE_TYPE_PTR image;
+        
+        image = image ? image : img;
+        
+        if ( image ) {
+            self.customIconCache = image;
+        }
+        else {
+            slog(@"WARNWARN: Couldn't Load Image!");
+        }
+        
+        return image;
+    } @catch (NSException *exception) {
+        slog(@"Exception in getCustomIcon: [%@]", exception);
+        return nil;
+    } @finally { }
 }
 
 @end

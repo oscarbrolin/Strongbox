@@ -9,6 +9,12 @@
 #import "DatabasePreferences.h"
 #import "SafesList.h"
 #import "NSArray+Extensions.h"
+#import "BrowseSortConfiguration.h"
+#import "NSData+Extensions.h"
+
+#ifndef IS_APP_EXTENSION
+#import "DatabaseNuker.h"
+#endif
 
 @interface DatabasePreferences ()
 
@@ -71,9 +77,9 @@
 }
 
 - (instancetype)initAsTemplateDummyWithNickName:(NSString *)nickName
-                              storageProvider:(StorageProvider)storageProvider
-                                     fileName:(NSString *)fileName
-                               fileIdentifier:(NSString *)fileIdentifier  {
+                                storageProvider:(StorageProvider)storageProvider
+                                       fileName:(NSString *)fileName
+                                 fileIdentifier:(NSString *)fileIdentifier  {
     self = [super init];
     if (self) {
         _templateDummy = [[SafeMetaData alloc] initWithNickName:nickName storageProvider:storageProvider fileName:fileName fileIdentifier:fileIdentifier];
@@ -88,33 +94,53 @@
     return [SafesList trimDatabaseNickName:string];
 }
 
-+ (NSString *)suggestedDatabaseNameUsingDeviceName {
-    return [SafesList.sharedInstance getSuggestedDatabaseNameUsingDeviceName];
++ (NSString *)suggestedNewDatabaseName {
+    return [SafesList.sharedInstance getSuggestedNewDatabaseName];
 }
 
-- (void)add:(NSData *)initialCache initialCacheModDate:(NSDate *)initialCacheModDate {
+- (BOOL)add:(NSError * _Nullable __autoreleasing *)error {
+    return [self add:nil initialCacheModDate:nil error:error];
+}
+
+- (BOOL)add:(NSData *)initialCache initialCacheModDate:(NSDate *)initialCacheModDate error:(NSError * _Nullable __autoreleasing *)error {
     if ( self.templateDummy ) {
-        [SafesList.sharedInstance add:self.templateDummy initialCache:initialCache initialCacheModDate:initialCacheModDate];
+        return [SafesList.sharedInstance add:self.templateDummy initialCache:initialCache initialCacheModDate:initialCacheModDate error:error];
     }
     else {
-        NSLog(@"🔴 WARNWARN: Attempt to add an existing database to the list");
+        slog(@"🔴 WARNWARN: Attempt to add an existing database to the list");
+        return NO;
     }
 }
 
-- (void)addWithDuplicateCheck:(NSData *)initialCache initialCacheModDate:(NSDate *)initialCacheModDate {
+- (BOOL)addWithDuplicateCheck:(NSData *)initialCache initialCacheModDate:(NSDate *)initialCacheModDate error:(NSError **)error {
+    return [self addWithDuplicateCheck:initialCache initialCacheModDate:initialCacheModDate duplicateFound:nil error:error];
+}
+
+- (BOOL)addWithDuplicateCheck:(NSData *)initialCache initialCacheModDate:(NSDate *)initialCacheModDate duplicateFound:(BOOL *)duplicateFound error:(NSError **)error {
+    NSString* duplicateUuid = nil;
+    BOOL addedDatabase = NO;
+    
     if ( self.templateDummy ) {
-        NSString* newUuid = [SafesList.sharedInstance addWithDuplicateCheck:self.templateDummy
-                                                               initialCache:initialCache
-                                                        initialCacheModDate:initialCacheModDate];
+        addedDatabase = [SafesList.sharedInstance addWithDuplicateCheck:self.templateDummy
+                                                           initialCache:initialCache
+                                                    initialCacheModDate:initialCacheModDate
+                                                          duplicateUuid:&duplicateUuid
+                                                                  error:error];
         
-        if ( newUuid ) {
-            NSLog(@"✅ Duplicate found - changing UUID of this database to match...");
-            _uuid = newUuid;
+        if ( duplicateUuid ) {
+            slog(@"✅ Duplicate found - changing UUID of this database to match...");
+            _uuid = duplicateUuid;
         }
     }
     else {
-        NSLog(@"🔴 WARNWARN: Attempt to add an existing database to the list");
+        slog(@"🔴 WARNWARN: Attempt to add an existing database to the list");
     }
+    
+    if ( duplicateFound ) {
+        *duplicateFound = duplicateUuid != nil;
+    }
+    
+    return addedDatabase;
 }
 
 
@@ -143,22 +169,23 @@
     return [SafesList.sharedInstance isUnique:nickName];
 }
 
-+ (void)reloadIfChangedByOtherComponent {
-    [SafesList.sharedInstance reloadIfChangedByOtherComponent];
++ (BOOL)reloadIfChangedByOtherComponent {
+    return [SafesList.sharedInstance reloadIfChangedByOtherComponent];
 }
 
-+ (BOOL)isEditing:(DatabasePreferences *)database {
-    SafeMetaData* meta = database.metadata;
-    return [SafesList.sharedInstance isEditing:meta];
-}
-
-+ (void)setEditing:(DatabasePreferences *)database editing:(BOOL)editing {
-    SafeMetaData* meta = database.metadata;
-    [SafesList.sharedInstance setEditing:meta editing:editing];
-}
-
-+ (void)deleteAll {
-    [SafesList.sharedInstance deleteAll];
++ (void)nukeAllDeleteUnderlyingIfPossible {
+#ifndef IS_APP_EXTENSION
+    for ( DatabasePreferences* database in DatabasePreferences.allDatabases ) {
+        [DatabaseNuker nuke:database deleteUnderlyingIfSupported:YES completion:^(NSError * _Nullable error) {
+            if ( error ) {
+                slog(@"🔴 error nuking database = [%@]", error);
+            }
+            else {
+                slog(@"🟢 database nuked... [%@]", database);
+            }
+        }];
+    }
+#endif
 }
 
 - (NSDictionary *)getJsonSerializationDictionary {
@@ -256,6 +283,18 @@
 
 
 
+- (BOOL)hidden {
+    return self.metadata.hidden;
+}
+
+- (void)setHidden:(BOOL)hidden {
+    [self update:^(SafeMetaData * _Nonnull metadata) {
+        metadata.hidden = hidden;
+    }];
+}
+
+
+
 - (DuressAction)duressAction {
     return self.metadata.duressAction;
 }
@@ -330,6 +369,26 @@
     }];
 }
 
+- (NSString *)serializationPerf {
+    return self.metadata.serializationPerf;
+}
+
+- (void)setSerializationPerf:(NSString *)serializationPerf {
+    [self update:^(SafeMetaData * _Nonnull metadata) {
+        metadata.serializationPerf = serializationPerf;
+    }];
+}
+
+- (NSString *)lastKnownEncryptionSettings {
+    return self.metadata.lastKnownEncryptionSettings;
+}
+
+- (void)setLastKnownEncryptionSettings:(NSString *)lastKnownEncryptionSettings {
+    [self update:^(SafeMetaData * _Nonnull metadata) {
+        metadata.lastKnownEncryptionSettings = lastKnownEncryptionSettings;
+    }];
+}
+
 
 
 - (BOOL)readOnly {
@@ -368,78 +427,6 @@
 
 
 
-- (BrowseTapAction)doubleTapAction {
-    return self.metadata.doubleTapAction;
-}
-
-- (void)setDoubleTapAction:(BrowseTapAction)doubleTapAction {
-    [self update:^(SafeMetaData * _Nonnull metadata) {
-        metadata.doubleTapAction = doubleTapAction;
-    }];
-}
-
-
-
-- (BrowseTapAction)tripleTapAction {
-    return self.metadata.tripleTapAction;
-}
-
-- (void)setTripleTapAction:(BrowseTapAction)tripleTapAction {
-    [self update:^(SafeMetaData * _Nonnull metadata) {
-        metadata.tripleTapAction = tripleTapAction;
-    }];
-}
-
-
-
-- (BrowseTapAction)longPressTapAction {
-    return self.metadata.longPressTapAction;
-}
-
-- (void)setLongPressTapAction:(BrowseTapAction)longPressTapAction {
-    [self update:^(SafeMetaData * _Nonnull metadata) {
-        metadata.longPressTapAction = longPressTapAction;
-    }];
-}
-
-
-
-- (BrowseSortField)browseSortField {
-    return self.metadata.browseSortField;
-}
-
-- (void)setBrowseSortField:(BrowseSortField)browseSortField {
-    [self update:^(SafeMetaData * _Nonnull metadata) {
-        metadata.browseSortField = browseSortField;
-    }];
-}
-
-
-
-- (BOOL)browseSortOrderDescending {
-    return self.metadata.browseSortOrderDescending;
-}
-
-- (void)setBrowseSortOrderDescending:(BOOL)browseSortOrderDescending {
-    [self update:^(SafeMetaData * _Nonnull metadata) {
-        metadata.browseSortOrderDescending = browseSortOrderDescending;
-    }];
-}
-
-
-
-- (BOOL)browseSortFoldersSeparately {
-    return self.metadata.browseSortFoldersSeparately;
-}
-
-- (void)setBrowseSortFoldersSeparately:(BOOL)browseSortFoldersSeparately {
-    [self update:^(SafeMetaData * _Nonnull metadata) {
-        metadata.browseSortFoldersSeparately = browseSortFoldersSeparately;
-    }];
-}
-
-
-
 - (BrowseItemSubtitleField)browseItemSubtitleField {
     return self.metadata.browseItemSubtitleField;
 }
@@ -464,18 +451,6 @@
 
 
 
-- (BOOL)hideTotpInBrowse {
-    return self.metadata.hideTotpInBrowse;
-}
-
-- (void)setHideTotpInBrowse:(BOOL)hideTotpInBrowse {
-    [self update:^(SafeMetaData * _Nonnull metadata) {
-        metadata.hideTotpInBrowse = hideTotpInBrowse;
-    }];
-}
-
-
-
 - (BOOL)showKeePass1BackupGroup {
     return self.metadata.showKeePass1BackupGroup;
 }
@@ -495,18 +470,6 @@
 - (void)setShowChildCountOnFolderInBrowse:(BOOL)showChildCountOnFolderInBrowse {
     [self update:^(SafeMetaData * _Nonnull metadata) {
         metadata.showChildCountOnFolderInBrowse = showChildCountOnFolderInBrowse;
-    }];
-}
-
-
-
-- (BOOL)showFlagsInBrowse {
-    return self.metadata.showFlagsInBrowse;
-}
-
-- (void)setShowFlagsInBrowse:(BOOL)showFlagsInBrowse {
-    [self update:^(SafeMetaData * _Nonnull metadata) {
-        metadata.showFlagsInBrowse = showFlagsInBrowse;
     }];
 }
 
@@ -572,18 +535,6 @@
 
 
 
-- (BOOL)showEmptyFieldsInDetailsView {
-    return self.metadata.showEmptyFieldsInDetailsView;
-}
-
-- (void)setShowEmptyFieldsInDetailsView:(BOOL)showEmptyFieldsInDetailsView {
-    [self update:^(SafeMetaData * _Nonnull metadata) {
-        metadata.showEmptyFieldsInDetailsView = showEmptyFieldsInDetailsView;
-    }];
-}
-
-
-
 - (NSArray<NSNumber *> *)detailsViewCollapsedSections {
     return self.metadata.detailsViewCollapsedSections;
 }
@@ -603,18 +554,6 @@
 - (void)setEasyReadFontForAll:(BOOL)easyReadFontForAll {
     [self update:^(SafeMetaData * _Nonnull metadata) {
         metadata.easyReadFontForAll = easyReadFontForAll;
-    }];
-}
-
-
-
-- (BOOL)hideTotp {
-    return self.metadata.hideTotp;
-}
-
-- (void)setHideTotp:(BOOL)hideTotp {
-    [self update:^(SafeMetaData * _Nonnull metadata) {
-        metadata.hideTotp = hideTotp;
     }];
 }
 
@@ -692,12 +631,28 @@
 
 
 
-- (NSArray<NSString *> *)favourites {
-    return self.metadata.favourites;
+- (NSArray<NSString *> *)legacyFavouritesStore {
+    return self.metadata.legacyFavouritesStore;
 }
 
-- (void)setFavourites:(NSArray<NSString *> *)favourites {
-    self.metadata.favourites = favourites;
+- (void)setLegacyFavouritesStore:(NSArray<NSString *> *)legacyFavouritesStore {
+    self.metadata.legacyFavouritesStore = legacyFavouritesStore;
+}
+
+- (NSArray<NSString *> *)legacyWatchEntries {
+    return self.metadata.legacyWatchEntries;
+}
+
+- (void)setLegacyWatchEntries:(NSArray<NSString *> *)legacyWatchEntries {
+    self.metadata.legacyWatchEntries = legacyWatchEntries;
+}
+
+- (NSArray<NSString *> *)autoFillExcludedItems {
+    return self.metadata.autoFillExcludedItems;
+}
+
+- (void)setAutoFillExcludedItems:(NSArray<NSString *> *)autoFillExcludedItems {
+    self.metadata.autoFillExcludedItems = autoFillExcludedItems;
 }
 
 
@@ -736,18 +691,6 @@
 
 
 
-- (BOOL)hideTotpCustomFieldsInViewMode {
-    return self.metadata.hideTotpCustomFieldsInViewMode;
-}
-
-- (void)setHideTotpCustomFieldsInViewMode:(BOOL)hideTotpCustomFieldsInViewMode {
-    [self update:^(SafeMetaData * _Nonnull metadata) {
-        metadata.hideTotpCustomFieldsInViewMode = hideTotpCustomFieldsInViewMode;
-    }];
-}
-
-
-
 - (YubiKeyHardwareConfiguration *)contextAwareYubiKeyConfig {
     return self.metadata.contextAwareYubiKeyConfig;
 }
@@ -758,25 +701,35 @@
     }];
 }
 
-- (YubiKeyHardwareConfiguration *)yubiKeyConfig {
-    return self.metadata.yubiKeyConfig;
+- (YubiKeyHardwareConfiguration *)nextGenPrimaryYubiKeyConfig {
+    return self.metadata.nextGenPrimaryYubiKeyConfig;
 }
 
-- (void)setYubiKeyConfig:(YubiKeyHardwareConfiguration *)yubiKeyConfig {
+- (void)setNextGenPrimaryYubiKeyConfig:(YubiKeyHardwareConfiguration *)nextGenPrimaryYubiKeyConfig {
     [self update:^(SafeMetaData * _Nonnull metadata) {
-        metadata.yubiKeyConfig = yubiKeyConfig;
+        metadata.nextGenPrimaryYubiKeyConfig = nextGenPrimaryYubiKeyConfig;
     }];
 }
 
-- (YubiKeyHardwareConfiguration *)autoFillYubiKeyConfig {
-    return self.metadata.autoFillYubiKeyConfig;
-}
 
-- (void)setAutoFillYubiKeyConfig:(YubiKeyHardwareConfiguration *)autoFillYubiKeyConfig {
-    [self update:^(SafeMetaData * _Nonnull metadata) {
-        metadata.autoFillYubiKeyConfig = autoFillYubiKeyConfig;
-    }];
-}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -799,18 +752,6 @@
 - (void)setColorizePasswords:(BOOL)colorizePasswords {
     [self update:^(SafeMetaData * _Nonnull metadata) {
         metadata.colorizePasswords = colorizePasswords;
-    }];
-}
-
-
-
-- (BOOL)colorizeProtectedCustomFields {
-    return self.metadata.colorizeProtectedCustomFields;
-}
-
-- (void)setColorizeProtectedCustomFields:(BOOL)colorizeProtectedCustomFields {
-    [self update:^(SafeMetaData * _Nonnull metadata) {
-        metadata.colorizeProtectedCustomFields = colorizeProtectedCustomFields;
     }];
 }
 
@@ -1176,18 +1117,6 @@
 
 
 
-- (BOOL)autoFillScanAltUrls {
-    return self.metadata.autoFillScanAltUrls;
-}
-
-- (void)setAutoFillScanAltUrls:(BOOL)autoFillScanAltUrls {
-    [self update:^(SafeMetaData * _Nonnull metadata) {
-        metadata.autoFillScanAltUrls = autoFillScanAltUrls;
-    }];
-}
-
-
-
 - (BOOL)autoFillScanCustomFields {
     return self.metadata.autoFillScanCustomFields;
 }
@@ -1207,6 +1136,18 @@
 - (void)setAutoFillScanNotes:(BOOL)autoFillScanNotes {
     [self update:^(SafeMetaData * _Nonnull metadata) {
         metadata.autoFillScanNotes = autoFillScanNotes;
+    }];
+}
+
+
+
+- (BOOL)includeAssociatedDomains {
+    return self.metadata.includeAssociatedDomains;
+}
+
+- (void)setIncludeAssociatedDomains:(BOOL)includeAssociatedDomains {
+    [self update:^(SafeMetaData * _Nonnull metadata) {
+        metadata.includeAssociatedDomains = includeAssociatedDomains;
     }];
 }
 
@@ -1423,6 +1364,246 @@
     [self update:^(SafeMetaData * _Nonnull metadata) {
         metadata.customSortOrderForFields = customSortOrderForFields;
     }];
+}
+
+- (BOOL)lazySyncMode {
+    return self.metadata.lazySyncMode;
+}
+
+- (void)setLazySyncMode:(BOOL)lazySyncMode {
+    [self update:^(SafeMetaData * _Nonnull metadata) {
+        metadata.lazySyncMode = lazySyncMode;
+    }];
+}
+
+- (NSUUID *)asyncUpdateId {
+    return self.metadata.asyncUpdateId;
+}
+
+- (void)setAsyncUpdateId:(NSUUID *)asyncUpdateId {
+    [self update:^(SafeMetaData * _Nonnull metadata) {
+        metadata.asyncUpdateId = asyncUpdateId;
+    }];
+}
+
+- (NSUUID *)lastViewedEntry {
+    return self.metadata.lastViewedEntry;
+}
+
+- (void)setLastViewedEntry:(NSUUID *)lastViewedEntry {
+    [self update:^(SafeMetaData * _Nonnull metadata) {
+        metadata.lastViewedEntry = lastViewedEntry;
+    }];
+}
+
+- (BOOL)showLastViewedEntryOnUnlock {
+    return self.metadata.showLastViewedEntryOnUnlock;
+}
+
+- (void)setShowLastViewedEntryOnUnlock:(BOOL)showLastViewedEntryOnUnlock {
+    [self update:^(SafeMetaData * _Nonnull metadata) {
+        metadata.showLastViewedEntryOnUnlock = showLastViewedEntryOnUnlock;
+    }];
+}
+
+- (BOOL)persistLazyEvenLastSyncErrors {
+    return self.metadata.persistLazyEvenLastSyncErrors;
+}
+
+- (void)setPersistLazyEvenLastSyncErrors:(BOOL)persistLazyEvenLastSyncErrors {
+    [self update:^(SafeMetaData * _Nonnull metadata) {
+        metadata.persistLazyEvenLastSyncErrors = persistLazyEvenLastSyncErrors;
+    }];
+}
+
+- (NSArray<NSNumber *> *)visibleTabs {
+    return self.metadata.visibleTabs;
+}
+
+- (void)setVisibleTabs:(NSArray<NSNumber *> *)visibleTabs {
+    [self update:^(SafeMetaData * _Nonnull metadata) {
+        metadata.visibleTabs = visibleTabs;
+    }];
+}
+
+- (BOOL)hideTabBarIfOnlySingleTab {
+    return self.metadata.hideTabBarIfOnlySingleTab;
+}
+
+- (void)setHideTabBarIfOnlySingleTab:(BOOL)hideTabBarIfOnlySingleTab {
+    [self update:^(SafeMetaData * _Nonnull metadata) {
+        metadata.hideTabBarIfOnlySingleTab = hideTabBarIfOnlySingleTab;
+    }];
+}
+
+- (NSDictionary<NSString *,BrowseSortConfiguration *> *)sortConfigurations {
+    return self.metadata.sortConfigurations;
+}
+
+- (void)setSortConfigurations:(NSDictionary<NSString *,BrowseSortConfiguration *> *)sortConfigurations {
+    [self update:^(SafeMetaData * _Nonnull metadata) {
+        metadata.sortConfigurations = sortConfigurations;
+    }];
+}
+
+- (NSString *)exportFilename {
+    return self.metadata.exportFilename;
+}
+
+- (BOOL)allowPulldownRefreshSyncInOfflineMode {
+    return self.metadata.allowPulldownRefreshSyncInOfflineMode;
+}
+
+- (void)setAllowPulldownRefreshSyncInOfflineMode:(BOOL)allowPulldownRefreshSyncInOfflineMode {
+    [self update:^(SafeMetaData * _Nonnull metadata) {
+        metadata.allowPulldownRefreshSyncInOfflineMode = allowPulldownRefreshSyncInOfflineMode;
+    }];
+}
+
+- (BOOL)isSharedInCloudKit {
+    return self.metadata.isSharedInCloudKit;
+}
+
+- (void)setIsSharedInCloudKit:(BOOL)isSharedInCloudKit {
+    [self update:^(SafeMetaData * _Nonnull metadata) {
+        metadata.isSharedInCloudKit = isSharedInCloudKit;
+    }];
+}
+
+- (BOOL)isOwnedByMeCloudKit {
+    return self.metadata.isOwnedByMeCloudKit;
+}
+
+- (void)setIsOwnedByMeCloudKit:(BOOL)isOwnedByMeCloudKit {
+    [self update:^(SafeMetaData * _Nonnull metadata) {
+        metadata.isOwnedByMeCloudKit = isOwnedByMeCloudKit;
+    }];
+}
+
+- (BOOL)appleWatchEnabled {
+    return self.metadata.appleWatchEnabled;
+}
+
+- (void)setAppleWatchEnabled:(BOOL)appleWatchEnabled {
+    [self update:^(SafeMetaData * _Nonnull metadata) {
+        metadata.appleWatchEnabled = appleWatchEnabled;
+    }];
+}
+
+- (BOOL)hasInitializedHomeTab {
+    return self.metadata.hasInitializedHomeTab;
+}
+
+- (void)setHasInitializedHomeTab:(BOOL)hasInitializedHomeTab {
+    [self update:^(SafeMetaData * _Nonnull metadata) {
+        metadata.hasInitializedHomeTab = hasInitializedHomeTab;
+    }];
+}
+
+- (NSArray<NSNumber *> *)visibleHomeSections {
+    return self.metadata.visibleHomeSections;
+}
+
+- (void)setVisibleHomeSections:(NSArray<NSNumber *> *)visibleHomeSections {
+    [self update:^(SafeMetaData * _Nonnull metadata) {
+        metadata.visibleHomeSections = visibleHomeSections;
+    }];
+}
+
+
+
+- (BOOL)hardwareKeyCRCaching {
+    return self.metadata.hardwareKeyCRCaching;
+}
+
+- (void)setHardwareKeyCRCaching:(BOOL)hardwareKeyCRCaching {
+    [self update:^(SafeMetaData * _Nonnull metadata) {
+        metadata.hardwareKeyCRCaching = hardwareKeyCRCaching;
+    }];
+    [self clearCachedChallengeResponses];
+}
+
+- (BOOL)doNotRefreshChallengeInAF {
+    return self.metadata.doNotRefreshChallengeInAF;
+}
+
+- (void)setDoNotRefreshChallengeInAF:(BOOL)doNotRefreshChallengeInAF {
+    [self update:^(SafeMetaData * _Nonnull metadata) {
+        metadata.doNotRefreshChallengeInAF = doNotRefreshChallengeInAF;
+    }];
+}
+
+- (BOOL)hasOnboardedHardwareKeyCaching {
+    return self.metadata.hasOnboardedHardwareKeyCaching;
+}
+
+- (void)setHasOnboardedHardwareKeyCaching:(BOOL)hasOnboardedHardwareKeyCaching {
+    [self update:^(SafeMetaData * _Nonnull metadata) {
+        metadata.hasOnboardedHardwareKeyCaching = hasOnboardedHardwareKeyCaching;
+    }];
+}
+
+- (NSDate *)lastChallengeRefreshAt {
+    return self.metadata.lastChallengeRefreshAt;
+}
+
+- (void)setLastChallengeRefreshAt:(NSDate *)lastChallengeRefreshAt {
+    [self update:^(SafeMetaData * _Nonnull metadata) {
+        metadata.lastChallengeRefreshAt = lastChallengeRefreshAt;
+    }];
+}
+
+- (NSInteger)challengeRefreshIntervalSecs {
+    return self.metadata.challengeRefreshIntervalSecs;
+}
+
+- (void)setChallengeRefreshIntervalSecs:(NSInteger)challengeRefreshIntervalSecs {
+    [self update:^(SafeMetaData * _Nonnull metadata) {
+        metadata.challengeRefreshIntervalSecs = challengeRefreshIntervalSecs;
+    }];
+}
+
+- (NSInteger)cacheChallengeDurationSecs {
+    return self.metadata.cacheChallengeDurationSecs;
+}
+
+- (void)setCacheChallengeDurationSecs:(NSInteger)cacheChallengeDurationSecs {
+    [self update:^(SafeMetaData * _Nonnull metadata) {
+        metadata.cacheChallengeDurationSecs = cacheChallengeDurationSecs;
+    }];
+    [self clearCachedChallengeResponses];
+}
+
+- (NSDictionary<NSData *,NSData *> *)cachedYubiKeyChallengeResponses {
+    return self.metadata.cachedYubiKeyChallengeResponses;
+}
+
+- (void)setCachedYubiKeyChallengeResponses:(NSDictionary<NSData *,NSData *> *)cachedYubiKeyChallengeResponses {
+    self.metadata.cachedYubiKeyChallengeResponses = cachedYubiKeyChallengeResponses; 
+}
+
+- (void)addCachedChallengeResponse:(MMcGPair<NSData *,NSData *> *)challengeResponse {
+    slog(@"👾 addCachedChallengeResponse [%@] -> [%@]", challengeResponse.a.base64String, challengeResponse.b.base64String );
+    self.cachedYubiKeyChallengeResponses = @{ challengeResponse.a : challengeResponse.b }; 
+}
+
+- (void)removeCachedChallenge:(NSData *)challenge {
+    slog(@"👾 removeCachedChallenge [%@]", challenge.base64String );
+    [self clearCachedChallengeResponses];
+}
+
+- (void)clearCachedChallengeResponses {
+    slog(@"👾 clearCachedChallengeResponses");
+    
+    self.cachedYubiKeyChallengeResponses = @{};
+}
+
+- (NSData *)getCachedChallengeResponse:(NSData *)challenge {
+    NSData* ret = self.cachedYubiKeyChallengeResponses[challenge];
+    
+    slog(@"👾 getCachedChallengeResponse [%@] -> [%@]", challenge.base64String, ret.base64String );
+    
+    return ret;
 }
 
 @end

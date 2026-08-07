@@ -34,6 +34,16 @@
 
 @implementation ConvenienceUnlockPreferences
 
++ (UINavigationController*)fromStoryboardWithModel:(Model *)model {
+    UIStoryboard* sb = [UIStoryboard storyboardWithName:@"ConvenienceUnlockPreferences" bundle:nil];
+    UINavigationController* nav = [sb instantiateInitialViewController];
+    
+    ConvenienceUnlockPreferences* vc = (ConvenienceUnlockPreferences*)nav.topViewController;
+    vc.viewModel = model;
+    
+    return nav;
+}
+
 - (void)viewDidLoad {
     [super viewDidLoad];
     
@@ -54,7 +64,7 @@
     [super viewWillDisappear:animated];
 
     if (self.isMovingFromParentViewController || self.isBeingDismissed) {
-        NSLog(@"viewWillDisappear");
+        slog(@"viewWillDisappear");
 
         [NSNotificationCenter.defaultCenter removeObserver:self];
     }
@@ -81,11 +91,7 @@
         self.labelAllowBiometricSetting.text = [NSString stringWithFormat:NSLocalizedString(@"db_management_biometric_unlock_fmt", @"%@ Unlock"), biometricIdName];
     }
     
-    if (@available(iOS 13.0, *)) {
-        self.labelAllowBiometricSetting.textColor = [self canToggleTouchId] ? UIColor.labelColor : UIColor.secondaryLabelColor;
-    } else {
-        self.labelAllowBiometricSetting.textColor = [self canToggleTouchId] ? UIColor.blackColor : UIColor.lightGrayColor;
-    }
+    self.labelAllowBiometricSetting.textColor = [self canToggleTouchId] ? UIColor.labelColor : UIColor.secondaryLabelColor;
     
     self.switchAllowBiometric.enabled = [self canToggleTouchId];
     self.switchAllowBiometric.on = self.viewModel.metadata.isTouchIdEnabled;
@@ -163,10 +169,23 @@
             
             return;
         }
-
-        self.viewModel.metadata.isTouchIdEnabled = YES;
-        self.viewModel.metadata.conveniencePasswordHasBeenStored = YES;
-        self.viewModel.metadata.convenienceMasterPassword = self.viewModel.database.ckfs.password;
+        
+        [BiometricsManager.sharedInstance requestBiometricId:NSLocalizedString(@"open_sequence_biometric_unlock_prompt_title", @"Identify to Unlock Database")
+                                               fallbackTitle:@""
+                                                  completion:^(BOOL success, NSError * _Nullable error) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                if ( success ) {
+                    self.viewModel.metadata.isTouchIdEnabled = YES;
+                    self.viewModel.metadata.conveniencePasswordHasBeenStored = YES;
+                    self.viewModel.metadata.convenienceMasterPassword = self.viewModel.database.ckfs.password;
+                    
+                    [self bindUi];
+                }
+                else {
+                    [self bindUi];
+                }
+            });
+        }];
     }
 }
 

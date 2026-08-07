@@ -66,10 +66,10 @@ static NSString* const kSprCompilerRegex = @"\\{(TITLE|USERNAME|URL(:(RMVSCM|HOS
         NSError* error;
     
         _regex = [NSRegularExpression regularExpressionWithPattern:kSprCompilerRegex
-                                                           options:kNilOptions
+                                                           options:NSRegularExpressionCaseInsensitive
                                                              error:&error];
         if(error) {
-            NSLog(@"Error compiling Regex: %@", error);
+            slog(@"Error compiling Regex: %@", error);
         }
     });
     
@@ -98,7 +98,10 @@ static NSString* const kSprCompilerRegex = @"\\{(TITLE|USERNAME|URL(:(RMVSCM|HOS
             NSString* compiled = [self sprCompileRegexMatch:match test:test node:node database:database error:&matchError];
 
             if(!compiled) {
-                NSLog(@"Failed to compile Error: [%@]", matchError);
+#ifdef DEBUG
+                slog(@"Failed to compile Error: [%@]", matchError);
+
+#endif
                 if(error) {
                     *error = matchError;
                 }
@@ -110,12 +113,12 @@ static NSString* const kSprCompilerRegex = @"\\{(TITLE|USERNAME|URL(:(RMVSCM|HOS
                     ret = [self sprCompile:ret node:node database:database depth:depth+1 noRecurse:noRecurse error:error];
                 }
                 else {
-                    NSLog(@"Depth/Recurse Limit Exceeded in SPR Compile... Will not attempt Further.");
+                    slog(@"Depth/Recurse Limit Exceeded in SPR Compile... Will not attempt Further.");
                 }
             }
         }
         else {
-            NSLog(@"Depth/Recurse Limit Exceeded in SPR Compile... Will not attempt Further.");
+            slog(@"Depth/Recurse Limit Exceeded in SPR Compile... Will not attempt Further.");
         }
     }
     
@@ -149,19 +152,19 @@ static NSString* const kSprCompilerRegex = @"\\{(TITLE|USERNAME|URL(:(RMVSCM|HOS
         return nil;
     }
     
-    if([operation isEqualToString:kTitleOperation]) {
+    if([operation caseInsensitiveCompare:kTitleOperation] == NSOrderedSame ) {
         return node.title;
     }
-    else if([operation isEqualToString:kUsernameOperation]) {
+    else if( [operation caseInsensitiveCompare:kUsernameOperation] == NSOrderedSame ) {
         return node.fields.username;
     }
-    else if([operation isEqualToString:kPasswordOperation]) {
+    else if([operation caseInsensitiveCompare:kPasswordOperation] == NSOrderedSame) {
         return node.fields.password;
     }
-    else if([operation isEqualToString:kNotesOperation]) {
+    else if([operation caseInsensitiveCompare:kNotesOperation] == NSOrderedSame) {
         return node.fields.notes;
     }
-    else if([operation isEqualToString:kKPXC_TOTP_Operation] || [operation isEqualToString:kWinKP_TOTP_Operation]) {
+    else if([operation caseInsensitiveCompare:kKPXC_TOTP_Operation]  == NSOrderedSame || [operation caseInsensitiveCompare:kWinKP_TOTP_Operation] == NSOrderedSame) {
         return node.fields.otpToken.password;
     }
     else if([operation hasPrefix:kCustomFieldOperation]) {
@@ -337,7 +340,7 @@ static NSString* const kSprCompilerRegex = @"\\{(TITLE|USERNAME|URL(:(RMVSCM|HOS
     else if([subOperation isEqualToString:kUrlSubOperationRemoveScheme]) {
         if(components && components.rangeOfScheme.location != NSNotFound) {
             NSString* foo = [dereferencedUrl stringByReplacingCharactersInRange:components.rangeOfScheme withString:@""];
-            if([foo hasPrefix:@":
+            if([foo hasPrefix:@"://"]) {
                 return [foo stringByReplacingCharactersInRange:NSMakeRange(0, 3) withString:@""];
             }
             return foo;

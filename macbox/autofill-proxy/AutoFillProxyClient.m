@@ -18,6 +18,7 @@
 #include <errno.h>
 
 #import "NSString+Extensions.h"
+#import "SBLog.h"
 
 static const int kMaxResponseLength = 1024*1024; 
 
@@ -28,8 +29,9 @@ NSString* jsonErrorMessage(NSString* message);
 NSString* jsonMessage(BOOL success, NSString* message);
 NSString* jsonResponseOK(void);
 
-BOOL isLaunchStrongboxMessage(NSString* str);
-BOOL launchStrongbox(NSError** error);
+BOOL isLaunchStrongboxMessage(NSString* str, NSString** initiateUnlockDatabaseUuid);
+BOOL launchStrongbox(NSString* _Nullable initiateUnlockDatabaseUuid, NSError** error);
+
 void sigHandler(int sig) {
     exit(1);
 }
@@ -41,17 +43,17 @@ int main(int argc, const char * argv[]) {
     signal(SIGHUP, sigHandler);
 
     @autoreleasepool {
-        NSLog(@"✅ Strongbox AutoFill Proxy is Alive...");
+        slog(@"✅ Strongbox AutoFill Proxy is Alive...");
 
         for ( int i=0;i<argc;i++) {
-            NSLog(@"ARG %d: [%s]", i, argv[i]);
+            slog(@"ARG %d: [%s]", i, argv[i]);
         }
 
         
         
         decodeBrowserExtensionMessage();
 
-        NSLog(@"✅ Strongbox AutoFill Proxy is Exiting...");
+        slog(@"✅ Strongbox AutoFill Proxy is Exiting...");
     }
 }
 
@@ -62,7 +64,7 @@ void decodeBrowserExtensionMessage(void) {
     NSData * rawReqLen = [stdIn readDataUpToLength:4 error:&stdinError];
     
     if(rawReqLen == nil || stdinError != nil) {
-        NSLog(@"🔴 Could not read STDIN length: [%@]", stdinError);
+        slog(@"🔴 Could not read STDIN length: [%@]", stdinError);
         exit(1);
     }
     
@@ -73,12 +75,12 @@ void decodeBrowserExtensionMessage(void) {
     NSData * req = [stdIn readDataUpToLength:reqLen error:&stdinError];
     
     if(req == nil || stdinError != nil) {
-        NSLog(@"🔴 Could not read STDIN: [%@]", stdinError);
+        slog(@"🔴 Could not read STDIN: [%@]", stdinError);
         exit(1);
     }
     
     if ( req.length == 0 ) {
-        NSLog(@"⚠️ Zero Length STDIN Notify?");
+        slog(@"⚠️ Zero Length STDIN Notify?");
         return;
     }
     
@@ -94,8 +96,9 @@ void onGotBrowserExtensionMessage(NSData* data) {
     NSString *message = sendMessageOverSocket(str, NO, &error);
 
     if ( message == nil ) {
-        if ( isLaunchStrongboxMessage(str) ) {
-            if ( launchStrongbox(&error) ) {
+        NSString* initiateUnlockDatabaseUuid = nil;
+        if ( isLaunchStrongboxMessage(str, &initiateUnlockDatabaseUuid) ) {
+            if ( launchStrongbox( initiateUnlockDatabaseUuid, &error ) ) {
                 message = jsonResponseOK();
             }
             else {
@@ -108,12 +111,12 @@ void onGotBrowserExtensionMessage(NSData* data) {
     }
     
     NSUInteger len = message.length;
-    NSLog(@"Got Response from main Strongbox APP of length [%lu]:\n%@\n", len, message);
+    slog(@"Got Response from main Strongbox APP of length [%lu]:\n%@\n", len, message);
     
     
     
     if ( [message containsString:@"🔴"] || [message containsString:@"✅"] || [message containsString:@"⚠️"] ) {
-        NSLog(@"🔴 Response contains an emoji which will crash Chrome! Not sending.");
+        slog(@"🔴 Response contains an emoji which will crash Chrome! Not sending.");
         message = jsonErrorMessage(@"🔴 Response contains an emoji which will crash Chrome! Not sending.");
         len = message.length;
     }
@@ -121,7 +124,7 @@ void onGotBrowserExtensionMessage(NSData* data) {
     
     
     if ( len > kMaxResponseLength ) {
-        NSLog(@"🔴 Response length is greater than NativeMessaging limit of 1MB. Cannot respond.");
+        slog(@"🔴 Response length is greater than NativeMessaging limit of 1MB. Cannot respond.");
         message = jsonErrorMessage(@"Response length is greater than NativeMessaging limit of 1MB. Cannot respond.");
         len = message.length;
     }
@@ -132,7 +135,7 @@ void onGotBrowserExtensionMessage(NSData* data) {
     [NSFileHandle.fileHandleWithStandardOutput writeData:messageData];
 }
 
-BOOL isLaunchStrongboxMessage(NSString* str) {
+BOOL isLaunchStrongboxMessage(NSString* str, NSString** initiateUnlockDatabaseUuid) {
     NSError* error;
     id object = [NSJSONSerialization JSONObjectWithData:str.utf8Data options:kNilOptions error:&error];
 
@@ -140,6 +143,7 @@ BOOL isLaunchStrongboxMessage(NSString* str) {
         NSDictionary* dict = (NSDictionary*)object;
         
         if ( dict[@"launch"] != nil ) {
+            *initiateUnlockDatabaseUuid = dict[@"initiateUnlockDatabaseUuid"];
             return YES;
         }
     }
@@ -147,18 +151,47 @@ BOOL isLaunchStrongboxMessage(NSString* str) {
     return NO;
 }
 
-BOOL launchStrongbox(NSError** error) {
-    NSString* exes = NSBundle.mainBundle.executablePath.stringByDeletingLastPathComponent;
-    NSString* pathToStrongbox = [exes stringByAppendingPathComponent:@"Strongbox"];
+BOOL launchStrongbox(NSString* _Nullable initiateUnlockDatabaseUuid, NSError** error) {
+    
+    NSString* pathToStrongbox =  NSBundle.mainBundle.bundlePath  ; 
 
-    NSLog(@"✅ Launch Strongbox at: [%@]", pathToStrongbox);
+    slog(@"✅ Launch Strongbox at: [%@]", pathToStrongbox);
+
     
     if ( pathToStrongbox.length ) {
-        NSRunningApplication *app = [NSWorkspace.sharedWorkspace launchApplicationAtURL:[NSURL fileURLWithPath:pathToStrongbox]
-                                                                                options:0
-                                                                          configuration:@{}
-                                                                                  error:error];
-        return app != nil;
+        NSWorkspaceOpenConfiguration* config = [NSWorkspaceOpenConfiguration configuration];
+
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        config.hides = YES; 
+        NSURL* url = [NSURL fileURLWithPath:pathToStrongbox];
+        
+        __block BOOL ret;
+        dispatch_group_t g = dispatch_group_create();
+        dispatch_group_enter(g);
+
+        [NSWorkspace.sharedWorkspace openApplicationAtURL:url
+                                            configuration:config
+                                        completionHandler:^(NSRunningApplication * _Nullable app, NSError * _Nullable error) {
+
+            ret = error == nil;
+            dispatch_group_leave(g);
+        }];
+        
+        dispatch_group_wait(g, DISPATCH_TIME_FOREVER);
+        
+        slog(@"✅ Launch Done! ret = [%hhd]", ret);
+        
+        return ret;
     }
     
     return NO;
@@ -182,7 +215,7 @@ NSString* jsonMessage(BOOL success, NSString* message) {
     NSError* error;
     NSData* data = [NSJSONSerialization dataWithJSONObject:dict options:kNilOptions error:&error];
     if ( !data || error ) {
-        NSLog(@"Could not create JSON for message: [%@] - error = [%@]", message, error);
+        slog(@"Could not create JSON for message: [%@] - error = [%@]", message, error);
         return @"{ \"error\" : \"unknown\" }";
     }
     

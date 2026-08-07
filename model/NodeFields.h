@@ -16,6 +16,8 @@
 #import "SyncComparisonParams.h"
 #import "ValueWithModDate.h"
 
+extern NSString* _Nonnull const kOtpAuthScheme;
+
 @class Node;
 
 NS_ASSUME_NONNULL_BEGIN
@@ -47,7 +49,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (readonly, nonatomic, strong, nullable, readonly) NSNumber *usageCount;
 @property (nonatomic, strong, nullable) NSDate *passwordModified;
 @property (nonatomic, strong, nullable) NSDate *expires;
-@property (nonatomic, strong, nonnull) NSMutableDictionary<NSString*, DatabaseAttachment*> *attachments;
+@property (nonatomic, strong, nonnull) NSMutableDictionary<NSString*, KeePassAttachmentAbstractionLayer*> *attachments;
 @property (nonatomic, strong, nonnull) NSMutableSet<NSString*> *tags;
 @property (nonatomic, retain, nonnull) PasswordHistory *passwordHistory; 
 @property NSMutableArray<Node*> *keePassHistory;
@@ -63,12 +65,16 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nullable) AutoType* autoType;
 @property BOOL isExpanded;
 @property BOOL qualityCheck; 
+@property BOOL isAutoFillExcluded; 
 @property (nullable) NSUUID* previousParentGroup;
 
 
 
 + (BOOL)isTotpCustomFieldKey:(NSString*)key;
++ (BOOL)isPasskeyCustomFieldKey:(NSString*)key;
 + (BOOL)isAlternativeURLCustomFieldKey:(NSString*)key;
+
+- (void)addSecondaryUrl:(NSString*)url optionalCustomFieldSuffixLabel:(NSString*_Nullable)optionalCustomFieldSuffixLabel;
 
 + (NodeFields *)deserialize:(NSDictionary *)dict;
 - (NSDictionary*)serialize:(SerializationPackage*)serialization;
@@ -85,6 +91,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 @property (nonatomic, strong, nonnull) MutableOrderedDictionary<NSString*, StringValue*> *customFields;
 @property (readonly, nonatomic, strong, nonnull) MutableOrderedDictionary<NSString*, StringValue*> *customFieldsNoEmail;
+@property (readonly, nonatomic, strong, nonnull) MutableOrderedDictionary<NSString *,StringValue *> *customFieldsFiltered;
 
 - (void)removeAllCustomFields;
 - (void)removeCustomField:(NSString*)key;
@@ -109,9 +116,12 @@ NS_ASSUME_NONNULL_BEGIN
 + (nullable OTPToken*)getOtpTokenFromRecord:(NSString*)password fields:(NSDictionary*)fields notes:(NSString*)notes; 
 
 + (OTPToken*_Nullable)getOtpTokenFromString:(NSString *)string
+                                 forceSteam:(BOOL)forceSteam;
+
++ (OTPToken*_Nullable)getOtpTokenFromString:(NSString *)string
                                  forceSteam:(BOOL)forceSteam
-                                     issuer:(NSString*)issuer
-                                   username:(NSString*)username;
+                                     issuer:(NSString*_Nullable)issuer
+                                   username:(NSString*_Nullable)username;
 
 - (void)setTotp:(OTPToken*)token appendUrlToNotes:(BOOL)appendUrlToNotes addLegacyFields:(BOOL)addLegacyFields addOtpAuthUrl:(BOOL)addOtpAuthUrl;
 

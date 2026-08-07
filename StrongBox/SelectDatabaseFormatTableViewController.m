@@ -7,7 +7,6 @@
 //
 
 #import "SelectDatabaseFormatTableViewController.h"
-#import "SelectStorageProviderController.h"
 
 @interface SelectDatabaseFormatTableViewController ()
 
@@ -62,7 +61,7 @@
             break;
         default:
             selectedFormat = kKeePass4;
-            NSLog(@"WARN: Unknown Index Path!!");
+            slog(@"WARN: Unknown Index Path!!");
             break;
     }
         

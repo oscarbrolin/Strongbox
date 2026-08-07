@@ -45,7 +45,8 @@ static const int kHibpOnceEvery30Days = kHibpOnceADay * 30;
 
 @property (weak, nonatomic) IBOutlet UISwitch *switchHibp;
 @property (weak, nonatomic) IBOutlet UISwitch *switchShowPopups;
-
+@property (weak, nonatomic) IBOutlet UISwitch *switchHibpBreaches;
+@property (weak, nonatomic) IBOutlet UITableViewCell *cellCheckHibpBreaches;
 @property (weak, nonatomic) IBOutlet UITableViewCell *cellCheckHibp;
 @property (weak, nonatomic) IBOutlet UITableViewCell *cellOnlineHibpInterval;
 
@@ -55,7 +56,8 @@ static const int kHibpOnceEvery30Days = kHibpOnceADay * 30;
 @property (weak, nonatomic) IBOutlet UILabel *labelLastOnlineCheckHeader;
 @property (weak, nonatomic) IBOutlet UIStackView *stackViewLastOnlineCheck;
 @property (weak, nonatomic) IBOutlet UILabel *labelCheckHaveIBeenPwned;
-@property (weak, nonatomic) IBOutlet UITableViewCell *cellViewAllAuditIssues;
+@property (weak, nonatomic) IBOutlet UILabel *labelCheckHaveIBeenPwnedBreaches;
+
 @property (weak, nonatomic) IBOutlet UILabel *labelCaseInsensitiveDupes;
 @property (weak, nonatomic) IBOutlet UILabel *labelLengthOfMinimumLength;
 @property (weak, nonatomic) IBOutlet UITableViewCell *cellViewExcluded;
@@ -66,6 +68,7 @@ static const int kHibpOnceEvery30Days = kHibpOnceADay * 30;
 @property (weak, nonatomic) IBOutlet UILabel *labelLowEntropy;
 
 @property (weak, nonatomic) IBOutlet UISwitch *switchTwoFactorAuth;
+@property (weak, nonatomic) IBOutlet UISwitch *switchIgnorePINCodes;
 
 
 
@@ -75,15 +78,18 @@ static const int kHibpOnceEvery30Days = kHibpOnceADay * 30;
 
 @implementation AuditConfigurationVcTableViewController
 
++ (instancetype)fromStoryboard {
+    UIStoryboard* sb = [UIStoryboard storyboardWithName:@"Audit" bundle:nil];
+    
+    return [sb instantiateInitialViewController];
+}
+
 - (void)viewDidLoad {
     [super viewDidLoad];
-
-    [self cell:self.cellViewAllAuditIssues setHidden:self.hideShowAllAuditIssues]; 
     
     [self cell:self.cellCheckHibp setHidden:AppPreferences.sharedInstance.disableNetworkBasedFeatures];
+    [self cell:self.cellCheckHibpBreaches setHidden:AppPreferences.sharedInstance.disableNetworkBasedFeatures];
     [self cell:self.cellOnlineHibpInterval setHidden:AppPreferences.sharedInstance.disableNetworkBasedFeatures];
-
-    
     
     [self reloadDataAnimated:NO];
     
@@ -91,20 +97,17 @@ static const int kHibpOnceEvery30Days = kHibpOnceADay * 30;
     
     [NSNotificationCenter.defaultCenter addObserver:self
                                            selector:@selector(bindAuditStatus:)
-                                               name:kAuditProgressNotificationKey
+                                               name:kAuditProgressNotification
                                              object:nil];
 
     [NSNotificationCenter.defaultCenter addObserver:self
                                             selector:@selector(bindAuditStatus:)
-                                                name:kAuditCompletedNotificationKey
+                                                name:kAuditCompletedNotification
                                              object:nil];
 }
 
 - (void)bindUi {
-    UIColor* secondary = UIColor.darkGrayColor;
-    if (@available(iOS 13.0, *)) {
-        secondary = UIColor.secondaryLabelColor;
-    }
+    UIColor* secondary = UIColor.secondaryLabelColor;
 
     self.switchShowPopups.on = self.model.metadata.auditConfig.showAuditPopupNotifications;
     self.switchAuditInBackground.on = self.model.metadata.auditConfig.auditInBackground;
@@ -144,20 +147,22 @@ static const int kHibpOnceEvery30Days = kHibpOnceADay * 30;
     
     
     self.switchHibp.on = self.model.metadata.auditConfig.checkHibp;
+    self.switchHibpBreaches.on = self.model.metadata.auditConfig.checkHibpBreaches;
 
     [self bindLastOnlineCheckUi];
-    self.cellOnlineHibpInterval.userInteractionEnabled = self.switchHibp.on;
+    self.cellOnlineHibpInterval.userInteractionEnabled = self.switchHibp.on || self.switchHibpBreaches.on;
 
     
     
     BOOL pro = AppPreferences.sharedInstance.isPro;
     self.switchHibp.enabled = pro;
+    self.switchHibpBreaches.enabled = pro;
 
-    self.labelCheckHaveIBeenPwned.textColor = pro ? nil : secondary;
     self.labelLastOnlineCheckHeader.textColor = pro && self.switchHibp.on ? nil : secondary;
     self.labelOnlineCheckInterval.textColor = pro && self.switchHibp.on ? nil : secondary;
 
     self.labelCheckHaveIBeenPwned.textColor = pro ? nil : secondary;
+    self.labelCheckHaveIBeenPwnedBreaches.textColor = pro ? nil : secondary;
 
     
 
@@ -179,6 +184,9 @@ static const int kHibpOnceEvery30Days = kHibpOnceADay * 30;
     self.labelEntropyThreshold.text = [NSString stringWithFormat:@"%0.1f", (double)self.model.metadata.auditConfig.lowEntropyThreshold];
 
     
+    
+    self.switchIgnorePINCodes.on = self.model.metadata.auditConfig.excludeShortNumericPINCodes;
+
     
     
     [self bindAuditStatusWithProgress:nil];
@@ -208,9 +216,6 @@ static const int kHibpOnceEvery30Days = kHibpOnceADay * 30;
     if (cell == self.cellOnlineHibpInterval) {
         [self onChangeOnlineHibpInterval];
     }
-    else if (cell == self.cellViewAllAuditIssues) {
-        self.onDone(YES, self);
-    }
     else if (cell == self.cellViewExcluded) {
         [self performSegueWithIdentifier:@"segueToExcludedItems" sender:nil];
     }
@@ -238,7 +243,7 @@ static const int kHibpOnceEvery30Days = kHibpOnceADay * 30;
 }
 
 - (void)bindAuditStatus:(NSNotification*)notification {
-    if (notification.name == kAuditProgressNotificationKey ) {
+    if (notification.name == kAuditProgressNotification ) {
         [self bindAuditStatusWithProgress:notification.object];
     }
     else {
@@ -305,18 +310,18 @@ static const int kHibpOnceEvery30Days = kHibpOnceADay * 30;
     config.minimumLength = self.sliderMinLength.value;
     config.levenshteinSimilarityThreshold = ((CGFloat)self.sliderSimilar.value / 100.0f);
     config.checkHibp = self.switchHibp.on;
+    config.checkHibpBreaches = self.switchHibpBreaches.on;
     config.showAuditPopupNotifications = self.switchShowPopups.on;
 
     config.checkForLowEntropy = self.switchLowEntropy.on;
     config.lowEntropyThreshold = self.sliderEntropyThreshold.value;
     config.checkForTwoFactorAvailable = self.switchTwoFactorAuth.on;
+    config.excludeShortNumericPINCodes = self.switchIgnorePINCodes.on;
     
     [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(restartBackgroundAudit) object:nil];
     [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(saveSettingsAndRestartBackgroundAudit:) object:nil];
     
     [self performSelector:@selector(saveSettingsAndRestartBackgroundAudit:) withObject:config afterDelay:0.25f];
-    
-    [self.model stopAndClearAuditor];
     
     [self bindUi];
 }
@@ -333,6 +338,14 @@ static const int kHibpOnceEvery30Days = kHibpOnceADay * 30;
 
 - (void)restartBackgroundAudit {
     [self.model restartBackgroundAudit];
+    
+    
+
+    if ( self.model ) {
+        [NSNotificationCenter.defaultCenter postNotificationName:kAuditCompletedNotification
+                                                          object:@{ @"userStopped" : @(NO),
+                                                                    @"model" : self.model }];
+    }
 }
 
 - (IBAction)onHibpChanged:(id)sender {
@@ -344,11 +357,11 @@ static const int kHibpOnceEvery30Days = kHibpOnceADay * 30;
     
     if (self.switchHibp.on && self.model.metadata.auditConfig.checkHibp == NO && !self.model.metadata.auditConfig.hibpCaveatAccepted) {
         NSString* loc1 = NSLocalizedString(@"audit_hibp_warning_title", @"HIBP Disclaimer");
-        NSString* loc2 = NSLocalizedString(@"audit_hibp_warning_message", @"I understand that my passwords will be sent over the web (HTTPS) to the 'Have I Been Pwned?' password checking service (using k-anonymity) and that I fully consent to this functionality. I also absolve Strongbox, Mark McGuill and Phoebe Code Limited of all liabilty for using this feature.");
+        NSString* loc2 = NSLocalizedString(@"audit_hibp_warning_message", @"I understand that my passwords will be sent over the web (HTTPS) to the 'Have I Been Pwned?' password checking service (using k-anonymity) and that I fully consent to this functionality. I also absolve Strongbox, Applause, Mark McGuill and Phoebe Code Limited of all liabilty for using this feature.");
         NSString* locNo = NSLocalizedString(@"audit_hibp_warning_no", @"No, I don't want to use this feature");
         NSString* locYes = NSLocalizedString(@"audit_hibp_warning_yes", @"Yes, I understand and agree");
         
-        [Alerts twoOptionsWithCancel:self title:loc1 message:loc2 defaultButtonText:locNo secondButtonText:locYes action:^(int response) {
+        [Alerts twoOptionsWithCancel:self title:loc1 message:loc2 defaultButtonText:locNo secondButtonText:locYes completion:^(int response) {
             if (response == 1) { 
                 DatabaseAuditorConfiguration* config = self.model.metadata.auditConfig;
                 
@@ -367,8 +380,42 @@ static const int kHibpOnceEvery30Days = kHibpOnceADay * 30;
     }
 }
 
+- (IBAction)onHIbpBreachesChanged:(id)sender {
+    if (!self.switchHibpBreaches.on) {
+        DatabaseAuditorConfiguration* config = self.model.metadata.auditConfig;
+        config.lastHibpOnlineCheck = nil;
+        self.model.metadata.auditConfig = config;
+    }
+
+    if (self.switchHibpBreaches.on && self.model.metadata.auditConfig.checkHibpBreaches == NO && !self.model.metadata.auditConfig.hibpCaveatTwoAccepted) {
+        NSString* loc1 = NSLocalizedString(@"audit_hibp_warning_title", @"HIBP Disclaimer");
+        NSString* loc2 = NSLocalizedString(@"audit_hibp_warning_message_breaches", @"I understand that my account usernames will be sent over the web (HTTPS) to the 'Have I Been Pwned?' breach checking service, through a dedicated cloud function that validates requests originate from a legitimate build of Strongbox. I also absolve Strongbox, Applause, Mark McGuill and Phoebe Code Limited of all liabilty for using this feature.");
+        NSString* locNo = NSLocalizedString(@"audit_hibp_warning_no", @"No, I don't want to use this feature");
+        NSString* locYes = NSLocalizedString(@"audit_hibp_warning_yes", @"Yes, I understand and agree");
+
+        [Alerts twoOptionsWithCancel:self title:loc1 message:loc2 defaultButtonText:locNo secondButtonText:locYes completion:^(int response) {
+            if (response == 1) { 
+                DatabaseAuditorConfiguration* config = self.model.metadata.auditConfig;
+
+                config.hibpCaveatTwoAccepted = YES;
+                self.model.metadata.auditConfig = config;
+
+                [self onPreferenceChanged:nil];
+            }
+            else { 
+                [self bindUi];
+            }
+        }];
+    }
+    else {
+        [self onPreferenceChanged:nil];
+    }
+}
+
+
+
 - (IBAction)onDone:(id)sender {
-    self.onDone(NO, self);
+    [self.presentingViewController dismissViewControllerAnimated:YES completion:nil];
 }
 
 - (void)promptForString:(NSString*)title

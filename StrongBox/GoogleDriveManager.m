@@ -12,7 +12,7 @@
 #import "NSDate+Extensions.h"
 #import <GoogleSignIn/GoogleSignIn.h>
 
-#if TARGET_OS_IPHONE
+#if TARGET_OS_IOS
 
 #import "SVProgressHUD.h"
 #import "AppPreferences.h"
@@ -46,6 +46,14 @@ typedef void (^Authenticationcompletion)(BOOL userCancelled, BOOL userInteractio
     return sharedInstance;
 }
 
+- (instancetype)init {
+    self = [super init];
+    if (self) {
+        GIDSignIn.sharedInstance.configuration = [[GIDConfiguration alloc] initWithClientID:GOOGLE_CLIENT_ID];
+    }
+    return self;
+}
+
 - (GTLRDriveService *)driveService {
     static GTLRDriveService *service = nil;
 
@@ -62,7 +70,7 @@ typedef void (^Authenticationcompletion)(BOOL userCancelled, BOOL userInteractio
 
 - (void)dismissProgressSpinner {
     dispatch_async(dispatch_get_main_queue(), ^{
-#if TARGET_OS_IPHONE
+#if TARGET_OS_IOS
         [SVProgressHUD dismiss];
 #else
         [macOSSpinnerUI.sharedInstance dismiss];
@@ -72,7 +80,7 @@ typedef void (^Authenticationcompletion)(BOOL userCancelled, BOOL userInteractio
 
 - (void)showProgressSpinner:(NSString*)message viewController:(VIEW_CONTROLLER_PTR)viewController {
     dispatch_async(dispatch_get_main_queue(), ^{
-#if TARGET_OS_IPHONE
+#if TARGET_OS_IOS
         [SVProgressHUD showWithStatus:message];
 #else
         [macOSSpinnerUI.sharedInstance show:message viewController:viewController];
@@ -89,66 +97,61 @@ typedef void (^Authenticationcompletion)(BOOL userCancelled, BOOL userInteractio
 - (void)signout {
     [GIDSignIn.sharedInstance signOut];
     
-    [GIDSignIn.sharedInstance disconnectWithCallback:^(NSError * _Nullable error) {
-        NSLog(@"✅ GIDSignIn.sharedInstance disconnectWithCallback finished with [%@]", error);
+    [GIDSignIn.sharedInstance disconnectWithCompletion:^(NSError * _Nullable error) {
+        slog(@"✅ GIDSignIn.sharedInstance disconnectWithCallback finished with [%@]", error);
     }];
 }
 
 - (BOOL)handleUrl:(NSURL*)url {
-    NSLog(@"✅ GoogleDriveManager::handleUrl with [%@]", url);    
+    slog(@"✅ GoogleDriveManager::handleUrl with [%@]", url);    
     return [GIDSignIn.sharedInstance handleURL:url];
 }
 
 - (void)authenticate:(VIEW_CONTROLLER_PTR)viewController
           completion:(Authenticationcompletion)completion {
     if (!viewController) { 
+        slog(@"✅ Google Drive Sign In - Background Mode - Thread [%@] - completion = [%@]", NSThread.currentThread, completion);
 
-
-
+        slog(@"✅ GoogleDriveManager::authenticate - Attempting to restore previous sign in...");
         
-        [GIDSignIn.sharedInstance restorePreviousSignInWithCallback:^(GIDGoogleUser * _Nullable user,
-                                                                        NSError * _Nullable error) {
+        [GIDSignIn.sharedInstance restorePreviousSignInWithCompletion:^(GIDGoogleUser * _Nullable user, NSError * _Nullable error) {
+            slog(@"✅ GoogleDriveManager::authenticate - restore previous sign in done with error = [%@] and user = [%@]", error, user);
 
-
-            [self onDidSignInForUser:user
-                          completion:completion
-                      backgroundSync:YES
-                           withError:error];
+            [self onDidSignInForUser:user completion:completion backgroundSync:YES withError:error];
         }];
 
     }
     else {
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ 
-
-
-            if ( GIDSignIn.sharedInstance.hasPreviousSignIn ) {
-                [GIDSignIn.sharedInstance restorePreviousSignInWithCallback:^(GIDGoogleUser * _Nullable user,
-                                                                                NSError * _Nullable error) {
-
-
-                    [self onDidSignInForUser:user completion:completion backgroundSync:NO withError:error];
-                }];
-            }
-            else {
-#if TARGET_OS_IPHONE
-                AppPreferences.sharedInstance.suppressAppBackgroundTriggers = YES;
+        slog(@"✅ Google Drive Sign In - Foreground Interactive Mode - Thread [%@]", NSThread.currentThread);
+        
+        if ( GIDSignIn.sharedInstance.hasPreviousSignIn ) {
+            [GIDSignIn.sharedInstance restorePreviousSignInWithCompletion:^(GIDGoogleUser * _Nullable user, NSError * _Nullable error) {
+                slog(@"✅ GoogleDriveManager::authenticate - restore previous sign in done with error = [%@] and user = [%@]", error, user);
+                
+                [self onDidSignInForUser:user completion:completion backgroundSync:NO withError:error];
+            }];
+        }
+        else {
+#if TARGET_OS_IOS
+            AppPreferences.sharedInstance.suppressAppBackgroundTriggers = YES;
 #endif
-
-                [GIDSignIn.sharedInstance signInWithConfiguration:[[GIDConfiguration alloc] initWithClientID:GOOGLE_CLIENT_ID]
-#if TARGET_OS_IPHONE
-                                         presentingViewController:viewController
+            
+                
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+#if TARGET_OS_IOS
+                [GIDSignIn.sharedInstance signInWithPresentingViewController:viewController
 #else
-                                                 presentingWindow:viewController.view.window
+                [GIDSignIn.sharedInstance signInWithPresentingWindow:viewController.view.window
 #endif
-                                                             hint:nil
-                                                 additionalScopes:@[kGTLRAuthScopeDrive]
-                                                         callback:^(GIDGoogleUser * _Nullable user, NSError * _Nullable error) {
-                    NSLog(@"✅ GoogleDriveManager::authenticate - signInWithConfiguration in done with error = [%@] and user = [%@]", error, user);
+                                                                        hint:nil
+                                                            additionalScopes:@[kGTLRAuthScopeDrive]
+                                                                  completion:^(GIDSignInResult * _Nullable signInResult, NSError * _Nullable error) {
+                    slog(@"✅ GoogleDriveManager::authenticate - signInWithConfiguration in done with error = [%@] and user = [%@]", error, signInResult.user);
 
-                    [self onDidSignInForUser:user completion:completion backgroundSync:NO withError:error];
+                    [self onDidSignInForUser:signInResult.user completion:completion backgroundSync:NO withError:error];
                 }];
-            }
-        });
+            });
+        }
     }
 }
 
@@ -156,16 +159,16 @@ typedef void (^Authenticationcompletion)(BOOL userCancelled, BOOL userInteractio
                 completion:(Authenticationcompletion)completion
             backgroundSync:(BOOL)backgroundSync
                  withError:(NSError *)error {
-    if (error != nil) {
-        NSLog(@"🔴 Google Sign In Error: %@", error);
+    if ( error != nil ) {
+        slog(@"🔴 Google Sign In Error: %@", error);
         self.driveService.authorizer = nil;
     }
     else {
 
-        self.driveService.authorizer = user.authentication.fetcherAuthorizer;
+        self.driveService.authorizer = user.fetcherAuthorizer;
     }
     
-#if TARGET_OS_IPHONE
+#if TARGET_OS_IOS
     AppPreferences.sharedInstance.suppressAppBackgroundTriggers = NO;
 #endif
     
@@ -174,7 +177,7 @@ typedef void (^Authenticationcompletion)(BOOL userCancelled, BOOL userInteractio
 
     if ( error.code == kGIDSignInErrorCodeHasNoAuthInKeychain ) {
         if ( !backgroundSync ) {
-            NSLog(@"⚠️ Interactive Sync but no auth in keychain for Google Drive");
+            slog(@"⚠️ Interactive Sync but no auth in keychain for Google Drive");
             
             
             
@@ -196,7 +199,7 @@ typedef void (^Authenticationcompletion)(BOOL userCancelled, BOOL userInteractio
             completion(error.code == kGIDSignInErrorCodeCanceled, NO, error);
         }
         else {
-            NSLog(@"🔴 EEEEEK - Good Sign In but no AutoCompletion!! NOP - [%@]", NSThread.currentThread);
+            slog(@"🔴 EEEEEK - Good Sign In but no AutoCompletion!! NOP - [%@]", NSThread.currentThread);
         }
     }
 }
@@ -208,7 +211,7 @@ typedef void (^Authenticationcompletion)(BOOL userCancelled, BOOL userInteractio
     
     trimmed = [[trimmed componentsSeparatedByCharactersInSet:[NSCharacterSet controlCharacterSet]] componentsJoinedByString:@""];
     trimmed = [[trimmed componentsSeparatedByCharactersInSet:[NSCharacterSet illegalCharacterSet]] componentsJoinedByString:@""];
-    trimmed = [[trimmed componentsSeparatedByCharactersInSet:[NSCharacterSet nonBaseCharacterSet]] componentsJoinedByString:@""];
+
     trimmed = [[trimmed componentsSeparatedByCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@"'±|/\\`~@<>:;£$%^&()=+{}[]!\"|?*"]] componentsJoinedByString:@""];
     
     return trimmed;
@@ -235,7 +238,7 @@ typedef void (^Authenticationcompletion)(BOOL userCancelled, BOOL userInteractio
         NSString *fileName = title;
 
         if (file != nil) {
-            NSLog(@"File already exists under this name. Adding a timestampe to make it unique.");
+            slog(@"File already exists under this name. Adding a timestampe to make it unique.");
             fileName = [Utils insertTimestampInFilename:title];
         }
 
@@ -261,7 +264,7 @@ typedef void (^Authenticationcompletion)(BOOL userCancelled, BOOL userInteractio
                                                       NSError *error)
         {
             if (error) {
-                NSLog(@"%@", error);
+                slog(@"%@", error);
             }
 
             handler(createdFile, error);
@@ -285,7 +288,7 @@ parentOrJson:(NSString *)parentOrJson
             completion:^(BOOL userCancelled, BOOL userInteractionRequired, NSError *error) {
 
         if (error) {
-            NSLog(@"%@", error);
+            slog(@"%@", error);
             handler(kReadResultError, nil, nil, error);
         }
         else if (userInteractionRequired) {
@@ -319,13 +322,13 @@ viewController:(VIEW_CONTROLLER_PTR)viewController
         }
         
         if(error) {
-            NSLog(@"%@", error);
+            slog(@"%@", error);
             handler(kReadResultError, nil, nil, error);
             return;
         }
         else {
             if (!file) {
-                NSLog(@"Google Drive: No such file found...");
+                slog(@"Google Drive: No such file found...");
                 error = [Utils createNSError:@"Your database file could not be found on Google Drive. Try removing the database and re-adding it." errorCode:-1];
                 handler(kReadResultError, nil, nil, error);
                 return;
@@ -352,11 +355,11 @@ viewController:(VIEW_CONTROLLER_PTR)viewController
     [self authenticate:nil completion:^(BOOL userCancelled, BOOL userInteractionRequired, NSError *error) {
 
         if ( error ) {
-            NSLog(@"%@", error);
-            handler(nil, error);
+            slog(@"%@", error);
+            handler(YES, nil, error);
         }
         else if (userInteractionRequired) {
-            handler(nil, [Utils createNSError:@"User Interaction Required from getModDate" errorCode:346]);
+            handler(YES, nil, [Utils createNSError:@"User Interaction Required from getModDate" errorCode:346]);
         }
         else {
             [self _getModDate:parentOrJson fileName:fileName completion:handler];
@@ -369,18 +372,18 @@ viewController:(VIEW_CONTROLLER_PTR)viewController
          completion:(StorageProviderGetModDateCompletionBlock)handler {
     [self findSafeFile:parentOrJson fileName:fileName completion:^(GTLRDrive_File *file, NSError *error) {
         if ( error ) {
-            NSLog(@"_getModDate: %@", error);
-            handler(nil, error);
+            slog(@"_getModDate: %@", error);
+            handler(YES, nil, error);
         }
         else {
             if ( !file ) {
-                NSLog(@"Google Drive::_getModDate No such file found...");
+                slog(@"Google Drive::_getModDate No such file found...");
                 error = [Utils createNSError:@"Your database file could not be found on Google Drive. Try removing the database and re-adding it." errorCode:-1];
-                handler(nil, error);
+                handler(YES, nil, error);
             }
             else {
 
-                handler(file.modifiedTime.date, nil);
+                handler(YES, file.modifiedTime.date, nil);
             }
         }
     }];
@@ -394,27 +397,43 @@ viewController:(VIEW_CONTROLLER_PTR)viewController
     [self findSafeFile:parentOrJson
               fileName:fileName
             completion:^(GTLRDrive_File *file, NSError *error) {
+        
+        
         if (viewController) {
             [self dismissProgressSpinner];
         }
         
         if (error || !file) {
-            NSLog(@"%@", error);
+            slog(@"%@", error);
             handler(kUpdateResultError, nil, error);
         }
         else {
             GTLRUploadParameters *uploadParameters = [GTLRUploadParameters uploadParametersWithData:data MIMEType:kMimeType];
             GTLRDriveQuery_FilesUpdate *query = [GTLRDriveQuery_FilesUpdate queryWithObject:[GTLRDrive_File object] fileId:file.identifier uploadParameters:uploadParameters];
+                        
             query.fields = @"modifiedTime";
-
+            
             if (viewController) {
                 [self showProgressSpinner:NSLocalizedString(@"storage_provider_status_syncing", @"Syncing...") viewController:viewController];
             }
+        
+
             
             [self.driveService executeQuery:query completionHandler:^(GTLRServiceTicket *callbackTicket, GTLRDrive_File *uploadedFile, NSError *callbackError) {
                 if (viewController) {
                     [self dismissProgressSpinner];
                 }
+
+
+
+
+
+
+
+
+
+
+
 
                 handler(callbackError ? kUpdateResultError : kUpdateResultSuccess, uploadedFile.modifiedTime.date, callbackError);
             }];
@@ -427,7 +446,7 @@ viewController:(VIEW_CONTROLLER_PTR)viewController
                 completion:(void (^)(BOOL userCancelled, NSArray *folders, NSArray *files, NSError *error))handler {
     [self authenticate:viewController completion:^(BOOL userCancelled, BOOL userInteractionRequired, NSError *error) {
         if (error) {
-            NSLog(@"%@", error);
+            slog(@"%@", error);
             handler(userCancelled, nil, nil, error);
         }
         else {
@@ -439,7 +458,7 @@ viewController:(VIEW_CONTROLLER_PTR)viewController
 - (void)_getFilesAndFolders:(VIEW_CONTROLLER_PTR)viewController
      parentFolderIdentifier:(NSString *)parentFolderIdentifier
                  completion:(void (^)(BOOL userCancelled, NSArray *folders, NSArray *files, NSError *error))handler {
-    [self showProgressSpinner:NSLocalizedString(@"", @"") viewController:viewController];
+    [self showProgressSpinner:NSLocalizedString(@"storage_provider_status_authenticating_listing", @"Listing...") viewController:viewController];
 
 
 
@@ -491,7 +510,7 @@ viewController:(VIEW_CONTROLLER_PTR)viewController
             handler(NO, driveFolders, driveFiles, error);
         }
         else {
-            NSLog(@"An error occurred: %@", error);
+            slog(@"An error occurred: %@", error);
             handler(NO, nil, nil, error);
         }
     }];
@@ -559,7 +578,7 @@ viewController:(VIEW_CONTROLLER_PTR)viewController
     [fetcher beginFetchWithCompletionHandler:^(NSData *data, NSError *error)
     {
         if (error) {
-            NSLog(@"%@", error);
+            slog(@"%@", error);
         }
 
         handler(data, error);
@@ -570,7 +589,7 @@ viewController:(VIEW_CONTROLLER_PTR)viewController
    dateModified:(NSDate*)dateModified
  viewController:(VIEW_CONTROLLER_PTR)viewController
         handler:(StorageProviderReadCompletionBlock)handler {
-    NSLog(@"✅ getFile - fileIdentifier = [%@]", fileIdentifier);
+    slog(@"✅ getFile - fileIdentifier = [%@]", fileIdentifier);
 
     GTLRDriveQuery_FilesGet *query = [GTLRDriveQuery_FilesGet queryForMediaWithFileId:fileIdentifier];
     
@@ -585,7 +604,7 @@ viewController:(VIEW_CONTROLLER_PTR)viewController
         }
         
         if (error != nil) {
-            NSLog(@"Could not GET file. An error occurred: %@", error);
+            slog(@"Could not GET file. An error occurred: %@", error);
             handler(kReadResultError, nil, nil, error);
         }
         else {
@@ -627,7 +646,7 @@ viewController:(VIEW_CONTROLLER_PTR)viewController
     
     NSData* data = [parentOrJson dataUsingEncoding:NSUTF8StringEncoding];
     if ( !data ) {
-        NSLog(@"🔴 Error creating dataUsingEncoding Google Drive database...");
+        slog(@"🔴 Error creating dataUsingEncoding Google Drive database...");
         return nil;
     }
 
@@ -635,7 +654,7 @@ viewController:(VIEW_CONTROLLER_PTR)viewController
     NSDictionary* dict = [NSJSONSerialization JSONObjectWithData:data options:kNilOptions error:&error];
     
     if ( !dict ) {
-        NSLog(@"🔴 Error creating JSONObjectWithData Google Drive database: [%@]", error);
+
         return nil;
     }
     

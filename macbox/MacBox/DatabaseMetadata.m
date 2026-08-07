@@ -8,12 +8,15 @@
 
 #import "DatabaseMetadata.h"
 #import "SecretStore.h"
-#import "BookmarksHelper.h"
-#import "FileManager.h"
+#import "StrongboxMacFilesManager.h"
 #import "Settings.h"
+#import "NSDate+Extensions.h"
 
 const NSInteger kDefaultPasswordExpiryHours = -1; // Forever 14 * 24; // 2 weeks
 static NSString* const kStrongboxICloudContainerIdentifier = @"iCloud.com.strongbox";
+
+const NSInteger kDefaultCacheChallengeDurationSecs = 8 * 60 * 60; 
+const NSInteger kDefaultChallengeRefreshIntervalSecs = 0; 
 
 @interface DatabaseMetadata ()
 
@@ -27,35 +30,91 @@ static NSString* const kStrongboxICloudContainerIdentifier = @"iCloud.com.strong
 
 @implementation DatabaseMetadata
 
++ (NSArray<NSNumber *> *)defaultDetailsViewCollapsedSections {
+    static NSArray<NSNumber *> *defaults;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        defaults = @[@0, @0, @0, @1, @1, @0];
+        NSCAssert(defaults.count == DetailsViewCollapsedSectionCount, @"DetailsViewCollapsedSection defaults out of sync");
+    });
+
+    return defaults;
+}
+
++ (NSArray<NSNumber *> *)normalizedDetailsViewCollapsedSections:(id)detailsViewCollapsedSections {
+    NSArray<NSNumber *> *defaults = [self defaultDetailsViewCollapsedSections];
+
+    if (![detailsViewCollapsedSections isKindOfClass:NSArray.class]) {
+        return defaults;
+    }
+
+    NSArray *decoded = (NSArray *)detailsViewCollapsedSections;
+    for (id item in decoded) {
+        if (![item isKindOfClass:NSNumber.class]) {
+            return defaults;
+        }
+    }
+
+    if (decoded.count >= defaults.count) {
+        return [decoded copy];
+    }
+
+    NSMutableArray<NSNumber *> *normalized = [decoded mutableCopy];
+    for (NSUInteger idx = normalized.count; idx < defaults.count; idx++) {
+        [normalized addObject:defaults[idx]];
+    }
+
+    return [normalized copy];
+}
+
 - (instancetype)init {
     self = [super init];
     if (self) {
+        _uuid = [[NSUUID UUID] UUIDString];
+        
         self.touchIdPasswordExpiryPeriodHours = kDefaultPasswordExpiryHours;
         self.quickTypeDisplayFormat = kQuickTypeFormatTitleThenUsername;
-        self.autoFillConvenienceAutoUnlockTimeout = -1; 
+        self.autoFillConvenienceAutoUnlockTimeout = 180; 
         self.monitorForExternalChanges = YES;
         self.autoReloadAfterExternalChanges = YES;
         self.makeBackups = YES;
         self.maxBackupKeepCount = 10;
-        self.conflictResolutionStrategy = kConflictResolutionStrategyAsk;
+        self.conflictResolutionStrategy = kConflictResolutionStrategyAutoMerge;
         self.showQuickView = YES;
         self.outlineViewTitleIsReadonly = NO;
-        self.outlineViewEditableFieldsAreReadonly = YES;
         self.concealEmptyProtectedFields = YES;
-        self.startWithSearch = NO;
-        self.lockOnScreenLock = YES;
+        self.startWithSearch = YES; 
         self.visibleColumns = @[kTitleColumn, kUsernameColumn, kPasswordColumn, kURLColumn];
-        self.autoFillScanAltUrls = YES;
+        
         self.autoFillScanCustomFields = NO;
         self.autoFillScanNotes = NO;
         self.autoFillConcealedFieldsAsCreds = YES;
         self.iconSet = kKeePassIconSetSfSymbols;
         self.browseSelectedItems = @[];
         self.auditConfig = DatabaseAuditorConfiguration.defaults;
-        self.showChildCountOnFolderInSidebar = YES;
         self.headerNodes = HeaderNodeState.defaults;
+        self.detailsViewCollapsedSections = [DatabaseMetadata defaultDetailsViewCollapsedSections];
         self.autoFillCopyTotp = YES;
         self.searchScope = kSearchScopeAll;
+
+        self.customSortOrderForFields = YES; 
+        
+        
+        
+        self.showChildCountOnFolderInSidebar = YES;
+        self.sideBarChildCountFormat = kSideBarChildCountFormatEntries;
+        self.sideBarChildCountGroupPrefix = @"📁";
+        self.sideBarChildCountSeparator = @"/";
+        self.sideBarChildCountShowZero = YES;
+        self.sideBarShowTotalCountOnHierarchy = YES;
+        
+        self.includeAssociatedDomains = YES;
+        self.quickTypeEnabled = YES;
+        self.cacheChallengeDurationSecs = kDefaultCacheChallengeDurationSecs;
+        self.challengeRefreshIntervalSecs = kDefaultChallengeRefreshIntervalSecs;
+        self.doNotRefreshChallengeInAF = YES;
+        
+        self.hidden = NO;
     }
     
     return self;
@@ -67,12 +126,10 @@ static NSString* const kStrongboxICloudContainerIdentifier = @"iCloud.com.strong
                      storageInfo:(NSString*)storageInfo {
     if(self = [self init]) {
         _nickName = nickName ? nickName : @"<Unknown>";
-        _uuid = [[NSUUID UUID] UUIDString];
         self.storageProvider = storageProvider;
-        self.monitorForExternalChangesInterval = storageProvider == kMacFile ? 5 : 30; 
+        self.monitorForExternalChangesInterval = [self getDefaultMonitorExternalChangesInterval]; 
         self.fileUrl = fileUrl;
         self.storageInfo = storageInfo;
-        self.autoPromptForConvenienceUnlockOnActivate = NO;
     }
     
     return self;
@@ -80,13 +137,10 @@ static NSString* const kStrongboxICloudContainerIdentifier = @"iCloud.com.strong
 
 
 
-- (void)clearSecureItems {
-    [self setConveniencePassword:nil];
-    self.keyFileBookmark = nil;
-    self.autoFillKeyFileBookmark = nil;
-    self.autoFillConvenienceAutoUnlockPassword = nil;
-    self.sideBarSelectedTag = nil;
+- (NSUInteger)getDefaultMonitorExternalChangesInterval {
+    return (self.storageProvider == kLocalDevice || self.storageProvider == kWiFiSync) ? 5 : 30;
 }
+
 
 - (NSString*)getConveniencePasswordIdentifier {
 #ifdef IS_APP_EXTENSION 
@@ -101,7 +155,7 @@ static NSString* const kStrongboxICloudContainerIdentifier = @"iCloud.com.strong
 - (void)triggerPasswordExpiry {
     BOOL expired = NO;
     [SecretStore.sharedInstance getSecureObject:[self getConveniencePasswordIdentifier] expired:&expired];
-
+    
     if ( expired ) { 
         self.conveniencePasswordHasExpired = YES;
     }
@@ -110,11 +164,11 @@ static NSString* const kStrongboxICloudContainerIdentifier = @"iCloud.com.strong
 - (NSString *)conveniencePassword {
     BOOL expired = NO;
     NSString* object = (NSString*)[SecretStore.sharedInstance getSecureObject:[self getConveniencePasswordIdentifier] expired:&expired];
-
+    
     if ( expired ) { 
         self.conveniencePasswordHasExpired = YES;
     }
-
+    
     return object;
 }
 
@@ -151,7 +205,7 @@ static NSString* const kStrongboxICloudContainerIdentifier = @"iCloud.com.strong
 
 - (NSString *)autoFillConvenienceAutoUnlockPassword {
     NSString *key = [NSString stringWithFormat:@"%@-autoFillConvenienceAutoUnlockPassword", self.uuid];
-
+    
     if( self.autoFillConvenienceAutoUnlockTimeout > 0 ) {
         return [SecretStore.sharedInstance getSecureString:key];
     }
@@ -163,11 +217,11 @@ static NSString* const kStrongboxICloudContainerIdentifier = @"iCloud.com.strong
 
 - (void)setAutoFillConvenienceAutoUnlockPassword:(NSString *)autoFillConvenienceAutoUnlockPassword {
     NSString *key = [NSString stringWithFormat:@"%@-autoFillConvenienceAutoUnlockPassword", self.uuid];
-
+    
     if(self.autoFillConvenienceAutoUnlockTimeout > 0 && autoFillConvenienceAutoUnlockPassword) {
         NSDate* expiry = [NSDate.date dateByAddingTimeInterval:self.autoFillConvenienceAutoUnlockTimeout];
         
-        NSLog(@"Setting AutoFIll convenience auto unlock expiry to: [%@]", expiry);
+        slog(@"Setting AutoFIll convenience auto unlock expiry to: [%@]", expiry);
         
         [SecretStore.sharedInstance setSecureObject:autoFillConvenienceAutoUnlockPassword forIdentifier:key expiresAt:expiry];
     }
@@ -210,6 +264,7 @@ static NSString* const kStrongboxICloudContainerIdentifier = @"iCloud.com.strong
     [encoder encodeObject:self.fileUrl forKey:@"fileUrl"];
     [encoder encodeObject:self.storageInfo forKey:@"fileIdentifier"];
     [encoder encodeInteger:self.storageProvider forKey:@"storageProvider"];
+    [encoder encodeBool:self.hidden forKey:@"hidden"];
     [encoder encodeBool:self.isTouchIdEnabled forKey:@"isTouchIdEnabled"];
     [encoder encodeBool:self.hasPromptedForTouchIdEnrol forKey:@"hasPromptedForTouchIdEnrol"];
     [encoder encodeInteger:self.touchIdPasswordExpiryPeriodHours forKey:@"touchIdPasswordExpiryPeriodHours"];
@@ -219,18 +274,17 @@ static NSString* const kStrongboxICloudContainerIdentifier = @"iCloud.com.strong
     [encoder encodeBool:self.autoFillEnabled forKey:@"autoFillEnabled"];
     [encoder encodeBool:self.quickTypeEnabled forKey:@"quickTypeEnabled"];
     [encoder encodeBool:self.hasPromptedForAutoFillEnrol forKey:@"hasPromptedForAutoFillEnrol"];
-    [encoder encodeBool:self.quickWormholeFillEnabled forKey:@"quickWormholeFillEnabled"];
     [encoder encodeInteger:self.quickTypeDisplayFormat forKey:@"quickTypeDisplayFormat"];
-
+    
     [encoder encodeInteger:self.conflictResolutionStrategy forKey:@"conflictResolutionStrategy2"];
     [encoder encodeObject:self.outstandingUpdateId forKey:@"outstandingUpdateId"];
     [encoder encodeObject:self.lastSyncRemoteModDate forKey:@"lastSyncRemoteModDate"];
     [encoder encodeObject:self.lastSyncAttempt forKey:@"lastSyncAttempt"];
-
+    
     [encoder encodeBool:self.launchAtStartup forKey:@"launchAtStartup"];
-
+    
     [encoder encodeBool:self.isWatchUnlockEnabled forKey:@"isWatchUnlockEnabled"];
-    [encoder encodeBool:self.autoPromptForConvenienceUnlockOnActivate forKey:@"autoPromptForConvenienceUnlockOnActivate"];
+
     
     [encoder encodeObject:self.autoFillLastUnlockedAt forKey:@"autoFillLastUnlockedAt"];
     [encoder encodeInteger:self.autoFillConvenienceAutoUnlockTimeout forKey:@"autoFillConvenienceAutoUnlockTimeout"];
@@ -238,10 +292,10 @@ static NSString* const kStrongboxICloudContainerIdentifier = @"iCloud.com.strong
     [encoder encodeBool:self.monitorForExternalChanges forKey:@"monitorForExternalChanges"];
     [encoder encodeInteger:self.monitorForExternalChangesInterval forKey:@"monitorForExternalChangesInterval"];
     [encoder encodeBool:self.autoReloadAfterExternalChanges forKey:@"autoReloadAfterExternalChanges"];
-
+    
     [encoder encodeInteger:self.maxBackupKeepCount forKey:@"maxBackupKeepCount"];
     [encoder encodeBool:self.makeBackups forKey:@"makeBackups"];
-    [encoder encodeBool:self.offlineMode forKey:@"offlineMode"];
+    [encoder encodeBool:self.userRequestOfflineOpenEphemeralFlagForDocument forKey:@"offlineMode"];
     [encoder encodeBool:self.readOnly forKey:@"readOnly"];
     [encoder encodeBool:self.alwaysOpenOffline forKey:@"alwaysOpenOffline"];
     
@@ -256,11 +310,9 @@ static NSString* const kStrongboxICloudContainerIdentifier = @"iCloud.com.strong
     [encoder encodeBool:self.doNotShowAutoCompleteSuggestions forKey:@"doNotShowAutoCompleteSuggestions"];
     [encoder encodeBool:self.doNotShowChangeNotifications forKey:@"doNotShowChangeNotifications"];
     [encoder encodeBool:self.outlineViewTitleIsReadonly forKey:@"outlineViewTitleIsReadonly"];
-    [encoder encodeBool:self.outlineViewEditableFieldsAreReadonly forKey:@"outlineViewEditableFieldsAreReadonly"];
     [encoder encodeBool:self.concealEmptyProtectedFields forKey:@"concealEmptyProtectedFields"];
     [encoder encodeBool:self.startWithSearch forKey:@"startWithSearch"];
     [encoder encodeBool:self.showAdvancedUnlockOptions forKey:@"showAdvancedUnlockOptions"];
-    [encoder encodeBool:self.lockOnScreenLock forKey:@"lockOnScreenLock"];
     [encoder encodeBool:self.expressDownloadFavIconOnNewOrUrlChanged forKey:@"expressDownloadFavIconOnNewOrUrlChanged"];
     [encoder encodeBool:self.doNotShowRecycleBinInBrowse forKey:@"doNotShowRecycleBinInBrowse"];
     [encoder encodeBool:self.showRecycleBinInSearchResults forKey:@"showRecycleBinInSearchResults"];
@@ -270,8 +322,8 @@ static NSString* const kStrongboxICloudContainerIdentifier = @"iCloud.com.strong
     /* =================================================================================================== */
     
     [encoder encodeBool:self.hasSetInitialWindowPosition forKey:@"hasSetInitialWindowPosition"];
+    [encoder encodeBool:self.hasSetInitialUnlockedFrame forKey:@"hasSetInitialUnlockedFrame"];
     
-    [encoder encodeBool:self.autoFillScanAltUrls forKey:@"autoFillScanAltUrls"];
     [encoder encodeBool:self.autoFillScanCustomFields forKey:@"autoFillScanCustomFields"];
     [encoder encodeBool:self.autoFillScanNotes forKey:@"autoFillScanNotes"];
     
@@ -284,7 +336,7 @@ static NSString* const kStrongboxICloudContainerIdentifier = @"iCloud.com.strong
     [encoder encodeBool:self.autoFillConcealedFieldsAsCreds forKey:@"autoFillConcealedFieldsAsCreds"];
     [encoder encodeBool:self.autoFillUnConcealedFieldsAsCreds forKey:@"autoFillUnConcealedFieldsAsCreds"];
     [encoder encodeObject:self.asyncUpdateId forKey:@"asyncUpdateId"];
-
+    
     [encoder encodeBool:self.promptedForAutoFetchFavIcon forKey:@"promptedForAutoFetchFavIcon"];
     [encoder encodeInteger:self.iconSet forKey:@"iconSet"];
     
@@ -299,13 +351,46 @@ static NSString* const kStrongboxICloudContainerIdentifier = @"iCloud.com.strong
     [encoder encodeInteger:self.sideBarSelectedAuditCategory forKey:@"sideBarSelectedAuditCategory"];
     
     [encoder encodeObject:self.sideBarSelectedFavouriteId forKey:@"sideBarSelectedFavouriteId"];
-    [encoder encodeBool:self.showChildCountOnFolderInSidebar forKey:@"showChildCountOnFolderInSidebar"];
     
     [encoder encodeObject:self.headerNodes forKey:@"headerNodes2"];
+    [encoder encodeObject:self.detailsViewCollapsedSections forKey:@"detailsViewCollapsedSections"];
     
     [encoder encodeBool:self.customSortOrderForFields forKey:@"customSortOrderForFields"];
     [encoder encodeBool:self.autoFillCopyTotp forKey:@"autoFillCopyTotp"];
     [encoder encodeInteger:self.searchScope forKey:@"searchScope"];
+    [encoder encodeBool:self.searchIncludeGroups forKey:@"searchIncludeGroups"];
+    
+    
+    
+    [encoder encodeBool:self.showChildCountOnFolderInSidebar forKey:@"showChildCountOnFolderInSidebar"];
+    [encoder encodeInteger:self.sideBarChildCountFormat forKey:@"sideBarChildCountFormat"];
+    [encoder encodeObject:self.sideBarChildCountGroupPrefix forKey:@"sideBarChildCountGroupPrefix"];
+    [encoder encodeObject:self.sideBarChildCountSeparator forKey:@"sideBarChildCountSeparator"];
+    [encoder encodeBool:self.sideBarChildCountShowZero forKey:@"sideBarChildCountShowZero"];
+    [encoder encodeBool:self.sideBarShowTotalCountOnHierarchy forKey:@"sideBarShowTotalCountOnHierarchy"];
+    
+    [encoder encodeBool:self.includeAssociatedDomains forKey:@"includeAssociatedDomains"];
+    
+    if ( self.lastKnownEncryptionSettings ) {
+        [encoder encodeObject:self.lastKnownEncryptionSettings forKey:@"lastKnownEncryptionSettings"];
+    }
+    
+    if ( self.serializationPerf ) {
+        [encoder encodeObject:self.serializationPerf forKey:@"serializationPerf"];
+    }
+    
+    [encoder encodeBool:self.isSharedInCloudKit forKey:@"isSharedInCloudKit"];
+    [encoder encodeBool:self.isOwnedByMeCloudKit forKey:@"isOwnedByMeCloudKit"];
+
+    [encoder encodeBool:self.hardwareKeyCRCaching forKey:@"hardwareKeyCRCaching"];
+    
+    [encoder encodeObject:self.lastChallengeRefreshAt forKey:@"lastChallengeRefreshAt"];
+    [encoder encodeInteger:self.challengeRefreshIntervalSecs forKey:@"challengeRefreshIntervalSecs"];
+    [encoder encodeInteger:self.cacheChallengeDurationSecs forKey:@"cacheChallengeDurationSecs"];
+    
+    [encoder encodeBool:self.doNotRefreshChallengeInAF forKey:@"doNotRefreshChallengeInAF"];
+    [encoder encodeBool:self.hasOnboardedHardwareKeyCaching forKey:@"hasOnboardedHardwareKeyCaching"];
+    [encoder encodeBool:self.markDirtyOnExpandCollapseGroups forKey:@"markDirtyOnExpandCollapseGroups"];
 }
 
 - (id)initWithCoder:(NSCoder *)decoder {
@@ -319,14 +404,18 @@ static NSString* const kStrongboxICloudContainerIdentifier = @"iCloud.com.strong
         self.storageProvider = (int)[decoder decodeIntegerForKey:@"storageProvider"];
         self.isTouchIdEnabled = [decoder decodeBoolForKey:@"isTouchIdEnabled"];
         
+        if ( [decoder containsValueForKey:@"hidden"] ) {
+            self.hidden = [decoder decodeBoolForKey:@"hidden"];
+        }
+        
         if([decoder containsValueForKey:@"hasPromptedForTouchIdEnrol"]) {
             self.hasPromptedForTouchIdEnrol = [decoder decodeBoolForKey:@"hasPromptedForTouchIdEnrol"];
         }
-
+        
         if([decoder containsValueForKey:@"touchIdPasswordExpiryPeriodHours"]) {
             self.touchIdPasswordExpiryPeriodHours = [decoder decodeIntegerForKey:@"touchIdPasswordExpiryPeriodHours"];
         }
-    
+        
         if([decoder containsValueForKey:@"isTouchIdEnrolled"]) {
             self.isTouchIdEnrolled = [decoder decodeBoolForKey:@"isTouchIdEnrolled"];
         }
@@ -341,11 +430,14 @@ static NSString* const kStrongboxICloudContainerIdentifier = @"iCloud.com.strong
         if ( [decoder containsValueForKey:@"autoFillStorageInfo"] ) {
             self.autoFillStorageInfo = [decoder decodeObjectForKey:@"autoFillStorageInfo"];
         }
-
+        
         if([decoder containsValueForKey:@"quickTypeEnabled"]) {
             self.quickTypeEnabled = [decoder decodeBoolForKey:@"quickTypeEnabled"];
         }
-
+        else {
+            self.quickTypeEnabled = YES;
+        }
+        
         if([decoder containsValueForKey:@"autoFillEnabled"]) {
             self.autoFillEnabled = [decoder decodeBoolForKey:@"autoFillEnabled"];
         }
@@ -353,23 +445,19 @@ static NSString* const kStrongboxICloudContainerIdentifier = @"iCloud.com.strong
         if([decoder containsValueForKey:@"hasPromptedForAutoFillEnrol"]) {
             self.hasPromptedForAutoFillEnrol = [decoder decodeBoolForKey:@"hasPromptedForAutoFillEnrol"];
         }
-
-        if([decoder containsValueForKey:@"quickWormholeFillEnabled"]) {
-            self.quickWormholeFillEnabled = [decoder decodeBoolForKey:@"quickWormholeFillEnabled"];
-        }
         
         if([decoder containsValueForKey:@"quickTypeDisplayFormat"]) {
             self.quickTypeDisplayFormat = [decoder decodeIntegerForKey:@"quickTypeDisplayFormat"];
         }
-                
+        
         if ( [decoder containsValueForKey:@"outstandingUpdateId"] ) {
             self.outstandingUpdateId = [decoder decodeObjectForKey:@"outstandingUpdateId"];
         }
-
+        
         if ( [decoder containsValueForKey:@"lastSyncRemoteModDate"] ) {
             self.lastSyncRemoteModDate = [decoder decodeObjectForKey:@"lastSyncRemoteModDate"];
         }
-
+        
         if ( [decoder containsValueForKey:@"lastSyncAttempt"] ) {
             self.lastSyncAttempt = [decoder decodeObjectForKey:@"lastSyncAttempt"];
         }
@@ -377,7 +465,7 @@ static NSString* const kStrongboxICloudContainerIdentifier = @"iCloud.com.strong
         if([decoder containsValueForKey:@"launchAtStartup"]) {
             self.launchAtStartup = [decoder decodeBoolForKey:@"launchAtStartup"];
         }
-
+        
         if( [decoder containsValueForKey:@"isWatchUnlockEnabled"] ) {
             self.isWatchUnlockEnabled = [decoder decodeBoolForKey:@"isWatchUnlockEnabled"];
         }
@@ -385,10 +473,10 @@ static NSString* const kStrongboxICloudContainerIdentifier = @"iCloud.com.strong
             self.isWatchUnlockEnabled = self.isTouchIdEnabled; 
         }
         
-        if( [decoder containsValueForKey:@"autoPromptForConvenienceUnlockOnActivate"] ) {
-            self.autoPromptForConvenienceUnlockOnActivate = [decoder decodeBoolForKey:@"autoPromptForConvenienceUnlockOnActivate"];
-        }
 
+
+
+        
         if( [decoder containsValueForKey:@"autoFillLastUnlockedAt"] ) {
             self.autoFillLastUnlockedAt = [decoder decodeObjectForKey:@"autoFillLastUnlockedAt"];
         }
@@ -403,12 +491,12 @@ static NSString* const kStrongboxICloudContainerIdentifier = @"iCloud.com.strong
         if( [decoder containsValueForKey:@"monitorForExternalChanges"] ) {
             self.monitorForExternalChanges = [decoder decodeBoolForKey:@"monitorForExternalChanges"];
         }
-
+        
         if( [decoder containsValueForKey:@"monitorForExternalChangesInterval"] ) {
             self.monitorForExternalChangesInterval = [decoder decodeIntegerForKey:@"monitorForExternalChangesInterval"];
         }
         else {
-            self.monitorForExternalChangesInterval = self.storageProvider == kMacFile ? 10 : 30; 
+            self.monitorForExternalChangesInterval = [self getDefaultMonitorExternalChangesInterval]; 
         }
         
         if( [decoder containsValueForKey:@"autoReloadAfterExternalChanges"] ) {
@@ -430,7 +518,7 @@ static NSString* const kStrongboxICloudContainerIdentifier = @"iCloud.com.strong
             self.makeBackups = [decoder decodeBoolForKey:@"makeBackups"];
         }
         if ( [decoder containsValueForKey:@"offlineMode"] ) {
-            self.offlineMode = [decoder decodeBoolForKey:@"offlineMode"];
+            self.userRequestOfflineOpenEphemeralFlagForDocument = [decoder decodeBoolForKey:@"offlineMode"];
         }
         if ( [decoder containsValueForKey:@"readOnly"] ) {
             self.readOnly = [decoder decodeBoolForKey:@"readOnly"];
@@ -441,7 +529,7 @@ static NSString* const kStrongboxICloudContainerIdentifier = @"iCloud.com.strong
         
         /* =================================================================================================== */
         /* Migrated to Per Database Settings - Begin 14 Jun 2021 - Give 3 months migration time -> 14-Sep-2021 */
-       
+        
         if ( [decoder containsValueForKey:@"showQuickView"] ) {
             self.showQuickView = [decoder decodeBoolForKey:@"showQuickView"];
         }
@@ -449,67 +537,59 @@ static NSString* const kStrongboxICloudContainerIdentifier = @"iCloud.com.strong
         if ( [decoder containsValueForKey:@"doNotShowTotp"] ) {
             self.doNotShowTotp = [decoder decodeBoolForKey:@"doNotShowTotp"];
         }
-
+        
         if ( [decoder containsValueForKey:@"noAlternatingRows"] ) {
             self.noAlternatingRows = [decoder decodeBoolForKey:@"noAlternatingRows"];
         }
-
+        
         if ( [decoder containsValueForKey:@"showHorizontalGrid"] ) {
             self.showHorizontalGrid = [decoder decodeBoolForKey:@"showHorizontalGrid"];
         }
-
+        
         if ( [decoder containsValueForKey:@"showVerticalGrid"] ) {
             self.showVerticalGrid = [decoder decodeBoolForKey:@"showVerticalGrid"];
         }
-
+        
         if ( [decoder containsValueForKey:@"doNotShowAutoCompleteSuggestions"] ) {
             self.doNotShowAutoCompleteSuggestions = [decoder decodeBoolForKey:@"doNotShowAutoCompleteSuggestions"];
         }
-
+        
         if ( [decoder containsValueForKey:@"doNotShowChangeNotifications"] ) {
             self.doNotShowChangeNotifications = [decoder decodeBoolForKey:@"doNotShowChangeNotifications"];
         }
-
+        
         if ( [decoder containsValueForKey:@"outlineViewTitleIsReadonly"] ) {
             self.outlineViewTitleIsReadonly = [decoder decodeBoolForKey:@"outlineViewTitleIsReadonly"];
         }
-
-        if ( [decoder containsValueForKey:@"outlineViewEditableFieldsAreReadonly"] ) {
-            self.outlineViewEditableFieldsAreReadonly = [decoder decodeBoolForKey:@"outlineViewEditableFieldsAreReadonly"];
-        }
-
+        
         if ( [decoder containsValueForKey:@"concealEmptyProtectedFields"] ) {
             self.concealEmptyProtectedFields = [decoder decodeBoolForKey:@"concealEmptyProtectedFields"];
         }
-
+        
         if ( [decoder containsValueForKey:@"startWithSearch"] ) {
             self.startWithSearch = [decoder decodeBoolForKey:@"startWithSearch"];
         }
-
+        
         if ( [decoder containsValueForKey:@"showAdvancedUnlockOptions"] ) {
             self.showAdvancedUnlockOptions = [decoder decodeBoolForKey:@"showAdvancedUnlockOptions"];
         }
-
-        if ( [decoder containsValueForKey:@"lockOnScreenLock"] ) {
-            self.lockOnScreenLock = [decoder decodeBoolForKey:@"lockOnScreenLock"];
-        }
-
+        
         if ( [decoder containsValueForKey:@"expressDownloadFavIconOnNewOrUrlChanged"] ) {
             self.expressDownloadFavIconOnNewOrUrlChanged = [decoder decodeBoolForKey:@"expressDownloadFavIconOnNewOrUrlChanged"];
         }
-
+        
         if ( [decoder containsValueForKey:@"doNotShowRecycleBinInBrowse"] ) {
             self.doNotShowRecycleBinInBrowse = [decoder decodeBoolForKey:@"doNotShowRecycleBinInBrowse"];
         }
-
+        
         if ( [decoder containsValueForKey:@"showRecycleBinInSearchResults"] ) {
             self.showRecycleBinInSearchResults = [decoder decodeBoolForKey:@"showRecycleBinInSearchResults"];
         }
-
+        
         if ( [decoder containsValueForKey:@"uiDoNotSortKeePassNodesInBrowseView"] ) {
             self.uiDoNotSortKeePassNodesInBrowseView = [decoder decodeBoolForKey:@"uiDoNotSortKeePassNodesInBrowseView"];
         }
-
+        
         if ( [decoder containsValueForKey:@"visibleColumns"] ) {
             self.visibleColumns = [decoder decodeObjectForKey:@"visibleColumns"];
         }
@@ -522,21 +602,23 @@ static NSString* const kStrongboxICloudContainerIdentifier = @"iCloud.com.strong
         else {
             self.hasSetInitialWindowPosition = YES; 
         }
-
         
-        
-        if ( [decoder containsValueForKey:@"autoFillScanAltUrls"] ) {
-            self.autoFillScanAltUrls = [decoder decodeBoolForKey:@"autoFillScanAltUrls"];
+        if ( [decoder containsValueForKey:@"hasSetInitialUnlockedFrame"] ) {
+            self.hasSetInitialUnlockedFrame = [decoder decodeBoolForKey:@"hasSetInitialUnlockedFrame"];
         }
         else {
-            self.autoFillScanAltUrls = YES;
+            self.hasSetInitialUnlockedFrame = YES; 
         }
+        
+        
+        
         if ( [decoder containsValueForKey:@"autoFillScanCustomFields"] ) {
             self.autoFillScanCustomFields = [decoder decodeBoolForKey:@"autoFillScanCustomFields"];
         }
         else {
-            self.autoFillScanCustomFields = YES;
+            self.autoFillScanCustomFields = NO;
         }
+        
         if ( [decoder containsValueForKey:@"autoFillScanNotes"] ) {
             self.autoFillScanNotes = [decoder decodeBoolForKey:@"autoFillScanNotes"];
         }
@@ -563,7 +645,7 @@ static NSString* const kStrongboxICloudContainerIdentifier = @"iCloud.com.strong
         }
         
         
-
+        
         if ( [decoder containsValueForKey:@"autoFillConcealedFieldsAsCreds"] ) {
             self.autoFillConcealedFieldsAsCreds = [decoder decodeBoolForKey:@"autoFillConcealedFieldsAsCreds"];
         }
@@ -596,7 +678,7 @@ static NSString* const kStrongboxICloudContainerIdentifier = @"iCloud.com.strong
         }
         
         
-
+        
         if ( [decoder containsValueForKey:@"sideBarNavigationContext"] ) {
             self.sideBarNavigationContext = [decoder decodeIntegerForKey:@"sideBarNavigationContext"];
         }
@@ -610,7 +692,7 @@ static NSString* const kStrongboxICloudContainerIdentifier = @"iCloud.com.strong
         else {
             self.sideBarSelectedGroup = nil;
         }
-
+        
         if ( [decoder containsValueForKey:@"sideBarSelectedSpecial"] ) {
             self.sideBarSelectedSpecial = [decoder decodeIntegerForKey:@"sideBarSelectedSpecial"];
         }
@@ -640,22 +722,25 @@ static NSString* const kStrongboxICloudContainerIdentifier = @"iCloud.com.strong
             self.sideBarSelectedFavouriteId = nil;
         }
         
-        if ( [decoder containsValueForKey:@"showChildCountOnFolderInSidebar"] ) {
-            self.showChildCountOnFolderInSidebar = [decoder decodeBoolForKey:@"showChildCountOnFolderInSidebar"];
-        }
-        else {
-            self.showChildCountOnFolderInSidebar = YES;
-        }
-        
         if ( [decoder containsValueForKey:@"headerNodes2"] ) {
             self.headerNodes = [decoder decodeObjectForKey:@"headerNodes2"];
         }
         else {
             self.headerNodes = HeaderNodeState.defaults;
         }
+
+        if ( [decoder containsValueForKey:@"detailsViewCollapsedSections"] ) {
+            self.detailsViewCollapsedSections = [DatabaseMetadata normalizedDetailsViewCollapsedSections:[decoder decodeObjectForKey:@"detailsViewCollapsedSections"]];
+        }
+        else {
+            self.detailsViewCollapsedSections = [DatabaseMetadata defaultDetailsViewCollapsedSections];
+        }
         
         if ( [decoder containsValueForKey:@"customSortOrderForFields"] ) {
             self.customSortOrderForFields = [decoder decodeBoolForKey:@"customSortOrderForFields"];
+        }
+        else {
+            self.customSortOrderForFields = YES;
         }
         
         if ( [decoder containsValueForKey:@"autoFillCopyTotp"] ) {
@@ -671,6 +756,118 @@ static NSString* const kStrongboxICloudContainerIdentifier = @"iCloud.com.strong
         else {
             self.searchScope = kSearchScopeTitle;
         }
+        
+        if ( [decoder containsValueForKey:@"searchIncludeGroups"] ) {
+            self.searchIncludeGroups = [decoder decodeBoolForKey:@"searchIncludeGroups"];
+        }
+        else {
+            self.searchIncludeGroups = NO;
+        }
+        
+        
+        
+        
+        if ( [decoder containsValueForKey:@"showChildCountOnFolderInSidebar"] ) {
+            self.showChildCountOnFolderInSidebar = [decoder decodeBoolForKey:@"showChildCountOnFolderInSidebar"];
+        }
+        else {
+            self.showChildCountOnFolderInSidebar = YES;
+        }
+        
+        if ( [decoder containsValueForKey:@"sideBarChildCountFormat"] ) {
+            self.sideBarChildCountFormat = [decoder decodeIntegerForKey:@"sideBarChildCountFormat"];
+        }
+        else {
+            self.sideBarChildCountFormat = kSideBarChildCountFormatEntries;
+        }
+        
+        if ( [decoder containsValueForKey:@"sideBarChildCountGroupPrefix"] ) {
+            self.sideBarChildCountGroupPrefix = [decoder decodeObjectForKey:@"sideBarChildCountGroupPrefix"];
+        }
+        else {
+            self.sideBarChildCountGroupPrefix = @"📁";
+        }
+        
+        if ( [decoder containsValueForKey:@"sideBarChildCountSeparator"] ) {
+            self.sideBarChildCountSeparator = [decoder decodeObjectForKey:@"sideBarChildCountSeparator"];
+        }
+        else {
+            self.sideBarChildCountSeparator = @"/";
+        }
+        
+        if ( [decoder containsValueForKey:@"sideBarChildCountShowZero"] ) {
+            self.sideBarChildCountShowZero = [decoder decodeBoolForKey:@"sideBarChildCountShowZero"];
+        }
+        else {
+            self.sideBarChildCountShowZero = YES;
+        }
+        
+        if ( [decoder containsValueForKey:@"sideBarShowTotalCountOnHierarchy"] ) {
+            self.sideBarShowTotalCountOnHierarchy = [decoder decodeBoolForKey:@"sideBarShowTotalCountOnHierarchy"];
+        }
+        else {
+            self.sideBarShowTotalCountOnHierarchy = YES;
+        }
+     
+        if ( [decoder containsValueForKey:@"includeAssociatedDomains"] ) {
+            self.includeAssociatedDomains = [decoder decodeBoolForKey:@"includeAssociatedDomains"];
+        }
+        else {
+            self.includeAssociatedDomains = YES;
+        }
+
+        if ( [decoder containsValueForKey:@"lastKnownEncryptionSettings"] ) {
+            self.lastKnownEncryptionSettings = [decoder decodeObjectForKey:@"lastKnownEncryptionSettings"];
+        }
+
+        if ( [decoder containsValueForKey:@"serializationPerf"] ) {
+            self.serializationPerf = [decoder decodeObjectForKey:@"serializationPerf"];
+        }
+        
+        if ( [decoder containsValueForKey:@"isSharedInCloudKit"] ) {
+            self.isSharedInCloudKit = [decoder decodeBoolForKey:@"isSharedInCloudKit"];
+        }
+        if ( [decoder containsValueForKey:@"isOwnedByMeCloudKit"] ) {
+            self.isOwnedByMeCloudKit = [decoder decodeBoolForKey:@"isOwnedByMeCloudKit"];
+        }
+        
+        
+
+        if ( [decoder containsValueForKey:@"hardwareKeyCRCaching"] ) {
+            self.hardwareKeyCRCaching = [decoder decodeBoolForKey:@"hardwareKeyCRCaching"];
+        }
+        if ( [decoder containsValueForKey:@"lastChallengeRefreshAt"] ) {
+            self.lastChallengeRefreshAt = [decoder decodeObjectForKey:@"lastChallengeRefreshAt"];
+        }
+
+        if ( [decoder containsValueForKey:@"challengeRefreshIntervalSecs"] ) {
+            self.challengeRefreshIntervalSecs = [decoder decodeIntForKey:@"challengeRefreshIntervalSecs"];
+        }
+        else {
+            self.challengeRefreshIntervalSecs = kDefaultChallengeRefreshIntervalSecs;
+        }
+
+        if ( [decoder containsValueForKey:@"cacheChallengeDurationSecs"] ) {
+            self.cacheChallengeDurationSecs = [decoder decodeIntForKey:@"cacheChallengeDurationSecs"];
+        }
+        else {
+            self.cacheChallengeDurationSecs = kDefaultCacheChallengeDurationSecs;
+        }
+        
+        if ( [decoder containsValueForKey:@"doNotRefreshChallengeInAF"] ) {
+            self.doNotRefreshChallengeInAF = [decoder decodeBoolForKey:@"doNotRefreshChallengeInAF"];
+        }
+        else {
+            self.doNotRefreshChallengeInAF = YES;
+        }
+        
+        if ( [decoder containsValueForKey:@"hasOnboardedHardwareKeyCaching"] ) {
+            self.hasOnboardedHardwareKeyCaching = [decoder decodeBoolForKey:@"hasOnboardedHardwareKeyCaching"];
+        }        
+        
+        if ( [decoder containsValueForKey:@"markDirtyOnExpandCollapseGroups"] ) {
+            self.markDirtyOnExpandCollapseGroups = [decoder decodeBoolForKey:@"markDirtyOnExpandCollapseGroups"];
+        }
     }
     
     return self;
@@ -679,26 +876,34 @@ static NSString* const kStrongboxICloudContainerIdentifier = @"iCloud.com.strong
 
 
 - (NSURL *)backupsDirectory {
-    NSURL* url = [FileManager.sharedInstance.backupFilesDirectory URLByAppendingPathComponent:self.uuid isDirectory:YES];
+    NSURL* url = [StrongboxFilesManager.sharedInstance.backupFilesDirectory URLByAppendingPathComponent:self.uuid isDirectory:YES];
     
-    [FileManager.sharedInstance createIfNecessary:url];
+    [StrongboxFilesManager.sharedInstance createIfNecessary:url];
     
     return url;
 }
 
 - (BOOL)isLocalDeviceDatabase {
-    return self.storageProvider == kMacFile;
+    return self.storageProvider == kLocalDevice;
 }
 
 
 
 
 - (NSString *)conveniencePin {
-    return nil;
+    NSString *key = [NSString stringWithFormat:@"%@-convenience-pin", self.uuid];
+    return [SecretStore.sharedInstance getSecureString:key];
 }
 
 - (void)setConveniencePin:(NSString *)conveniencePin {
-    
+    NSString *key = [NSString stringWithFormat:@"%@-convenience-pin", self.uuid];
+
+    if ( conveniencePin ) {
+        [SecretStore.sharedInstance setSecureString:conveniencePin forIdentifier:key];
+    }
+    else {
+        [SecretStore.sharedInstance deleteSecureItem:key];
+    }
 }
 
 - (BOOL)isEnrolledForConvenience {
@@ -733,12 +938,23 @@ static NSString* const kStrongboxICloudContainerIdentifier = @"iCloud.com.strong
     self.touchIdPasswordExpiryPeriodHours = convenienceExpiryPeriod;
 }
 
-- (NSArray<NSString *> *)favourites {
-    return @[];
+- (NSArray<NSString *> *)legacyFavouritesStore { 
+    NSString *key = [NSString stringWithFormat:@"%@-favourites", self.uuid];
+    
+    NSArray<NSString *>* ret = [SecretStore.sharedInstance getSecureObject:key];
+    
+    return ret ? ret : @[];
 }
 
-- (void)setFavourites:(NSArray<NSString *> *)favourites {
+- (void)setLegacyFavouritesStore:(NSArray<NSString *> *)favourites {
+    NSString *key = [NSString stringWithFormat:@"%@-favourites", self.uuid];
     
+    if(favourites) {
+        [SecretStore.sharedInstance setSecureObject:favourites forIdentifier:key];
+    }
+    else {
+        [SecretStore.sharedInstance deleteSecureItem:key];
+    }
 }
 
 - (NSArray<NSString *> *)auditExcludedItems {
@@ -752,10 +968,21 @@ static NSString* const kStrongboxICloudContainerIdentifier = @"iCloud.com.strong
     [SecretStore.sharedInstance setSecureObject:auditExcludedItems forIdentifier:key];
 }
 
+- (NSArray<NSString *> *)autoFillExcludedItems {
+    NSString* key = [NSString stringWithFormat:@"autoFillExcludedItems-%@", self.uuid];
+    NSArray* ret = [SecretStore.sharedInstance getSecureObject:key];
+    return ret ? ret : @[];
+}
+
+- (void)setAutoFillExcludedItems:(NSArray<NSString *> *)autoFillExcludedItems {
+    NSString* key = [NSString stringWithFormat:@"autoFillExcludedItems-%@", self.uuid];
+    [SecretStore.sharedInstance setSecureObject:autoFillExcludedItems forIdentifier:key];
+}
+
 
 
 - (BOOL)isConvenienceUnlockEnabled {
-    return self.isTouchIdEnabled || self.isWatchUnlockEnabled;
+    return self.isTouchIdEnabled || self.isWatchUnlockEnabled || (self.conveniencePin != nil);
 }
 
 - (BOOL)conveniencePasswordHasBeenStored {
@@ -825,6 +1052,64 @@ static NSString* const kStrongboxICloudContainerIdentifier = @"iCloud.com.strong
     NSString* foo = searchText ? searchText : @"";
     NSString* key = [NSString stringWithFormat:@"search-text-%@", self.uuid];
     [SecretStore.sharedInstance setSecureString:foo forIdentifier:key];
+}
+
+- (NSString *)fallbackLastKnownKeyFileUrl {
+    NSString* key = [NSString stringWithFormat:@"fallbackLastKnownKeyFileUrl-%@", self.uuid];
+    NSString* ret = [SecretStore.sharedInstance getSecureString:key];
+    
+    slog(@"fallbackLastKnownKeyFileUrl GET: [%@]", ret);
+    
+    return ret;
+}
+
+- (void)setFallbackLastKnownKeyFileUrl:(NSString *)fallbackLastKnownKeyFileUrl {
+    NSString* key = [NSString stringWithFormat:@"fallbackLastKnownKeyFileUrl-%@", self.uuid];
+    [SecretStore.sharedInstance setSecureString:fallbackLastKnownKeyFileUrl forIdentifier:key];
+    slog(@"fallbackLastKnownKeyFileUrl SET: [%@]", fallbackLastKnownKeyFileUrl);
+}
+
+
+
+- (NSDictionary<NSData *,NSData *> *)cachedYubiKeyChallengeResponses {
+    NSString *key = [NSString stringWithFormat:@"%@-cached-crs", self.uuid];
+    
+    NSDictionary<NSData *,NSData *> *ret = [SecretStore.sharedInstance getSecureObject:key];
+    
+    return ret ? ret : @{};
+}
+
+- (void)setCachedYubiKeyChallengeResponses:(NSDictionary<NSData *,NSData *> *)cachedYubiKeyChallengeResponses {
+    NSString *key = [NSString stringWithFormat:@"%@-cached-crs", self.uuid];
+    
+    if ( cachedYubiKeyChallengeResponses ) {
+        if ( self.cacheChallengeDurationSecs > 0 ) {
+            NSDate* expiry = [NSDate.now dateByAddingTimeInterval:self.cacheChallengeDurationSecs];
+            slog(@"setting challenge cache with expiry = [%@]", expiry.friendlyDateTimeStringBothPrecise);
+            [SecretStore.sharedInstance setSecureObject:cachedYubiKeyChallengeResponses forIdentifier:key expiresAt:expiry];
+        }
+        else if ( self.cacheChallengeDurationSecs == 0 ) { 
+            [SecretStore.sharedInstance setSecureObject:cachedYubiKeyChallengeResponses forIdentifier:key];
+        }
+        else {
+            [SecretStore.sharedInstance setSecureEphemeralObject:cachedYubiKeyChallengeResponses forIdentifer:key];
+        }
+    }
+    else {
+        [SecretStore.sharedInstance deleteSecureItem:key];
+    }
+}
+
+
+
+- (void)clearSecureItems {
+    [self setConveniencePassword:nil];
+    self.keyFileBookmark = nil;
+    self.fallbackLastKnownKeyFileUrl = nil;
+    self.autoFillKeyFileBookmark = nil;
+    self.autoFillConvenienceAutoUnlockPassword = nil;
+    self.sideBarSelectedTag = nil;
+    self.cachedYubiKeyChallengeResponses = nil;
 }
 
 @end

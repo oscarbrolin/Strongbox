@@ -10,12 +10,35 @@
 #import <AuthenticationServices/AuthenticationServices.h>
 #import "QuickTypeRecordIdentifier.h"
 #import "NSArray+Extensions.h"
+#import "NSDate+Extensions.h"
 #import "SprCompilation.h"
 #import "NSString+Extensions.h"
 #import "CommonDatabasePreferences.h"
 #import "Utils.h"
 #import "ConcurrentMutableDictionary.h"
 #import "AutoFillCommon.h"
+#import "CrossPlatform.h"
+#import "Node+Passkey.h"
+#import "Constants.h"
+
+
+
+#ifndef IS_APP_EXTENSION
+#import "Strongbox-Swift.h"
+#else
+#import "Strongbox_Auto_Fill-Swift.h"
+#endif
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -32,66 +55,91 @@
     return sharedInstance;
 }
 
-
-
-- (void)updateAutoFillQuickTypeDatabase:(Model*)database
-                            databaseUuid:(NSString *)databaseUuid
-                            displayFormat:(QuickTypeAutoFillDisplayFormat)displayFormat
-                            alternativeUrls:(BOOL)alternativeUrls
-                            customFields:(BOOL)customFields
-                            notes:(BOOL)notes
-                            concealedCustomFieldsAsCreds:(BOOL)concealedCustomFieldsAsCreds
-                            unConcealedCustomFieldsAsCreds:(BOOL)unConcealedCustomFieldsAsCreds
-                            nickName:(NSString *)nickName API_AVAILABLE(ios(12.0), macos(11.0)) {
-    if (! self.isPossible || database == nil) {
-        return;
-    }
-
-#if TARGET_OS_IPHONE
-    if (@available(iOS 12.0, *)) {
-#else
-    if (@available(macOS 11.0, *)) {
-#endif
-        [self _updateAutoFillQuickTypeDatabase:database
-                                  databaseUuid:databaseUuid
-                                 displayFormat:displayFormat
-                               alternativeUrls:alternativeUrls
-                                  customFields:customFields
-                                         notes:notes
-                  concealedCustomFieldsAsCreds:concealedCustomFieldsAsCreds
-                unConcealedCustomFieldsAsCreds:unConcealedCustomFieldsAsCreds
-                                      nickName:nickName];
-    }
+- (void)updateAutoFillQuickTypeDatabase:(Model *)database {
+    [self updateAutoFillQuickTypeDatabase:database clearFirst:NO];
 }
 
-- (void)_updateAutoFillQuickTypeDatabase:(Model*)database
-                            databaseUuid:(NSString*)databaseUuid
-                           displayFormat:(QuickTypeAutoFillDisplayFormat)displayFormat
-                         alternativeUrls:(BOOL)alternativeUrls
-                            customFields:(BOOL)customFields
-                                   notes:(BOOL)notes
-            concealedCustomFieldsAsCreds:(BOOL)concealedCustomFieldsAsCreds
-          unConcealedCustomFieldsAsCreds:(BOOL)unConcealedCustomFieldsAsCreds
-                            nickName:(NSString *)nickName API_AVAILABLE(ios(12.0), macosx(11.0)) {
-    [ASCredentialIdentityStore.sharedStore getCredentialIdentityStoreStateWithCompletion:^(ASCredentialIdentityStoreState * _Nonnull state) {
-        if(state.enabled) {
-            [self onGotAutoFillStoreOK:database
-                          databaseUuid:databaseUuid
-                         displayFormat:displayFormat
-                       alternativeUrls:alternativeUrls
-                          customFields:customFields
-                                 notes:notes
-          concealedCustomFieldsAsCreds:concealedCustomFieldsAsCreds
-        unConcealedCustomFieldsAsCreds:unConcealedCustomFieldsAsCreds nickName:nickName];
+- (void)updateAutoFillQuickTypeDatabase:(Model *)database clearFirst:(BOOL)clearFirst {
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0L), ^{
+        [ASCredentialIdentityStore.sharedStore getCredentialIdentityStoreStateWithCompletion:^(ASCredentialIdentityStoreState * _Nonnull state) {
+            slog(@"🟢 getCredentialIdentityStoreState: %hhd - supportsIncrementalUpdates: %hhd", state.enabled, state.supportsIncrementalUpdates);
+            
+            if ( state.enabled ) {
+                if ( clearFirst ) {
+                    [ASCredentialIdentityStore.sharedStore removeAllCredentialIdentitiesWithCompletion:^(BOOL success, NSError * _Nullable error) {
+                        if ( error ) {
+                            slog(@"🔴 Cleared Quick Type AutoFill Database with error = [%@]...", error);
+                        }
+                        else {
+                            slog(@"🟢 Cleared Quick Type AutoFill Database");
+                        }
+                        
+                        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0L), ^{
+                            [self loadIdentitiesFromDb:database];
+                        });
+                    }];
+                    slog(@"Cleared Quick Type AutoFill Database...");
+                }
+                else {
+                    [self loadIdentitiesFromDb:database];
+                }
+            }
+        }];
+    });
+}
+
+- (void)loadIdentitiesFromDb:(Model*)database {
+
+    
+    NSTimeInterval start = NSDate.timeIntervalSinceReferenceDate;
+        
+    NSMutableArray *identities = [NSMutableArray array];
+    
+    @try {
+        NSArray<Node*>* sortedNodes = [self getFilteredSortedNodes:database];
+        
+        for ( Node* node in sortedNodes ) {
+            NSSet<NSString*>* uniqueUrls = [AutoFillCommon getUniqueUrlsForNode:database node:node];
+            
+            if ( database.metadata.quickTypeEnabled ) {
+                NSArray<ASPasswordCredentialIdentity*>* nodeIdenitities = [self getPasswordCredentialIdentities:node database:database uniqueUrls:uniqueUrls];
+                
+                [identities addObjectsFromArray:nodeIdenitities];
+            }
+            
+            if (@available(iOS 17.0, macOS 14.0, *)) {
+                if ( node.passkey ) {
+                    ASPasskeyCredentialIdentity *pkid = [self getPasskeyAutoFillCredentialIdentity:database node:node];
+                        
+                    if ( pkid ) {
+                        [identities addObject:pkid];
+                    }
+                }
+            }
+
+            if ( database.metadata.quickTypeEnabled ) {
+                if (@available(iOS 18.0, macOS 15.0, *)) {
+                    if ( node.fields.otpToken ) {
+                        NSArray<ASOneTimeCodeCredentialIdentity*>* otcids = [self getOneTimeCodeCredentialIdentities:database node:node uniqueUrls:uniqueUrls];
+                        [identities addObjectsFromArray:otcids];
+                    }
+                }
+            }
         }
-        else {
-            NSLog(@"AutoFill Credential Store Disabled...");
-        }
+    }
+    @finally { }
+    
+    [self setQuickTypeSuggestions:identities];
+    
+    slog(@"🟢 ⏱️ Updated Quick Type AutoFill Database in [%f] seconds", NSDate.timeIntervalSinceReferenceDate - start);
+}
+
+- (NSArray<Node*>*)getFilteredSortedNodes:(Model*)database {
+    NSArray<Node*>* allSearchable = database.database.allSearchableNoneExpiredEntries;
+    
+    NSArray<Node*>* allEntries = [allSearchable filter:^BOOL(Node * _Nonnull obj) {
+        return ![database isExcludedFromAutoFill:obj.uuid];
     }];
-}
-
-- (NSArray<Node*>*)sortedNodesWithFavouritesFirst:(Model*)database {
-    NSArray<Node*>* allEntries = database.database.allSearchableNoneExpiredEntries;
     
     NSArray<Node*>* sortedEntries = [allEntries sortedArrayUsingComparator:^NSComparisonResult(id  _Nonnull obj1, id  _Nonnull obj2) {
         Node* n1 = (Node*)obj1;
@@ -118,83 +166,18 @@
     return sortedEntries;
 }
 
-- (void)onGotAutoFillStoreOK:(Model*)database
-                databaseUuid:(NSString*)databaseUuid
-               displayFormat:(QuickTypeAutoFillDisplayFormat)displayFormat
-             alternativeUrls:(BOOL)alternativeUrls
-                customFields:(BOOL)customFields
-                       notes:(BOOL)notes
-concealedCustomFieldsAsCreds:(BOOL)concealedCustomFieldsAsCreds
-unConcealedCustomFieldsAsCreds:(BOOL)unConcealedCustomFieldsAsCreds
-                    nickName:(NSString *)nickName API_AVAILABLE(ios(12.0), macosx(11.0)) {
-    NSLog(@"Updating Quick Type AutoFill Database...");
-    
-    NSMutableArray<ASPasswordCredentialIdentity*> *identities = [NSMutableArray array];
-    @try {
-        NSArray<Node*>* sortedNodes = [self sortedNodesWithFavouritesFirst:database];
-        
-        for ( Node* node in sortedNodes ) {
-            NSArray<ASPasswordCredentialIdentity*>* nodeIdenitities = [self getPasswordCredentialIdentities:node
-                                                                                                   database:database
-                                                                                               databaseUuid:databaseUuid
-                                                                                              displayFormat:displayFormat
-                                                                                            alternativeUrls:alternativeUrls
-                                                                                               customFields:customFields
-                                                                                                      notes:notes
-                                                                               concealedCustomFieldsAsCreds:concealedCustomFieldsAsCreds
-                                                                             unConcealedCustomFieldsAsCreds:unConcealedCustomFieldsAsCreds nickName:nickName];
-            
-            [identities addObjectsFromArray:nodeIdenitities];
-        }
-    }
-    @finally { }
-                 
-    
-    NSUInteger databasesUsingQuickType = [self getDatabasesUsingQuickTypeCount];
-
-    if(databasesUsingQuickType < 2) { 
-        [ASCredentialIdentityStore.sharedStore replaceCredentialIdentitiesWithIdentities:identities
-                                                                              completion:^(BOOL success, NSError * _Nullable error) {
-            NSLog(@"Replaced All Credential Identities... [%d] - [%@]", success, error);
-        }];
-    }
-    else {
-        [ASCredentialIdentityStore.sharedStore saveCredentialIdentities:identities
-                                                             completion:^(BOOL success, NSError * _Nullable error) {
-            NSLog(@"Saved Credential Identities (%lu items)... [%d] - [%@]", (unsigned long) identities.count, success, error);
-        }];
-    }
-}
-                                
 - (NSArray<ASPasswordCredentialIdentity*>*)getPasswordCredentialIdentities:(Node*)node
-                                                                database:(Model*)database
-                                                             databaseUuid:(NSString*)databaseUuid
-                                                            displayFormat:(QuickTypeAutoFillDisplayFormat)displayFormat
-                                                          alternativeUrls:(BOOL)alternativeUrls
-                                                             customFields:(BOOL)customFields
-                                                                    notes:(BOOL)notes
-                                            concealedCustomFieldsAsCreds:(BOOL)concealedCustomFieldsAsCreds
-                                          unConcealedCustomFieldsAsCreds:(BOOL)unConcealedCustomFieldsAsCreds
-                                nickName:(NSString *)nickName API_AVAILABLE(ios(12.0), macos(11.0)) {
-    NSSet<NSString*>* uniqueUrls = [AutoFillCommon getUniqueUrlsForNode:database.database
-                                                                   node:node
-                                                        alternativeUrls:alternativeUrls
-                                                           customFields:customFields
-                                                                  notes:notes];
-    
+                                                                  database:(Model*)database
+                                                                uniqueUrls:(NSSet<NSString*>*)uniqueUrls {
     NSMutableArray<ASPasswordCredentialIdentity*> *passwordIdentities = [NSMutableArray array];
-
+    
+    BOOL usedEmailAsUser = NO;
     for ( NSString* url in uniqueUrls ) {
-        ASPasswordCredentialIdentity* iden = [self getIdentity:node
-                                                           url:url
-                                                      database:database
-                                                  databaseUuid:databaseUuid
-                                                 displayFormat:displayFormat
-                                                      fieldKey:nil
-                                                    fieldValue:nil
-                                                      nickName:nickName];
-        
-        [passwordIdentities addObject:iden];
+        ASPasswordCredentialIdentity* iden = [self getIdentity:node url:url database:database fieldKey:nil fieldValue:nil usedEmailAsUser:&usedEmailAsUser];
+
+        if ( iden ) {
+            [passwordIdentities addObject:iden];
+        }
     }
 
     [passwordIdentities sortUsingComparator:^NSComparisonResult(id  _Nonnull obj1, id  _Nonnull obj2) {
@@ -210,31 +193,29 @@ unConcealedCustomFieldsAsCreds:(BOOL)unConcealedCustomFieldsAsCreds
 
     for ( NSString* url in uniqueUrls ) {
         for ( NSString* key in node.fields.customFields.allKeys ) {
-            if ( ![NodeFields isAlternativeURLCustomFieldKey:key] && ![NodeFields isTotpCustomFieldKey:key] ) {
-                StringValue* sv = node.fields.customFields[key];
+            if (![NodeFields isAlternativeURLCustomFieldKey:key] &&
+                ![NodeFields isTotpCustomFieldKey:key] &&
+                ![NodeFields isPasskeyCustomFieldKey:key] ) {
                 
-                if ( concealedCustomFieldsAsCreds && sv.protected ) {
-                    ASPasswordCredentialIdentity* iden = [self getIdentity:node
-                                                                       url:url
-                                                                  database:database
-                                                              databaseUuid:databaseUuid
-                                                             displayFormat:displayFormat
-                                                                  fieldKey:key
-                                                                fieldValue:sv.value
-                                                                  nickName:nickName];
-                    [customFieldIdentities addObject:iden];
-
+                if ( usedEmailAsUser && [key isEqualToString:kCanonicalEmailFieldName] ) { 
+                    break;
                 }
-                else if ( unConcealedCustomFieldsAsCreds && !sv.protected ) {
+
+                StringValue* sv = node.fields.customFields[key];
+
+                if (( database.metadata.autoFillUnConcealedFieldsAsCreds && !sv.protected ) || 
+                    ( database.metadata.autoFillConcealedFieldsAsCreds && sv.protected )) {
                     ASPasswordCredentialIdentity* iden = [self getIdentity:node
                                                                        url:url
                                                                   database:database
-                                                              databaseUuid:databaseUuid
-                                                             displayFormat:displayFormat
                                                                   fieldKey:key
-                                                                fieldValue:sv.value
-                                                                  nickName:nickName];
-                    [customFieldIdentities addObject:iden];
+                                                                fieldValue:sv.value];
+                    
+                    if ( iden ) {
+                        
+                        
+                        [customFieldIdentities addObject:iden];
+                    }
                 }
             }
         }
@@ -251,59 +232,157 @@ unConcealedCustomFieldsAsCreds:(BOOL)unConcealedCustomFieldsAsCreds
     
     return passwordIdentities;
 }
-                                
-- (ASPasswordCredentialIdentity*)getIdentity:(Node*)node
-                                         url:(NSString*)url
-                                    database:(Model*)database
-                                databaseUuid:(NSString*)databaseUuid
-                                displayFormat:(QuickTypeAutoFillDisplayFormat)displayFormat
-                                    fieldKey:(NSString*)fieldKey
-                                  fieldValue:(NSString*)fieldValue
-                            nickName:(NSString *)nickName API_AVAILABLE(ios(12.0), macos(11.0)) {
-    QuickTypeRecordIdentifier* recordIdentifier = [QuickTypeRecordIdentifier identifierWithDatabaseId:databaseUuid nodeId:node.uuid.UUIDString fieldKey:fieldKey];
-    ASCredentialServiceIdentifier* serviceId = [[ASCredentialServiceIdentifier alloc] initWithIdentifier:url type:ASCredentialServiceIdentifierTypeURL];
-    
-    NSString* username;
-    if ( fieldKey == nil ) {
-        username = [database dereference:node.fields.username node:node];
+
+- (ASPasswordCredentialIdentity*_Nullable)getIdentity:(Node*)node
+                                                  url:(NSString*)url
+                                             database:(Model*)database
+                                             fieldKey:(NSString*)fieldKey
+                                           fieldValue:(NSString*)fieldValue {
+    return [self getIdentity:node url:url database:database fieldKey:fieldKey fieldValue:fieldValue usedEmailAsUser:nil];
+}
+
+- (ASPasswordCredentialIdentity*_Nullable)getIdentity:(Node*)node
+                                                  url:(NSString*)url
+                                             database:(Model*)database
+                                             fieldKey:(NSString*)fieldKey
+                                           fieldValue:(NSString*)fieldValue
+                                      usedEmailAsUser:(BOOL* _Nullable)usedEmailAsUser {
+    if ( fieldKey ) {
+        if ( [database dereference:fieldValue node:node].length == 0 ) {
+            return nil; 
+        }
     }
     else {
-        username = fieldKey;
-    }
-                                                        
-    NSString* title = [database dereference:node.title node:node];
-    title = title.length ? title : NSLocalizedString(@"generic_unknown", @"Unknown");
-    
-    NSString* quickTypeText = title;
-    
-    if ( displayFormat == kQuickTypeFormatTitleThenUsername && username.length) {
-        quickTypeText = [NSString stringWithFormat:@"%@ (%@)", title, username];
-    }
-    else if ( displayFormat == kQuickTypeFormatUsernameOnly && username.length ) {
-        quickTypeText = username;
-    }
-    else if ( displayFormat == kQuickTypeFormatDatabaseThenTitleThenUsername && username.length) {
-      quickTypeText = [NSString stringWithFormat:@"[%@] %@ (%@)", nickName, title, username];
-    }
-    else if ( displayFormat == kQuickTypeFormatDatabaseThenUsername && username.length) {
-      quickTypeText = [NSString stringWithFormat:@"[%@] %@", nickName, username];
-    }
-    else if ( displayFormat == kQuickTypeFormatDatabaseThenTitle) {
-      quickTypeText = [NSString stringWithFormat:@"[%@] %@", nickName, title];
-    }
-    else if ( fieldKey != nil ) {
-        quickTypeText = username;
+        if ( [database dereference:node.fields.password node:node].length == 0 ) {
+            return nil; 
+        }
     }
     
-    if ( [database isFavourite:node.uuid] ) {
-        quickTypeText = [NSString stringWithFormat:@"⭐️ %@", quickTypeText];
-    }
+    NSString* quickTypeText = [self getQuickTypeUserText:database node:node usedEmailAsUser:usedEmailAsUser fieldKey:fieldKey];
     
-    return [[ASPasswordCredentialIdentity alloc] initWithServiceIdentifier:serviceId user:quickTypeText recordIdentifier:[recordIdentifier toJson]];
-}
+    if ( quickTypeText == nil ) {
+        return nil;
+    }
+    else {
+        QuickTypeRecordIdentifier* recordIdentifier = [QuickTypeRecordIdentifier identifierWithDatabaseId:database.metadata.uuid
+                                                                                                   nodeId:node.uuid.UUIDString
+                                                                                                 fieldKey:fieldKey];
         
+        ASCredentialServiceIdentifier* serviceId = [[ASCredentialServiceIdentifier alloc] initWithIdentifier:url type:ASCredentialServiceIdentifierTypeURL];
+        
+        return [[ASPasswordCredentialIdentity alloc] initWithServiceIdentifier:serviceId user:quickTypeText recordIdentifier:[recordIdentifier toJson]];
+    }
+}
+
+- (ASPasskeyCredentialIdentity*)getPasskeyAutoFillCredentialIdentity:(Model*)database
+                                                                node:(Node*)node API_AVAILABLE(ios(17.0), macos (14.0)) {
+    if ( node.passkey == nil ) {
+        return nil;
+    }
+    
+    NSString* quickTypeText = [self getQuickTypeUserText:database node:node usedEmailAsUser:nil fieldKey:nil];
+    
+    if ( quickTypeText == nil ) {
+        return nil;
+    }
+
+    QuickTypeRecordIdentifier* rid = [QuickTypeRecordIdentifier identifierWithDatabaseId:database.metadata.uuid
+                                                                                  nodeId:node.uuid.UUIDString
+                                                                                fieldKey:nil];
+    
+    Passkey* pk = node.passkey;
+    ASPasskeyCredentialIdentity *pkid = [ASPasskeyCredentialIdentity identityWithRelyingPartyIdentifier:pk.relyingPartyId
+                                                                                               userName:quickTypeText
+                                                                                           credentialID:pk.credentialIdData
+                                                                                             userHandle:pk.userHandleData
+                                                                                       recordIdentifier:[rid toJson]];
+    
+    return pkid;
+}
+
+- (NSArray<ASOneTimeCodeCredentialIdentity*>*)getOneTimeCodeCredentialIdentities:(Model*)database
+                                                                            node:(Node*)node
+                                                                      uniqueUrls:(NSSet<NSString*>*)uniqueUrls API_AVAILABLE(ios(18.0), macos (15.0)) {
+    OTPToken* token = node.fields.otpToken;
+    if ( token == nil ) {
+        return nil;
+    }
+    
+    NSString* quickTypeText = [self getQuickTypeUserText:database node:node usedEmailAsUser:nil fieldKey:nil];
+    
+    if ( quickTypeText == nil ) {
+        return nil;
+    }
+
+    QuickTypeRecordIdentifier* rid = [QuickTypeRecordIdentifier identifierWithDatabaseId:database.metadata.uuid
+                                                                                  nodeId:node.uuid.UUIDString
+                                                                                fieldKey:nil];
+    
+    NSMutableArray<ASOneTimeCodeCredentialIdentity*> *identities = [NSMutableArray array];
+    
+    for ( NSString* url in uniqueUrls ) {
+        ASCredentialServiceIdentifier* serviceId = [[ASCredentialServiceIdentifier alloc] initWithIdentifier:url
+                                                                                                        type:ASCredentialServiceIdentifierTypeURL];
+        
+        ASOneTimeCodeCredentialIdentity *otcid = [[ASOneTimeCodeCredentialIdentity alloc] initWithServiceIdentifier:serviceId
+                                                                                                              label:quickTypeText
+                                                                                                   recordIdentifier:[rid toJson]];
+        if ( otcid ) {
+            [identities addObject:otcid];
+        }
+    }
+        
+    return identities;
+}
+
+- (void)setQuickTypeSuggestions:(NSArray<ASPasswordCredentialIdentity*>*)identities {
+    
+    NSUInteger databasesUsingQuickType = [self getDatabasesUsingQuickTypeCount];
+    
+    if(databasesUsingQuickType < 2) { 
+        if ( identities.count == 0 ) { 
+            [ASCredentialIdentityStore.sharedStore removeAllCredentialIdentitiesWithCompletion:^(BOOL success, NSError * _Nullable error) {
+                slog(@"✅ removeAllCredentialIdentities because zero passed in... [%d] - [%@]", success, error);
+            }];
+            return;
+        }
+        else {
+            [ASCredentialIdentityStore.sharedStore replaceCredentialIdentitiesWithIdentities:identities
+                                                                                  completion:^(BOOL success, NSError * _Nullable error) {
+
+            }];
+        }
+    }
+    else {
+        NSDate* lastFullClear = CrossPlatformDependencies.defaults.applicationPreferences.lastQuickTypeMultiDbRegularClear;
+        
+        
+        
+        if ( lastFullClear == nil || [lastFullClear isMoreThanXDaysAgo:7] ) { 
+            slog(@"✅ Doing a full clear of the QuickType AutoFill database because the last clear was on [%@]", lastFullClear.friendlyDateString);
+            
+            [ASCredentialIdentityStore.sharedStore removeAllCredentialIdentitiesWithCompletion:^(BOOL success, NSError * _Nullable error) {
+                slog(@"lastQuickTypeMultiDbRegularClear - Clear Done");
+                
+                [ASCredentialIdentityStore.sharedStore saveCredentialIdentities:identities
+                                                                     completion:^(BOOL success, NSError * _Nullable error) {
+                    
+                }];
+            }];
+            
+            CrossPlatformDependencies.defaults.applicationPreferences.lastQuickTypeMultiDbRegularClear = NSDate.date;
+        }
+        else {
+            [ASCredentialIdentityStore.sharedStore saveCredentialIdentities:identities
+                                                                 completion:^(BOOL success, NSError * _Nullable error) {
+                
+            }];
+        }
+    }
+}
+
 - (NSUInteger)getDatabasesUsingQuickTypeCount {
-#if TARGET_OS_IPHONE
+#if TARGET_OS_IOS
     NSUInteger databasesUsingQuickType = [CommonDatabasePreferences filteredDatabases:^BOOL(DatabasePreferences * _Nonnull obj) {
         return obj.autoFillEnabled && obj.quickTypeEnabled;
     }].count;
@@ -317,61 +396,235 @@ unConcealedCustomFieldsAsCreds:(BOOL)unConcealedCustomFieldsAsCreds
     return databasesUsingQuickType;
 }
 
-- (BOOL)isPossible {
-#if TARGET_OS_IPHONE
-    if (@available(iOS 12.0, *)) {
-#else
-    if (@available(macOS 11.0, *)) {
-#endif
-        return YES;
-    }
-    else {
-        return NO;
-    }
-}
-
 - (BOOL)isOnForStrongbox {
     __block BOOL ret = NO;
     
-#if TARGET_OS_IPHONE
-    if (@available(iOS 12.0, *)) {
-#else
-    if (@available(macOS 11.0, *)) {
-#endif
-        dispatch_group_t g = dispatch_group_create();
-        dispatch_group_enter(g);
-
-        [ASCredentialIdentityStore.sharedStore getCredentialIdentityStoreStateWithCompletion:^(ASCredentialIdentityStoreState * _Nonnull state) {
-            ret = state.enabled;
-
-            dispatch_group_leave(g);
-        }];
-
-        dispatch_group_wait(g, DISPATCH_TIME_FOREVER);
-    }
+    dispatch_group_t g = dispatch_group_create();
+    dispatch_group_enter(g);
+    
+    [ASCredentialIdentityStore.sharedStore getCredentialIdentityStoreStateWithCompletion:^(ASCredentialIdentityStoreState * _Nonnull state) {
+        ret = state.enabled;
+        
+        dispatch_group_leave(g);
+    }];
+    
+    dispatch_group_wait(g, DISPATCH_TIME_FOREVER);
 
     return ret;
 }
 
-- (void)clearAutoFillQuickTypeDatabase API_AVAILABLE(ios(12.0), macos(11.0)) {
-#if TARGET_OS_IPHONE
-    if (@available(iOS 12.0, *)) {
-#else
-    if (@available(macOS 11.0, *)) {
-#endif
-        NSLog(@"Clearing Quick Type AutoFill Database...");
-        
-        [ASCredentialIdentityStore.sharedStore getCredentialIdentityStoreStateWithCompletion:^(ASCredentialIdentityStoreState * _Nonnull state) {
-            if(state.enabled) {
-                [ASCredentialIdentityStore.sharedStore removeAllCredentialIdentitiesWithCompletion:nil];
-                NSLog(@"Cleared Quick Type AutoFill Database...");
+- (void)clearAutoFillQuickTypeDatabase {
+    slog(@"Clearing Quick Type AutoFill Database...");
+
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0L), ^{
+        [ASCredentialIdentityStore.sharedStore removeAllCredentialIdentitiesWithCompletion:^(BOOL success, NSError * _Nullable error) {
+            if ( error ) {
+                slog(@"🔴 Cleared Quick Type AutoFill Database with error = [%@]...", error);
             }
             else {
-                NSLog(@"AutoFill QuickType store not enabled. Not Clearing Quick Type AutoFill Database...");
+                slog(@"🟢 Cleared Quick Type AutoFill Database");
             }
         }];
+    });
+}
+
+- (void)refreshQuickTypeSuggestionForEntry:(Node*)node database:(Model*)database previousSuggestionText:(NSString* _Nullable)previousSuggestionText {
+    if ( !database.metadata.autoFillEnabled ) {
+        return;
+    }
+    
+    [self removeItemFromQuickType:node database:database previousSuggestionText:previousSuggestionText]; 
+    
+    if ( node.passkey ) {
+        if (@available(iOS 17.0, macOS 14.0, *)) {
+            ASPasskeyCredentialIdentity *pkid = [self getPasskeyAutoFillCredentialIdentity:database node:node];
+
+            if ( pkid ) { 
+                [ASCredentialIdentityStore.sharedStore saveCredentialIdentityEntries:@[pkid]
+                                                                          completion:^(BOOL success, NSError * _Nullable error) {
+                    slog(@"refreshQuickTypeAfterAutoFillAddition Passkey Done: %hhd - %@", success, error);
+                }];
+            }
+        }
+    }
+    else {
+        if ( database.metadata.quickTypeEnabled ) {
+            ASPasswordCredentialIdentity* aspcid = [self getIdentity:node url:node.fields.url database:database fieldKey:nil fieldValue:nil];
+            if ( aspcid ) {
+                [ASCredentialIdentityStore.sharedStore saveCredentialIdentities:@[aspcid]
+                                                                     completion:^(BOOL success, NSError * _Nullable error) {
+                    slog(@"refreshQuickTypeAfterAutoFillAddition Done: %hhd - %@", success, error);
+                }];
+            }
+               
+            if (@available(iOS 18.0, macOS 15.0, *)) {
+                if ( node.fields.otpToken ) {
+                    NSArray<ASOneTimeCodeCredentialIdentity*>* otcs = [self getOneTimeCodeCredentialIdentities:database node:node uniqueUrls:@[node.fields.url].set];
+                    
+                    [ASCredentialIdentityStore.sharedStore saveCredentialIdentityEntries:otcs
+                                                                              completion:^(BOOL success, NSError * _Nullable error) {
+                        slog(@"refreshQuickTypeAfterAutoFillAddition 2FA Code Done: %hhd - %@", success, error);
+                    }];
+                }
+            }
+        }
     }
 }
 
+- (void)removeItemsFromQuickType:(const NSArray<Node *> *)items database:(Model *)database {
+    for ( Node* node in items ) {
+        [self removeItemFromQuickType:node database:database previousSuggestionText:nil];
+    }
+}
+
+- (void)removeItemFromQuickType:(Node *)node database:(Model *)database previousSuggestionText:(NSString* _Nullable)previousSuggestionText {
+    NSSet<NSString*>* uniqueUrls = [AutoFillCommon getUniqueUrlsForNode:database node:node];
     
+    NSArray<ASPasswordCredentialIdentity*>* identities = [self getPasswordCredentialIdentities:node database:database uniqueUrls:uniqueUrls];
+    
+    
+    
+    
+    if ( previousSuggestionText ) {
+        identities = [identities map:^id _Nonnull(ASPasswordCredentialIdentity * _Nonnull obj, NSUInteger idx) {
+            return [ASPasswordCredentialIdentity identityWithServiceIdentifier:obj.serviceIdentifier user:previousSuggestionText recordIdentifier:obj.recordIdentifier];
+        }];
+        
+        NSString* favText = previousSuggestionText;
+        if ( [previousSuggestionText hasSuffix:@" ⭐️"] && previousSuggestionText.length > 3 ) {
+            favText = [previousSuggestionText substringToIndex:previousSuggestionText.length - 3]; 
+        }
+        else {
+            favText = [previousSuggestionText stringByAppendingString:@" ⭐️"];
+        }
+        
+        NSArray<ASPasswordCredentialIdentity*>* favIdentities = [identities map:^id _Nonnull(ASPasswordCredentialIdentity * _Nonnull obj, NSUInteger idx) {
+            return [ASPasswordCredentialIdentity identityWithServiceIdentifier:obj.serviceIdentifier user:favText recordIdentifier:obj.recordIdentifier];
+        }];
+        
+        identities = [identities arrayByAddingObjectsFromArray:favIdentities];
+    }
+    
+    if (@available(iOS 17.0, macOS 14.0, *)) {
+        [ASCredentialIdentityStore.sharedStore removeCredentialIdentityEntries:identities completion:^(BOOL success, NSError * _Nullable error) {
+            slog(@"🟢 removeCredentialIdentityEntries done with %hhd - %@", success, error);
+        }];
+    }
+    else {
+        [ASCredentialIdentityStore.sharedStore removeCredentialIdentities:identities
+                                                               completion:^(BOOL success, NSError * _Nullable error) {
+            slog(@"🟢 removeCredentialIdentities done with %hhd - %@", success, error);
+        }];
+    }
+    
+    if (@available(iOS 17.0, macOS 14.0, *)) {
+        if ( node.passkey ) {
+            ASPasskeyCredentialIdentity *pkid = [self getPasskeyAutoFillCredentialIdentity:database node:node];
+
+            if ( pkid ) { 
+                [ASCredentialIdentityStore.sharedStore removeCredentialIdentityEntries:@[pkid]
+                                                                            completion:^(BOOL success, NSError * _Nullable error) {
+                    slog(@"🟢 removeCredentialIdentityEntries done with %hhd - %@", success, error);
+                }];
+            }
+        }
+    }
+    
+    if (@available(iOS 18.0, macOS 15.0, *)) {
+        if ( node.fields.otpToken ) {
+            NSArray<ASOneTimeCodeCredentialIdentity*>* otcs = [self getOneTimeCodeCredentialIdentities:database node:node uniqueUrls:uniqueUrls];
+            
+            [ASCredentialIdentityStore.sharedStore removeCredentialIdentityEntries:otcs
+                                                                        completion:^(BOOL success, NSError * _Nullable error) {
+                slog(@"🟢 removeCredentialIdentityEntries done with %hhd - %@", success, error);
+            }];
+        }
+    }
+}
+
+- (NSString *)getQuickTypeSuggestionTextForNode:(Model*)database node:(Node *)node {
+    return [self getQuickTypeUserText:database node:node usedEmailAsUser:nil fieldKey:nil];
+}
+
+- (NSString*)getQuickTypeUserText:(Model*)database
+                             node:(Node*)node
+                  usedEmailAsUser:(BOOL*_Nullable)usedEmailAsUser
+                         fieldKey:(NSString*_Nullable)fieldKey {
+    NSString* user = [database dereference:node.fields.username node:node];
+    NSString* email = [database dereference:node.fields.email node:node]; 
+    NSString* title = [database dereference:node.title node:node];
+    NSString* nickName = database.metadata.nickName;
+    QuickTypeAutoFillDisplayFormat displayFormat = database.metadata.quickTypeDisplayFormat;
+    BOOL isFavourite = [database isFavourite:node.uuid];
+    
+    return [AutoFillManager getQuickTypeUserText:user
+                               dereferencedEmail:email
+                               dereferencedTitle:title
+                                   displayFormat:displayFormat
+                                     isFavourite:isFavourite
+                                        nickName:nickName
+                                 usedEmailAsUser:usedEmailAsUser
+                                        fieldKey:fieldKey];
+}
+
++ (NSString*)getQuickTypeUserText:(NSString*)dereferencedUsername
+                dereferencedEmail:(NSString*)dereferencedEmail
+                dereferencedTitle:(NSString*)dereferencedTitle
+                    displayFormat:(QuickTypeAutoFillDisplayFormat)displayFormat
+                      isFavourite:(BOOL)isFavourite
+                         nickName:(NSString*)nickName
+                  usedEmailAsUser:(BOOL*_Nullable)usedEmailAsUser
+                         fieldKey:(NSString*_Nullable)fieldKey {
+    NSString* user;
+    BOOL usingEmailAsUser = NO;
+    if ( fieldKey == nil ) {
+        user = dereferencedUsername;
+        
+        if ( user.length == 0 ) {
+            user = dereferencedEmail; 
+            usingEmailAsUser = YES;
+            if ( usedEmailAsUser ) {
+                *usedEmailAsUser = usingEmailAsUser;
+            }
+        }
+    }
+    else {
+        user = fieldKey;
+    }
+    
+    if ( user.length == 0 ) {
+        return nil;
+    }
+    
+
+    NSString* title = dereferencedTitle.length ? dereferencedTitle : NSLocalizedString(@"generic_unknown", @"Unknown");
+    
+    NSString* quickTypeText = title;
+    
+    if ( displayFormat == kQuickTypeFormatTitleThenUsername && user.length) {
+        quickTypeText = [NSString stringWithFormat:@"%@ (%@)", title, user];
+    }
+    else if ( displayFormat == kQuickTypeFormatUsernameOnly && user.length ) {
+        quickTypeText = user;
+    }
+    else if ( displayFormat == kQuickTypeFormatDatabaseThenTitleThenUsername && user.length) {
+        quickTypeText = [NSString stringWithFormat:@"[%@] %@ (%@)", nickName, title, user];
+    }
+    else if ( displayFormat == kQuickTypeFormatDatabaseThenUsername && user.length) {
+        quickTypeText = [NSString stringWithFormat:@"[%@] %@", nickName, user];
+    }
+    else if ( displayFormat == kQuickTypeFormatDatabaseThenTitle) {
+        quickTypeText = [NSString stringWithFormat:@"[%@] %@", nickName, title];
+    }
+    else if ( fieldKey != nil ) {
+        quickTypeText = user;
+    }
+    
+    if ( isFavourite ) {
+        quickTypeText = [NSString stringWithFormat:@"%@ ⭐️", quickTypeText];
+    }
+    
+    return quickTypeText;
+}
+
 @end

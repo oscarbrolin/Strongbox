@@ -37,12 +37,15 @@
     return nil;
 }
 
++ (BOOL)isValidDatabaseSwiftCompat:(NSURL *)url {
+    return [Serializator isValidDatabase:url error:nil];
+}
 + (BOOL)isValidDatabase:(NSURL *)url error:(NSError *__autoreleasing  _Nullable *)error {
     NSData* prefix = [Serializator getValidationPrefixFromUrl:url];
     
     return [Serializator isValidDatabaseWithPrefix:prefix error:error];
 }
- 
+
 + (BOOL)isValidDatabaseWithPrefix:(NSData *)prefix error:(NSError *__autoreleasing  _Nullable *)error {
     if(prefix == nil) {
         if(error) {
@@ -56,20 +59,20 @@
         }
         return NO;
     }
-
+    
     NSError *pw, *k1, *k2, *k3;
-        
+    
     BOOL ret = [PwSafeDatabase isValidDatabase:prefix error:&pw] ||
-        [KeePassDatabase isValidDatabase:prefix error:&k1] ||
-        [Kdbx4Database isValidDatabase:prefix error:&k2] ||
-        [Kdb1Database isValidDatabase:prefix error:&k3];
-
+    [KeePassDatabase isValidDatabase:prefix error:&k1] ||
+    [Kdbx4Database isValidDatabase:prefix error:&k2] ||
+    [Kdb1Database isValidDatabase:prefix error:&k3];
+    
     if(!ret && error) {
         NSData* prefixBytes = [prefix subdataWithRange:NSMakeRange(0, MIN(24, prefix.length))];
         
         NSString* errorSummary = @"Invalid Database. Debug Info:\n";
         
-        NSString* prefix = prefixBytes.hexString;
+        NSString* prefix = prefixBytes.upperHexString;
         NSString* utf8Prefix = [[NSString alloc] initWithData:prefixBytes encoding:NSUTF8StringEncoding];
         
         if([prefix hasPrefix:@"004D534D414D415250435259"]) { 
@@ -151,7 +154,7 @@
         return [Kdb1Database fileExtension];
     }
     
-    return @"dat";
+    return [Kdbx4Database fileExtension];
 }
 
 + (id)getAdaptor:(DatabaseFormat)format {
@@ -168,7 +171,7 @@
         return [Kdb1Database class];
     }
     
-    NSLog(@"WARN: No such adaptor for format!");
+    slog(@"WARN: No such adaptor for format!");
     return nil;
 }
 
@@ -176,10 +179,10 @@
 
 + (NSData *)expressToData:(DatabaseModel *)database format:(DatabaseFormat)format {
     __block NSData* ret;
-
+    
     dispatch_group_t group = dispatch_group_create();
     dispatch_group_enter(group);
-
+    
     NSOutputStream* memStream = [NSOutputStream outputStreamToMemory];
     [memStream open];
     
@@ -188,18 +191,18 @@
                outputStream:memStream
                  completion:^(BOOL userCancelled, NSString * _Nullable debugXml, NSError * _Nullable error) {
         [memStream close];
-
+        
         if (userCancelled || error) {
-            NSLog(@"Error: expressToData [%@]", error);
+            slog(@"Error: expressToData [%@]", error);
         }
         else {
             ret = [memStream propertyForKey:NSStreamDataWrittenToMemoryStreamKey];
         }
         dispatch_group_leave(group);
     }];
-
+    
     dispatch_group_wait(group, DISPATCH_TIME_FOREVER);
-
+    
     return ret;
 }
 
@@ -207,18 +210,27 @@
            format:(DatabaseFormat)format
      outputStream:(NSOutputStream*)outputStream
        completion:(SaveCompletionBlock)completion {
-    [database performPreSerializationTidy]; 
+    [Serializator getAsData:database format:format outputStream:outputStream params:nil completion:completion];
+}
+
++ (void)getAsData:(DatabaseModel *)database
+           format:(DatabaseFormat)format
+     outputStream:(NSOutputStream*)outputStream
+           params:(id _Nullable)params
+       completion:(SaveCompletionBlock)completion {
+    [database preSerializationPerformMaintenanceOrMigrations]; 
 
     id<AbstractDatabaseFormatAdaptor> adaptor = [Serializator getAdaptor:format];
 
     NSTimeInterval startTime = NSDate.timeIntervalSinceReferenceDate;
-            
+        
     [adaptor save:database
      outputStream:outputStream
+           params:params 
        completion:^(BOOL userCancelled, NSString*_Nullable debugXml, NSError*_Nullable error){
-        NSLog(@"====================================== PERF ======================================");
-        NSLog(@"SERIALIZE [%f] seconds", NSDate.timeIntervalSinceReferenceDate - startTime);
-        NSLog(@"====================================== PERF ======================================");
+
+        slog(@"🐞 Serializator::SERIALIZE [%f] seconds", NSDate.timeIntervalSinceReferenceDate - startTime);
+
         
         completion(userCancelled, nil, error);
     }];
@@ -260,7 +272,7 @@ sanityCheckInnerStream:config.sanityCheckInnerStream
         [stream close];
       
         if( userCancelled || database == nil || error || innerStreamError ) {
-            NSLog(@"Error: expressFromData = [%@]", error);
+            slog(@"Error: expressFromData = [%@]", error);
             model = nil;
         }
         else {
@@ -358,7 +370,7 @@ sanityCheckInnerStream:config.sanityCheckInnerStream
     id<AbstractDatabaseFormatAdaptor> adaptor = [Serializator getAdaptor:format];
 
     if (adaptor == nil) {
-        completion(NO, nil, nil, nil);
+        completion(NO, nil, 0, nil);
         return;
     }
     
@@ -373,15 +385,17 @@ sanityCheckInnerStream:config.sanityCheckInnerStream
        completion:^(BOOL userCancelled, DatabaseModel * _Nullable database, NSError * _Nullable innerStreamError, NSError * _Nullable error) {
         [stream close];
         
-        NSLog(@"====================================== PERF ======================================");
-        NSLog(@"DESERIALIZE [%f] seconds", NSDate.timeIntervalSinceReferenceDate - startDecryptTime);
-        NSLog(@"====================================== PERF ======================================");
+        NSTimeInterval decryptTime = NSDate.timeIntervalSinceReferenceDate - startDecryptTime;
+        
 
-        if(userCancelled || database == nil || error) {
-            completion(userCancelled, nil, innerStreamError, error);
+        slog(@"🐞 Serializator::DESERIALIZE [%f] seconds", decryptTime);
+
+
+        if(userCancelled || database == nil || error || innerStreamError ) {
+            completion(userCancelled, nil, decryptTime, error ? error : innerStreamError);
         }
         else {
-            completion(NO, database, innerStreamError, nil);
+            completion(NO, database, decryptTime, nil);
         }
     }];
 }

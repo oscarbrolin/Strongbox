@@ -18,27 +18,31 @@
 #import "FavIconBulkViewController.h"
 #import "AppPreferences.h"
 #import "NSString+Extensions.h"
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
 @interface SetNodeIconUiHelper () <UIImagePickerControllerDelegate, UINavigationControllerDelegate, UIDocumentPickerDelegate>
 
 @property UIViewController *viewController;
 @property (copy) ChangeIconCompletionBlock completionBlock;
+@property Model* model;
 
 @end
 
 @implementation SetNodeIconUiHelper
 
 - (void)changeIcon:(UIViewController *)viewController
+             model:(Model*)model
               node:(Node *)node
        urlOverride:(NSString *)urlOverride
             format:(DatabaseFormat)format
     keePassIconSet:(KeePassIconSet)keePassIconSet
         completion:(ChangeIconCompletionBlock)completion {
+    self.model = model;
     self.viewController = viewController;
     self.completionBlock = completion;
     
     if(format == kPasswordSafe) {
-        NSLog(@"Should not be calling this if safe is Password Safe!!");
+        slog(@"Should not be calling this if safe is Password Safe!!");
         self.completionBlock(NO, NO, nil);
         return;
     }
@@ -138,7 +142,7 @@
         [self downloadFavIcon:viewController
                         nodes:node.allChildRecords
                       urlOverride:urlOverride
-                   completion:^(BOOL go, NSDictionary<NSUUID *,UIImage *> * _Nullable selectedFavIcons) {
+                   completion:^(BOOL go, NSDictionary<NSUUID *,NodeIcon *> * _Nullable selectedFavIcons) {
             [self completeDownloadFavIcons:go isGroup:YES selectedFavIcons:selectedFavIcons completion:completion];
         }];
     }
@@ -146,7 +150,7 @@
         [self downloadFavIcon:viewController
                         nodes:@[node]
                   urlOverride:urlOverride
-                   completion:^(BOOL go, NSDictionary<NSUUID *,UIImage *> * _Nullable selectedFavIcons) {
+                   completion:^(BOOL go, NSDictionary<NSUUID *,NodeIcon *> * _Nullable selectedFavIcons) {
             [self completeDownloadFavIcons:go isGroup:NO selectedFavIcons:selectedFavIcons completion:completion];
         }];
     }
@@ -158,34 +162,36 @@
              completion:(FavIconBulkDoneBlock)completion {
     if (urlOverride) {
         [FavIconBulkViewController presentModal:presentingVc
+                                          model:self.model
                                            node:nodes.firstObject
                                     urlOverride:urlOverride
-                                         onDone:^(BOOL go, NSDictionary<NSUUID*,UIImage *> * _Nullable selectedFavIcons) {
+                                         onDone:^(BOOL go, NSDictionary<NSUUID *,NodeIcon *> * _Nullable selectedFavIcons) {
             [presentingVc dismissViewControllerAnimated:YES completion:nil];
             completion(go, selectedFavIcons);
         }];
     }
     else {
         [FavIconBulkViewController presentModal:presentingVc
+                                          model:self.model
                                           nodes:nodes
-                                         onDone:^(BOOL go, NSDictionary<NSUUID*,UIImage *> * _Nullable selectedFavIcons) {
+                                         onDone:^(BOOL go, NSDictionary<NSUUID *,NodeIcon *> * _Nullable selectedFavIcons) {
             [presentingVc dismissViewControllerAnimated:YES completion:nil];
             completion(go, selectedFavIcons);
         }];
     }
 }
 
-- (void)completeDownloadFavIcons:(BOOL)go isGroup:(BOOL)isGroup selectedFavIcons:(NSDictionary<NSUUID *,UIImage *> * _Nullable)selectedFavIcons completion:(ChangeIconCompletionBlock)completion {
+- (void)completeDownloadFavIcons:(BOOL)go 
+                         isGroup:(BOOL)isGroup
+                selectedFavIcons:(NSDictionary<NSUUID *, NodeIcon *> * _Nullable)selectedFavIcons
+                      completion:(ChangeIconCompletionBlock)completion {
     NSMutableDictionary<NSUUID*, NodeIcon*>* ret = NSMutableDictionary.dictionary;
     
     if (go) {
         for (NSUUID* nodeUuidKey in selectedFavIcons) {
-            UIImage* foo = selectedFavIcons[nodeUuidKey];
-            if (foo) {
-                NSData* bar = UIImagePNGRepresentation(foo);
-                if (bar) {
-                    ret[nodeUuidKey] = [NodeIcon withCustom:bar];
-                }
+            NodeIcon* icon = selectedFavIcons[nodeUuidKey];
+            if ( icon ) {
+                ret[nodeUuidKey] = icon;
             }
         }
     }
@@ -193,17 +199,18 @@
     completion(go, isGroup, ret);
 }
 
-- (void)expressDownloadBestFavIcon:(NSString*)urlOverride completion:(void (^)(UIImage * _Nullable))completion {
+- (void)expressDownloadBestFavIcon:(NSString *)urlOverride 
+                        completion:(void (^)(NodeIcon * _Nullable))completion {
     NSURL* url = [self smartDetermineUrlFromHint:urlOverride];
     
     if (url) {
         dispatch_async(dispatch_get_main_queue(), ^{
             [SVProgressHUD showWithStatus:NSLocalizedString(@"set_icon_vc_progress_downloading_favicon", @"Downloading FavIcon")];
-            NSLog(@"attempting to download favicon for: [%@]", url);
+            slog(@"attempting to download favicon for: [%@]", url);
 
             [FavIconManager.sharedInstance downloadPreferred:url
                                                      options:FavIconDownloadOptions.express
-                                                  completion:^(UIImage * _Nullable image) {
+                                                  completion:^(NodeIcon * _Nullable image) {
                 dispatch_async(dispatch_get_main_queue(), ^{
                     [SVProgressHUD dismiss];
                     completion(image);
@@ -221,7 +228,7 @@
     
     if(urlHint.length > 0) {
         NSURLComponents *components = [NSURLComponents componentsWithString:urlHint];
-        NSLog(@"scheme = [%@],user = [%@],password = [%@],host = [%@],port = [%@],path = [%@],query = [%@],fragment = [%@]",
+        slog(@"scheme = [%@],user = [%@],password = [%@],host = [%@],port = [%@],path = [%@],query = [%@],fragment = [%@]",
               components.scheme,
               components.user,
               components.password,
@@ -330,7 +337,7 @@
         dispatch_async(dispatch_get_main_queue(), ^{
             [SVProgressHUD dismiss];
             if(!data) {
-                NSLog(@"Error: %@", error);
+                slog(@"Error: %@", error);
                 [Alerts error:self.viewController
                         title:NSLocalizedString(@"set_icon_vc_error_reading_image", @"Error Reading Image")
                         error:error];
@@ -395,7 +402,10 @@ static const int kMaxRecommendedCustomIconDimension = 256;
 }
 
 - (void)presentFiles {
-    UIDocumentPickerViewController *vc = [[UIDocumentPickerViewController alloc] initWithDocumentTypes:@[(NSString*)kUTTypeImage] inMode:UIDocumentPickerModeImport];
+    UTType* type = [UTType typeWithIdentifier:(NSString*)kUTTypeItem];
+    UIDocumentPickerViewController *vc = [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[type]];
+    
+
     vc.delegate = self;
     vc.modalPresentationStyle = UIModalPresentationFormSheet;
     
@@ -403,24 +413,28 @@ static const int kMaxRecommendedCustomIconDimension = 256;
 }
 
 - (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
-    NSLog(@"didPickDocumentsAtURLs: %@", urls);
+    slog(@"didPickDocumentsAtURLs: %@", urls);
     
     NSURL* url = [urls objectAtIndex:0];
 
-    #pragma GCC diagnostic push
-    #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-    [self documentPicker:controller didPickDocumentAtURL:url];
-    #pragma GCC diagnostic pop
-}
-
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-implementations"
-- (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentAtURL:(NSURL *)url { 
-    NSError* error;
-    NSData* data = [NSData dataWithContentsOfURL:url options:kNilOptions error:&error];
     
+
+    if (! [url startAccessingSecurityScopedResource] ) {
+        slog(@"🔴 Could not securely access URL!");
+    }
+    
+    NSError* error;
+    __block NSData *data;
+    __block NSError *err;
+    NSFileCoordinator *coordinator = [[NSFileCoordinator alloc] init];
+    [coordinator coordinateReadingItemAtURL:url options:0 error:&error byAccessor:^(NSURL *newURL) {
+        data = [NSData dataWithContentsOfURL:newURL options:NSDataReadingUncached error:&err];
+    }];
+    
+    [url stopAccessingSecurityScopedResource];
+        
     if(!data) {
-        NSLog(@"Error: %@", error);
+        slog(@"Error: %@", error);
         
         [Alerts error:self.viewController
                 title:NSLocalizedString(@"set_icon_vc_error_reading_image", @"Error Reading Image")

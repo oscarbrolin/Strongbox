@@ -14,7 +14,7 @@
 #import "NSArray+Extensions.h"
 #import "OfflineDetector.h"
 #import "BiometricsManager.h"
-#import "FileManager.h"
+#import "StrongboxiOSFilesManager.h"
 #import "WebDAVConnectionsViewController.h"
 #import "SFTPConnectionsViewController.h"
 #import "SelectItemTableViewController.h"
@@ -23,6 +23,11 @@
 #import "AutoFillNewRecordSettingsController.h"
 #import "KeyFilesTableViewController.h"
 #import "PasswordGenerationViewController.h"
+#import "CustomizationManager.h"
+#import <StoreKit/StoreKit.h>
+#import "Strongbox-Swift.h"
+#import "AppDelegate.h"
+#import "SecretStore.h"
 
 @interface AdvancedPreferencesTableViewController ()
 
@@ -34,9 +39,6 @@
 
 @property (weak, nonatomic) IBOutlet UITableViewCell *cellManageKeyFiles;
 
-@property (weak, nonatomic) IBOutlet UITableViewCell *cellUseICloud;
-@property (weak, nonatomic) IBOutlet UILabel *labelUseICloud;
-@property (weak, nonatomic) IBOutlet UISwitch *switchUseICloud;
 @property (weak, nonatomic) IBOutlet UITableViewCell *cellCloudSessions;
 @property (weak, nonatomic) IBOutlet UILabel *labelCloudSessions;
 
@@ -51,7 +53,7 @@
 
 @property (weak, nonatomic) IBOutlet UISwitch *switchBackupFiles;
 @property (weak, nonatomic) IBOutlet UISwitch *switchBackupImportedKeyFiles;
-@property (weak, nonatomic) IBOutlet UISwitch *switchHideExportOnDatabaseMenu;
+
 @property (weak, nonatomic) IBOutlet UISwitch *switchAllowThirdPartyKeyboards;
 
 @property (weak, nonatomic) IBOutlet UISwitch *switchAddLegacyTotp;
@@ -60,7 +62,6 @@
 @property (weak, nonatomic) IBOutlet UISwitch *switchPinYinSearch;
 
 @property (weak, nonatomic) IBOutlet UISwitch *switchDropboxFolderOnly;
-@property (weak, nonatomic) IBOutlet UISwitch *switchNativeKeePassEmailField;
 
 @property (weak, nonatomic) IBOutlet UITableViewCell *cellInstantPin;
 @property (weak, nonatomic) IBOutlet UISwitch *instantPinUnlock;
@@ -72,12 +73,72 @@
 @property (weak, nonatomic) IBOutlet UISwitch *switchMarkdownNotes;
 @property (weak, nonatomic) IBOutlet UITableViewCell *cellDetectIfOffline;
 @property (weak, nonatomic) IBOutlet UITableViewCell *cellDropboxAppFolder;
-@property (weak, nonatomic) IBOutlet UITableViewCell *cellNativeKeePassEmail;
+
 @property (weak, nonatomic) IBOutlet UISwitch *switchNewEntryUsesParentGroupIcon;
 
 @property (weak, nonatomic) IBOutlet UISwitch *switchStripUnusedIcons;
+@property (weak, nonatomic) IBOutlet UISwitch *stripHistoricalCustomIconsOnSave;
+
 @property (weak, nonatomic) IBOutlet UISwitch *pinCodeHapticFeedback;
 @property (weak, nonatomic) IBOutlet UITableViewCell *cellNewEntryDefaults;
+@property (weak, nonatomic) IBOutlet UITableViewCell *cellRedeemOfferCode;
+
+@property (weak, nonatomic) IBOutlet UISwitch *switchAppendDateExportFilenames;
+@property (weak, nonatomic) IBOutlet UISwitch *switchHideExportOnDatabaseMenu;
+@property (weak, nonatomic) IBOutlet UISwitch *switchZipExports;
+
+@property (weak, nonatomic) IBOutlet UITableViewCell *cellZipExports;
+@property (weak, nonatomic) IBOutlet UITableViewCell *cellHideExport;
+@property (weak, nonatomic) IBOutlet UITableViewCell *cellExportDate;
+
+@property (weak, nonatomic) IBOutlet UISwitch *atomicSftpWrites;
+
+@property (weak, nonatomic) IBOutlet UITableViewCell *cellAtomicSftpWrites;
+
+@property (weak, nonatomic) IBOutlet UISwitch *switchWiFiSyncSource;
+@property (weak, nonatomic) IBOutlet UILabel *labelPasscode;
+@property (weak, nonatomic) IBOutlet UILabel *labelWiFiSyncServiceName;
+@property (weak, nonatomic) IBOutlet UITableViewCell *cellWiFiSyncSwitch;
+@property (weak, nonatomic) IBOutlet UITableViewCell *cellWiFiSyncPasscode;
+@property (weak, nonatomic) IBOutlet UITableViewCell *cellWiFiSyncServiceName;
+
+@property (weak, nonatomic) IBOutlet UILabel *wiFiSyncLastError;
+@property (weak, nonatomic) IBOutlet UITableViewCell *cellWiFiSyncLastError;
+@property (weak, nonatomic) IBOutlet ProLabel *wiFiSyncProLabel;
+@property (weak, nonatomic) IBOutlet UILabel *labelWiFiSyncSwitch;
+
+@property (weak, nonatomic) IBOutlet UISwitch *switchShowDatabasesOnAppShortcutsMenu;
+@property (weak, nonatomic) IBOutlet UILabel *labelStrongboxSyncStatus;
+@property (weak, nonatomic) IBOutlet UITableViewCell *cellStrongboxSyncStatus;
+@property (weak, nonatomic) IBOutlet UIImageView *imageViewStrongboxSyncStatus;
+@property (weak, nonatomic) IBOutlet UISwitch *showAssociatedWebsites;
+@property (weak, nonatomic) IBOutlet UISwitch *split2FACodes;
+@property (weak, nonatomic) IBOutlet UISwitch *disableCustomViews;
+
+@property (weak, nonatomic) IBOutlet UITableViewCell *cellTheGarage;
+@property (weak, nonatomic) IBOutlet UITableViewCell *cellSimpleLogin;
+@property (weak, nonatomic) IBOutlet UILabel *labelSimpleLoginStatus;
+
+@property (weak, nonatomic) IBOutlet UITableViewCell *cellAssociatedWebsites;
+@property (weak, nonatomic) IBOutlet UITableViewCell *cellSplit2FACodes;
+@property (weak, nonatomic) IBOutlet UITableViewCell *cell2FAAddOtpAuthURL;
+@property (weak, nonatomic) IBOutlet UITableViewCell *cell2FAAddLegacyFields;
+@property (weak, nonatomic) IBOutlet UITableViewCell *cellPinYinSearch;
+
+
+@property (weak, nonatomic) IBOutlet UITableViewCell *cellColorBling;
+@property (weak, nonatomic) IBOutlet UITableViewCell *cellAllowThirdPartyKeyboards;
+@property (weak, nonatomic) IBOutlet UITableViewCell *showMetadataOnDetailsScreen;
+@property (weak, nonatomic) IBOutlet UITableViewCell *showDatabasesOnAppShortcutMenu;
+@property (weak, nonatomic) IBOutlet UITableViewCell *cellMarkdownNotes;
+@property (weak, nonatomic) IBOutlet UITableViewCell *cellPinCodeHaptics;
+@property (weak, nonatomic) IBOutlet UITableViewCell *cellNewEntryParentIcon;
+@property (weak, nonatomic) IBOutlet UITableViewCell *cellStripUnusedIcons;
+@property (weak, nonatomic) IBOutlet UITableViewCell *cellStripHistoricalCustomIcons;
+@property (weak, nonatomic) IBOutlet UITableViewCell *cellSentryCrashReporting;
+@property (weak, nonatomic) IBOutlet UISwitch *switchSentryCrashReporting;
+@property (weak, nonatomic) IBOutlet UITableViewCell *cellDeleteDatabaseAfterXFailedUnlockAttempts;
+@property (weak, nonatomic) IBOutlet UISwitch *switchDeleteDatabaseAfterXFailedUnlockAttempts;
 
 @end
 
@@ -85,7 +146,7 @@
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-
+    
     self.navigationController.toolbar.hidden = YES;
     self.navigationController.toolbarHidden = YES;
     
@@ -99,26 +160,89 @@
     
     
     
+    if ( AppPreferences.sharedInstance.disableExport ) {
+        [self cell:self.cellZipExports setHidden:YES];
+        [self cell:self.cellHideExport setHidden:YES];
+        [self cell:self.cellExportDate setHidden:YES];
+    }
+    
     if ( AppPreferences.sharedInstance.disableNetworkBasedFeatures ) {
         [self cell:self.cellSftpConnections setHidden:YES];
         [self cell:self.cellWebDAVConnections setHidden:YES];
         [self cell:self.cellDetectIfOffline setHidden:YES];
         [self cell:self.cellDropboxAppFolder setHidden:YES];
-    }
-    
-    if ( AppPreferences.sharedInstance.disableThirdPartyStorageOptions && AppPreferences.sharedInstance.disableNetworkBasedFeatures ) {
+        [self cell:self.cellAtomicSftpWrites setHidden:YES];
+        
         [self cell:self.cellForcePull setHidden:YES];
         [self cell:self.cellSyncForcePush setHidden:YES];
+        
+        [self cell:self.cellWiFiSyncSwitch setHidden:YES];
+        [self cell:self.cellWiFiSyncPasscode setHidden:YES];
+        [self cell:self.cellWiFiSyncServiceName setHidden:YES];
+        
+        [self cell:self.cellStrongboxSyncStatus setHidden:YES];
+    }
+    
+    if ( AppPreferences.sharedInstance.disableThirdPartyStorageOptions ) {
         [self cell:self.cellDropboxAppFolder setHidden:YES];
     }
     
-    [self cell:self.cellNativeKeePassEmail setHidden:YES];
-    
     [self cell:self.cellNewEntryDefaults setHidden:YES];
+    
+    if ( CustomizationManager.isAProBundle ) {
+        [self cell:self.cellRedeemOfferCode setHidden:YES];
+    }
+    
+    [self cell:self.cellWiFiSyncLastError setHidden:YES];
     
     [self bindPreferences];
     [self bindCloudSessions];
-    [self bindGeneral];
+    [self bindPasswordStrength];
+    [self bindWiFiSyncSource];
+    
+#ifndef NO_NETWORKING
+    __weak AdvancedPreferencesTableViewController* weakSelf = self;
+    [NSNotificationCenter.defaultCenter addObserverForName:NSNotification.wiFiSyncServiceNameDidChange
+                                                    object:nil
+                                                     queue:nil
+                                                usingBlock:^(NSNotification * _Nonnull notification) {
+        [weakSelf bindWiFiSyncSource];
+    }];
+#endif
+    
+    [self cell:self.cellDetectIfOffline setHidden:YES];
+    [self cell:self.cellAssociatedWebsites setHidden:YES];
+    [self cell:self.cellAtomicSftpWrites setHidden:YES];
+    [self cell:self.cellSplit2FACodes setHidden:YES];
+    [self cell:self.cell2FAAddLegacyFields setHidden:YES];
+    [self cell:self.cell2FAAddOtpAuthURL setHidden:YES];
+    [self cell:self.cellPinYinSearch setHidden:YES];
+    [self cell:self.cellColorBling setHidden:YES];
+    [self cell:self.cellAllowThirdPartyKeyboards setHidden:YES];
+    [self cell:self.showMetadataOnDetailsScreen setHidden:YES];
+    [self cell:self.showDatabasesOnAppShortcutMenu setHidden:YES];
+    [self cell:self.cellMarkdownNotes setHidden:YES];
+    [self cell:self.cellPinCodeHaptics setHidden:YES];
+    [self cell:self.cellNewEntryParentIcon setHidden:YES];
+    [self cell:self.cellStripUnusedIcons setHidden:YES];
+    [self cell:self.cellStripHistoricalCustomIcons setHidden:YES];
+    [self cell:self.cellDeleteDatabaseAfterXFailedUnlockAttempts setHidden:YES];
+#ifdef NO_NETWORKING
+    [self cell:self.cellSentryCrashReporting setHidden:YES];
+#endif
+    
+    [self cell:self.cellDropboxAppFolder setHidden:YES];
+    [self cell:self.cellInstantPin setHidden:YES];
+
+    [self cell:self.cellZipExports setHidden:YES];
+    [self cell:self.cellHideExport setHidden:YES];
+    [self cell:self.cellExportDate setHidden:YES];
+
+    if ( AppPreferences.sharedInstance.disableNetworkBasedFeatures ) {
+        [self cell:self.cellSimpleLogin setHidden:YES];
+    }
+
+    [self bindSimpleLoginStatus];
 }
 
 - (void)viewWillAppear:(BOOL)animated {
@@ -135,8 +259,10 @@
     [self.tableView deselectRowAtIndexPath:indexPath animated:YES];
     
     if(cell == self.cellWebDAVConnections) {
+        #ifndef NO_NETWORKING
         WebDAVConnectionsViewController* vc = [WebDAVConnectionsViewController instantiateFromStoryboard];
         [vc presentFromViewController:self];
+        #endif
     }
     else if (cell == self.cellPasswordGeneration) {
         [self performSegueWithIdentifier:@"seguePrefToPasswordPrefs" sender:nil];
@@ -150,6 +276,10 @@
     }
     else if (cell == self.cellManageKeyFiles) {
         [self performSegueWithIdentifier:@"segueToManageKeyFiles" sender:nil];
+    }
+    else if ( cell == self.cellRedeemOfferCode ) {
+        SKPaymentQueue* queue = SKPaymentQueue.defaultQueue;
+        [queue presentCodeRedemptionSheet];
     }
     else if ( cell == self.cellPasswordStrength ) {
         NSArray<NSNumber*>* options = @[@(kPasswordStrengthAlgorithmBasic),
@@ -169,7 +299,7 @@
                 AppPreferences.sharedInstance.passwordStrengthConfig = config;
             }
              
-            [self bindGeneral];
+            [self bindPasswordStrength];
         }];
     }
     else if ( cell == self.cellAdversaryStrength ) {
@@ -196,8 +326,52 @@
                 config.adversaryGuessesPerSecond = options[selectedIndex].unsignedIntegerValue;
                 AppPreferences.sharedInstance.passwordStrengthConfig = config;
             }
-            [self bindGeneral];
+            [self bindPasswordStrength];
         }];
+    }
+    else if ( cell == self.cellWiFiSyncPasscode ) {
+        NSString* passcode = AppPreferences.sharedInstance.wiFiSyncPasscode;
+        passcode = passcode.length ? passcode : NSLocalizedString(@"generic_error", @"Error");
+        
+        [Alerts OkCancelWithTextField:self
+                      secureTextField:NO
+                 textFieldPlaceHolder:NSLocalizedString(@"wifi_sync_passcode_noun", @"Passcode")
+                        textFieldText:passcode
+                                title:NSLocalizedString(@"wifi_sync_passcode_noun", @"Passcode")
+                              message:NSLocalizedString(@"wifi_sync_change_passcode_message", @"Passcode is required on other devices to connect to this device.")
+                           completion:^(NSString *text, BOOL response) {
+            if ( response ) {
+                if ( text.length == 0 ) {
+                    text = [NSString stringWithFormat:@"%0.6d", arc4random_uniform(1000000)];
+                }
+                
+                AppPreferences.sharedInstance.wiFiSyncPasscode = text;
+                
+                [self restartOrStopWiFiSyncSource];
+            }
+        }];
+    }
+    else if ( cell == self.cellWiFiSyncServiceName ) {
+        [Alerts OkCancelWithTextField:self
+                      secureTextField:NO
+                 textFieldPlaceHolder:NSLocalizedString(@"wifi_sync_properties_service_name", @"Service Name")
+                        textFieldText:AppPreferences.sharedInstance.wiFiSyncServiceName
+                                title:NSLocalizedString(@"wifi_sync_properties_service_name", @"Service Name")
+                              message:NSLocalizedString(@"wifi_sync_change_service_name_message", @"")
+                           completion:^(NSString *text, BOOL response) {
+            if ( response ) {
+                AppPreferences.sharedInstance.wiFiSyncServiceName = text;
+                
+                [self restartOrStopWiFiSyncSource];
+            }
+        }];
+    }
+    else if ( cell == self.cellSimpleLogin ) {
+        [self showSimpleLoginSettings];
+    }
+    else if ( cell == self.cellTheGarage ) {
+        UIViewController* vc = [SwiftUIViewFactory getTheGarageViewController];
+        [self.navigationController pushViewController:vc animated:YES];
     }
 }
 
@@ -209,14 +383,40 @@
     AppPreferences.sharedInstance.backupFiles = self.switchBackupFiles.on;
     AppPreferences.sharedInstance.backupIncludeImportedKeyFiles = self.switchBackupImportedKeyFiles.on;
     
-    [FileManager.sharedInstance setDirectoryInclusionFromBackup:AppPreferences.sharedInstance.backupFiles
+    [StrongboxFilesManager.sharedInstance setDirectoryInclusionFromBackup:AppPreferences.sharedInstance.backupFiles
                                                importedKeyFiles:AppPreferences.sharedInstance.backupIncludeImportedKeyFiles];
     
     [self bindPreferences];
 }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 - (IBAction)onPreferencesChanged:(id)sender {
-    NSLog(@"Advanced Preference Changed: [%@]", sender);
+    slog(@"Advanced Preference Changed: [%@]", sender);
 
     AppPreferences.sharedInstance.syncPullEvenIfModifiedDateSame = self.switchSyncForcePull.on;
     AppPreferences.sharedInstance.syncForcePushDoNotCheckForConflicts = self.switchSyncForcePush.on;
@@ -226,7 +426,8 @@
     AppPreferences.sharedInstance.monitorInternetConnectivity = self.switchDetectOffline.on;
     
     AppPreferences.sharedInstance.colorizeUseColorBlindPalette = self.switchUseColorBlindPalette.on;
-    AppPreferences.sharedInstance.hideExportFromDatabaseContextMenu = self.switchHideExportOnDatabaseMenu.on;
+
+    
     AppPreferences.sharedInstance.allowThirdPartyKeyboards = self.switchAllowThirdPartyKeyboards.on;
 
     AppPreferences.sharedInstance.showMetadataOnDetailsScreen = self.switchShowMetadataOnDetailsScreen.on;
@@ -246,8 +447,7 @@
 
     AppPreferences.sharedInstance.pinYinSearchEnabled = self.switchPinYinSearch.on;
     
-    AppPreferences.sharedInstance.useIsolatedDropbox = self.switchDropboxFolderOnly.on;    
-
+    AppPreferences.sharedInstance.useIsolatedDropbox = self.switchDropboxFolderOnly.on;
 
     AppPreferences.sharedInstance.instantPinUnlocking = self.instantPinUnlock.on;
     AppPreferences.sharedInstance.pinCodeHapticFeedback = self.pinCodeHapticFeedback.on;
@@ -256,35 +456,37 @@
     AppPreferences.sharedInstance.useParentGroupIconOnCreate = self.switchNewEntryUsesParentGroupIcon.on;
     
     AppPreferences.sharedInstance.stripUnusedIconsOnSave = self.switchStripUnusedIcons.on;
+    AppPreferences.sharedInstance.stripUnusedHistoricalIcons = self.stripHistoricalCustomIconsOnSave.on;
+        
+    AppPreferences.sharedInstance.appendDateToExportFileName = self.switchAppendDateExportFilenames.on;
+    AppPreferences.sharedInstance.hideExportFromDatabaseContextMenu = self.switchHideExportOnDatabaseMenu.on;
+
+    AppPreferences.sharedInstance.disableCustomViews = self.disableCustomViews.on;
+
+
+
+
+
+    AppPreferences.sharedInstance.atomicSftpWrite = self.atomicSftpWrites.on;
+    AppPreferences.sharedInstance.showDatabasesOnAppShortcutMenu = self.switchShowDatabasesOnAppShortcutsMenu.on;
+
+    if ( !AppPreferences.sharedInstance.showDatabasesOnAppShortcutMenu ) {
+        [[UIApplication sharedApplication] setShortcutItems:@[]]; 
+    }
+    
+    AppPreferences.sharedInstance.associatedWebsites = self.showAssociatedWebsites.on;
+    AppPreferences.sharedInstance.twoFactorEasyReadSeparator = self.split2FACodes.on;
     
     [self bindPreferences];
 }
 
-- (IBAction)onUseICloud:(id)sender {
-    NSLog(@"Setting iCloudOn to %d", self.switchUseICloud.on);
-    
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-        [[AppPreferences sharedInstance] setICloudOn:self.switchUseICloud.on];
-        
-        [self bindCloudSessions];
-
+- (IBAction)onSentryCrashReportingChanged:(id)sender {
+    AppPreferences.sharedInstance.sentryCrashReportingEnabled = self.switchSentryCrashReporting.on;
+#ifndef NO_NETWORKING
+    AppDelegate *appDelegate = (AppDelegate *)UIApplication.sharedApplication.delegate;
+    [appDelegate updateSentryState];
+#endif
+    [self bindPreferences];
 }
 
 - (void)bindPreferences {
@@ -298,7 +500,6 @@
 
     self.switchBackupFiles.on = AppPreferences.sharedInstance.backupFiles;
     self.switchBackupImportedKeyFiles.on = AppPreferences.sharedInstance.backupIncludeImportedKeyFiles;
-    self.switchHideExportOnDatabaseMenu.on = AppPreferences.sharedInstance.hideExportFromDatabaseContextMenu;
     self.switchAllowThirdPartyKeyboards.on = AppPreferences.sharedInstance.allowThirdPartyKeyboards;
     
     self.switchShowMetadataOnDetailsScreen.on = AppPreferences.sharedInstance.showMetadataOnDetailsScreen;
@@ -309,38 +510,220 @@
     
     self.switchDropboxFolderOnly.on = AppPreferences.sharedInstance.useIsolatedDropbox;
 
-    
     self.instantPinUnlock.on = AppPreferences.sharedInstance.instantPinUnlocking;
     self.pinCodeHapticFeedback.on = AppPreferences.sharedInstance.pinCodeHapticFeedback;
 
     self.switchMarkdownNotes.on = AppPreferences.sharedInstance.markdownNotes;
     self.switchNewEntryUsesParentGroupIcon.on = AppPreferences.sharedInstance.useParentGroupIconOnCreate;
+    
     self.switchStripUnusedIcons.on = AppPreferences.sharedInstance.stripUnusedIconsOnSave;
+    self.stripHistoricalCustomIconsOnSave.on = AppPreferences.sharedInstance.stripUnusedHistoricalIcons;
+    
+    self.switchHideExportOnDatabaseMenu.on = AppPreferences.sharedInstance.hideExportFromDatabaseContextMenu;
+    
+
+    
+    self.switchAppendDateExportFilenames.on = AppPreferences.sharedInstance.appendDateToExportFileName;
+    
+    self.atomicSftpWrites.on = AppPreferences.sharedInstance.atomicSftpWrite;
+    self.switchShowDatabasesOnAppShortcutsMenu.on = AppPreferences.sharedInstance.showDatabasesOnAppShortcutMenu;
+        
+    self.showAssociatedWebsites.on = AppPreferences.sharedInstance.associatedWebsites;
+
+    self.split2FACodes.on = AppPreferences.sharedInstance.twoFactorEasyReadSeparator;
+    self.switchDeleteDatabaseAfterXFailedUnlockAttempts.on = NO;
+
+    self.disableCustomViews.on = AppPreferences.sharedInstance.disableCustomViews;
+    self.switchSentryCrashReporting.on = AppPreferences.sharedInstance.sentryCrashReportingEnabled;
+
+#ifndef NO_NETWORKING
+    [CloudKitDatabasesInteractor.shared getCloudKitAccountStatusWithCompletionHandler:^(CKAccountStatus status, NSError * _Nullable error) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self updateStrongboxSyncStatus:status error:error];
+        });
+    }];
+#endif
 }
 
+#ifndef NO_NETWORKING
+- (void)updateStrongboxSyncStatus:(CKAccountStatus)status
+                            error:(NSError* _Nullable)error {
+    if ( error ) {
+        self.labelStrongboxSyncStatus.textColor = UIColor.systemRedColor;
+        self.labelStrongboxSyncStatus.text = [NSString stringWithFormat:@"[%ld] - %@", error.code, error.localizedDescription];
+        
+        self.imageViewStrongboxSyncStatus.image = [UIImage systemImageNamed:@"exclamationmark.triangle" withConfiguration:[UIImageSymbolConfiguration configurationWithHierarchicalColor:UIColor.systemRedColor]];
+    }
+    else {
+        self.labelStrongboxSyncStatus.textColor = status == CKAccountStatusAvailable ? UIColor.secondaryLabelColor : UIColor.systemOrangeColor;
+        self.labelStrongboxSyncStatus.text = [CloudKitDatabasesInteractor getAccountStatusStringWithStatus:status];
+        
+        if ( status == CKAccountStatusAvailable ) {
+            self.imageViewStrongboxSyncStatus.image = [UIImage systemImageNamed:@"checkmark.circle" withConfiguration:[UIImageSymbolConfiguration configurationWithHierarchicalColor:UIColor.systemGreenColor]];
+        }
+        else {
+            self.imageViewStrongboxSyncStatus.image = [UIImage systemImageNamed:@"exclamationmark.triangle" withConfiguration:[UIImageSymbolConfiguration configurationWithHierarchicalColor:UIColor.systemOrangeColor]];
+        }
+    }
+}
+#endif
+
 - (void)bindCloudSessions {
-    self.switchUseICloud.on = [[AppPreferences sharedInstance] iCloudOn] && AppPreferences.sharedInstance.iCloudAvailable;
-    self.switchUseICloud.enabled = AppPreferences.sharedInstance.iCloudAvailable;
-    
-    self.labelUseICloud.text = AppPreferences.sharedInstance.iCloudAvailable ?    NSLocalizedString(@"prefs_vc_use_icloud_action", @"Use iCloud") :
-                                                                            NSLocalizedString(@"prefs_vc_use_icloud_disabled", @"Use iCloud (Unavailable)");
-    self.labelUseICloud.enabled = AppPreferences.sharedInstance.iCloudAvailable;
-    
     if ( AppPreferences.sharedInstance.disableThirdPartyStorageOptions ) {
         [self cell:self.cellCloudSessions setHidden:YES];
     }
-    
-    if ( AppPreferences.sharedInstance.disableNetworkBasedFeatures ) {
-        [self cell:self.cellUseICloud setHidden:YES];
-    }
-    
+        
     [self reloadDataAnimated:NO];
 }
 
-- (void)bindGeneral {
+- (void)bindPasswordStrength {
 
     self.labelPasswordStrengthAlgo.text = stringForPasswordStrengthAlgo(AppPreferences.sharedInstance.passwordStrengthConfig.algorithm);
     self.labelAdversary.text = stringForAdversaryStrength(AppPreferences.sharedInstance.passwordStrengthConfig.adversaryGuessesPerSecond);
+}
+
+- (IBAction)onWiFiSyncSourceChanged:(id)sender {
+    AppPreferences.sharedInstance.runAsWiFiSyncSourceDevice = self.switchWiFiSyncSource.on;
+    
+    [self restartOrStopWiFiSyncSource];
+}
+
+- (void)restartOrStopWiFiSyncSource {
+#ifndef NO_NETWORKING
+    NSError* error;
+    
+    if ( ![WiFiSyncServer.shared startOrStopWiFiSyncServerAccordingToSettingsAndReturnError:&error] ) {
+        slog(@"🔴 Error stopping/starting Wi-Fi Sync Source %@", error);
+        
+        [Alerts error:self error:error];
+    }
+    
+    [self bindWiFiSyncSource];
+#endif
+}
+
+- (void)bindWiFiSyncSource {
+    BOOL isPro = AppPreferences.sharedInstance.isPro;
+    BOOL isOn = AppPreferences.sharedInstance.runAsWiFiSyncSourceDevice && isPro;
+    
+    self.switchWiFiSyncSource.on = isOn;
+    self.switchWiFiSyncSource.enabled = isPro;
+    self.labelWiFiSyncSwitch.enabled = isPro;
+    
+    self.wiFiSyncProLabel.proFont = FontManager.sharedInstance.caption2Font;
+    self.wiFiSyncProLabel.hidden = isPro;
+
+#ifndef NO_NETWORKING 
+    self.wiFiSyncLastError.text = WiFiSyncServer.shared.lastError;
+
+    NSString* serviceName = WiFiSyncServer.shared.lastRegisteredServiceName.length != 0 ? WiFiSyncServer.shared.lastRegisteredServiceName : (AppPreferences.sharedInstance.wiFiSyncServiceName.length != 0 && !isOn ? AppPreferences.sharedInstance.wiFiSyncServiceName : NSLocalizedString(@"generic_loading", @"Loading..."));
+    
+    self.labelWiFiSyncServiceName.text = serviceName;
+    
+    self.labelWiFiSyncServiceName.enabled = WiFiSyncServer.shared.lastRegisteredServiceName.length != 0 || (AppPreferences.sharedInstance.wiFiSyncServiceName.length != 0 && !isOn);
+
+    [self cell:self.cellWiFiSyncLastError setHidden:WiFiSyncServer.shared.lastError == nil];
+#endif
+
+    NSString* passcode = AppPreferences.sharedInstance.wiFiSyncPasscode;
+    passcode = passcode.length ? passcode : NSLocalizedString(@"generic_error", @"Error");
+    self.labelPasscode.text = passcode;
+    
+    [self cell:self.cellWiFiSyncPasscode setHidden:!isOn];
+    [self cell:self.cellWiFiSyncServiceName setHidden:!isOn];
+
+    [self reloadDataAnimated:YES];
+}
+
+- (void)bindSimpleLoginStatus {
+    if ( SimpleLoginClient.shared.isConfigured ) {
+        self.labelSimpleLoginStatus.text = NSLocalizedString(@"simplelogin_status_configured", @"API key saved");
+        self.labelSimpleLoginStatus.textColor = UIColor.systemGreenColor;
+    }
+    else {
+        self.labelSimpleLoginStatus.text = NSLocalizedString(@"simplelogin_status_not_configured", @"Not configured");
+        self.labelSimpleLoginStatus.textColor = UIColor.secondaryLabelColor;
+    }
+}
+
+- (void)showSimpleLoginSettings {
+    BOOL alreadyConfigured = SimpleLoginClient.shared.isConfigured;
+
+    NSString* title = NSLocalizedString(@"simplelogin_settings_header", @"SimpleLogin");
+    NSString* message = NSLocalizedString(@"simplelogin_settings_message", @"Enter your SimpleLogin API key from the SimpleLogin dashboard.");
+
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:title
+                                                                  message:message
+                                                           preferredStyle:UIAlertControllerStyleAlert];
+
+    [alert addTextFieldWithConfigurationHandler:^(UITextField * _Nonnull textField) {
+        textField.placeholder = NSLocalizedString(@"simplelogin_api_key_placeholder", @"Paste your SimpleLogin API key");
+        textField.secureTextEntry = YES;
+        if ( alreadyConfigured ) {
+            textField.text = [SimpleLoginClient.shared getApiKey];
+        }
+    }];
+
+    __weak AdvancedPreferencesTableViewController* weakSelf = self;
+
+    UIAlertAction *saveAction = [UIAlertAction actionWithTitle:NSLocalizedString(@"simplelogin_verify_button", @"Save & Verify")
+                                                         style:UIAlertActionStyleDefault
+                                                       handler:^(UIAlertAction * _Nonnull action) {
+        NSString* key = [alert.textFields.firstObject.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+
+        if ( key.length == 0 ) {
+            [Alerts info:weakSelf
+                   title:NSLocalizedString(@"simplelogin_error_title", @"SimpleLogin Error")
+                 message:NSLocalizedString(@"simplelogin_error_empty_key", @"Please enter an API key")];
+            return;
+        }
+
+        [SimpleLoginClient.shared setApiKey:key];
+
+        [SimpleLoginClient.shared getUserInfoWithCompletion:^(SimpleLoginUserInfo * _Nullable info, NSError * _Nullable error) {
+            if ( info ) {
+                NSString* status = info.isPremium
+                    ? [NSString stringWithFormat:NSLocalizedString(@"simplelogin_status_connected_premium_fmt", @"Connected — %@ (Premium)"), info.email]
+                    : [NSString stringWithFormat:NSLocalizedString(@"simplelogin_status_connected_fmt", @"Connected — %@"), info.email];
+
+                [Alerts info:weakSelf
+                       title:NSLocalizedString(@"simplelogin_settings_header", @"SimpleLogin")
+                     message:status];
+            }
+            else {
+                SimpleLoginError slError = error ? (SimpleLoginError)error.code : SimpleLoginErrorUnexpectedResponse;
+                NSString* errorMessage = [SimpleLoginClient localizedErrorMessage:slError];
+
+                [SimpleLoginClient.shared setApiKey:nil];
+
+                [Alerts info:weakSelf
+                       title:NSLocalizedString(@"simplelogin_error_title", @"SimpleLogin Error")
+                     message:errorMessage];
+            }
+
+            [weakSelf bindSimpleLoginStatus];
+        }];
+    }];
+
+    UIAlertAction *cancelAction = [UIAlertAction actionWithTitle:NSLocalizedString(@"generic_cancel", @"Cancel")
+                                                           style:UIAlertActionStyleCancel
+                                                         handler:nil];
+
+    [alert addAction:saveAction];
+
+    if ( alreadyConfigured ) {
+        UIAlertAction *removeAction = [UIAlertAction actionWithTitle:NSLocalizedString(@"simplelogin_remove_key", @"Remove Key")
+                                                               style:UIAlertActionStyleDestructive
+                                                             handler:^(UIAlertAction * _Nonnull action) {
+            [SimpleLoginClient.shared setApiKey:nil];
+            [weakSelf bindSimpleLoginStatus];
+        }];
+        [alert addAction:removeAction];
+    }
+
+    [alert addAction:cancelAction];
+
+    [self presentViewController:alert animated:YES completion:nil];
 }
 
 - (void)promptForInteger:(NSString*)title

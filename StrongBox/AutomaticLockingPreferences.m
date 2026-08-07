@@ -24,6 +24,16 @@
 
 @implementation AutomaticLockingPreferences
 
++ (instancetype)fromStoryboardWithModel:(Model*)model {
+    UIStoryboard* sb = [UIStoryboard storyboardWithName:@"DatabaseOperations" bundle:nil];
+    
+    AutomaticLockingPreferences* vc = [sb instantiateViewControllerWithIdentifier:@"AutomaticLocking"];
+    
+    vc.viewModel = model;
+    
+    return vc;
+}
+
 - (void)viewDidLoad {
     [super viewDidLoad];
 
@@ -60,7 +70,7 @@
 
 - (void)promptForAutoLockTimeout {
     [self promptForInteger:NSLocalizedString(@"prefs_vc_auto_lock_database_delay", @"Auto Lock Delay")
-                   options:@[@0, @30, @60, @120, @180, @300, @600]
+                   options:@[@0, @30, @60, @120, @180, @300, @600, @900, @1200, @1800, @3600, @7200, @14400, @28800]
          formatAsIntervals:YES
               currentValue:self.viewModel.metadata.autoLockTimeoutSeconds ? self.viewModel.metadata.autoLockTimeoutSeconds.integerValue : 60
                 completion:^(BOOL success, NSInteger selectedValue) {
@@ -122,6 +132,10 @@
 - (IBAction)onSwitchLockEvenIfEditing:(id)sender {
     self.viewModel.metadata.lockEvenIfEditing = self.switchLockDuringEditing.on;
     [self bindUi];
+}
+
+- (IBAction)oDone:(id)sender {
+    [self.presentingViewController dismissViewControllerAnimated:YES completion:nil];
 }
 
 @end

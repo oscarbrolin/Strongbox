@@ -9,12 +9,15 @@
 #import <Foundation/Foundation.h>
 #import "CustomFieldViewModel.h"
 #import "OTPToken.h"
-#import "ItemMetadataEntry.h"
-#import "DatabaseAttachment.h"
+#import "KeePassAttachmentAbstractionLayer.h"
 #import "MutableOrderedDictionary.h"
 #import "Node.h"
 #import "DatabaseFormat.h"
+#import "KeeAgentSshKeyViewModel.h"
+#import "AutoFillNewRecordSettings.h"
 #import "Model.h"
+
+@class Passkey;
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -22,23 +25,56 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (instancetype)demoItem;
 
-+ (instancetype)fromNode:(Node *)item
-                  format:(DatabaseFormat)format
-                   model:(Model*)model
-        sortCustomFields:(BOOL)sortCustomFields;
++ (instancetype)newEmptyEntry;
+
++ (instancetype)newEntryWithDefaults:(AutoFillNewRecordSettings *)settings
+                 mostPopularUsername:(NSString*)mostPopularUsername
+                   generatedPassword:(NSString*)generatedPassword
+                    mostPopularEmail:(NSString*)mostPopularEmail;
+
++ (instancetype)fromNode:(Node *)item model:(Model*)model;
 
 - (BOOL)applyToNode:(Node*)ret
-     databaseFormat:(DatabaseFormat)databaseFormat
+              model:(Model*)model
 legacySupplementaryTotp:(BOOL)legacySupplementaryTotp
       addOtpAuthUrl:(BOOL)addOtpAuthUrl;
 
+
+
 - (instancetype)init NS_UNAVAILABLE;
+
+- (instancetype)initWithTitle:(NSString *)title
+                     username:(NSString *)username
+                     password:(NSString *)password
+                          url:(NSString *)url
+                        notes:(NSString *)notes
+                        email:(NSString *)email;
+
+- (instancetype)initWithTitle:(NSString *)title
+                     username:(NSString *)username
+                     password:(NSString *)password
+                          url:(NSString *)url
+                        notes:(NSString *)notes
+                        email:(NSString *)email
+                      expires:(nullable NSDate*)expires
+                         tags:(NSSet<NSString*>*)tags
+                         totp:(nullable OTPToken *)totp
+                         icon:(nullable NodeIcon*)icon
+                    favourite:(BOOL)favourite
+                 customFields:(NSArray<CustomFieldViewModel *> *)customFields
+                  attachments:(NSDictionary<NSString *,KeePassAttachmentAbstractionLayer *> *)attachments
+              parentGroupUuid:(nullable NSUUID*)parentGroupUuid
+               keeAgentSshKey:(nullable KeeAgentSshKeyViewModel*)keeAgentSshKey
+             sortCustomFields:(BOOL)sortCustomFields
+      reservedAttachmentNames:(NSSet<NSString*>*)reservedAttachmentNames
+                      passkey:(nullable Passkey*)passkey;
 
 - (instancetype)clone;
 - (BOOL)isDifferentFrom:(EntryViewModel*)other;
 
-- (void)removeAttachment:(NSString*)filename; 
-- (NSUInteger)insertAttachment:(NSString*)filename attachment:(DatabaseAttachment*)attachment;
+
+
+@property BOOL favourite;
 
 @property (nullable) NodeIcon* icon;
 @property NSString* title;
@@ -48,26 +84,43 @@ legacySupplementaryTotp:(BOOL)legacySupplementaryTotp
 @property NSString* notes;
 @property NSString* email;
 @property (nullable) NSDate* expires;
-
 @property (nullable) OTPToken* totp;
-@property (readonly) NSArray<CustomFieldViewModel*> *customFields;
-@property (readonly) MutableOrderedDictionary<NSString*, DatabaseAttachment*>* attachments;
-@property (readonly) NSArray<ItemMetadataEntry*> *metadata;
+@property (nullable) NSUUID* parentGroupUuid;
+
+
+
+@property (readonly) BOOL sortCustomFields;
+@property (readonly) NSSet<NSString*> *existingCustomFieldsKeySet;
+@property (readonly) NSArray<CustomFieldViewModel*> *customFieldsFiltered;
+@property (readonly) NSArray<CustomFieldViewModel*> *customFieldsFilteredAndExcludeAlternativeUrls;
+
+- (void)removeCustomFieldAtIndex:(NSUInteger)index;
+- (void)addCustomField:(CustomFieldViewModel*)field;
+- (void)addCustomField:(CustomFieldViewModel*)field atIndex:(NSUInteger)atIndex;
+- (void)moveCustomFieldAtIndex:(NSUInteger)sourceIdx to:(NSUInteger)destinationIdx;
+
+
+
+@property (readonly) MutableOrderedDictionary<NSString*, KeePassAttachmentAbstractionLayer*>* filteredAttachments;
+@property (readonly) NSSet<NSString*>* reservedAttachmentNames;
+- (void)removeAttachment:(NSString*)filename;
+- (void)insertAttachment:(NSString*)filename attachment:(KeePassAttachmentAbstractionLayer*)attachment;
+
+
 
 - (void)addTag:(NSString*)tag;
 - (void)removeTag:(NSString*)tag;
-- (void)resetTags:(NSSet<NSString*>*)tags;
+- (BOOL)resetTags:(NSSet<NSString*>*)tags; 
 @property (readonly) NSArray<NSString*> *tags;
 
-@property BOOL hasHistory;
 
-@property (nullable) NSUUID* parentGroupUuid;
 
-@property BOOL sortCustomFields;
+@property (nullable) KeeAgentSshKeyViewModel* keeAgentSshKey;
+- (void)setKeeAgentSshKeyEnabled:(BOOL)enabled;
 
-- (void)removeCustomFieldAtIndex:(NSUInteger)index;
-- (NSUInteger)addCustomField:(CustomFieldViewModel*)field;
-- (void)moveCustomFieldAtIndex:(NSUInteger)sourceIdx to:(NSUInteger)destinationIdx;
+
+
+@property (nullable) Passkey* passkey;
 
 @end
 

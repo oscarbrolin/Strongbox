@@ -6,140 +6,360 @@
 //  Copyright © 2021 Mark McGuill. All rights reserved.
 //
 
+import CloudKit
 import Cocoa
 
 class AdvancedAppPreferences: NSViewController {
-    @IBOutlet var quickReveal: NSButton!
+    private var scrollViewHeightCap: NSLayoutConstraint?
+    private var scrollViewDocumentConstraints: [NSLayoutConstraint] = []
+
+    @IBOutlet weak var scrollViewBottomConstraint: NSLayoutConstraint!
+    @IBOutlet weak var scrollView: NSScrollView!
+    @IBOutlet var newEntryUsesParentGroupIcon: NSButton!
+    @IBOutlet var makeBackups: NSButton!
     @IBOutlet var autoSave: NSButton!
     @IBOutlet var rememberKeyFile: NSButton!
     @IBOutlet var hideKeyFile: NSButton!
     @IBOutlet var useColorBindPalette: NSButton!
-    @IBOutlet var revealImmediately: NSButton!
-    @IBOutlet var makeBackups: NSButton!
-    @IBOutlet var colorizePasswords: NSButton!
-    @IBOutlet var markdown: NSButton!
-    @IBOutlet var showManagerOnAllClosed: NSButton!
-    @IBOutlet var hideManagerAfterLaunching: NSButton!
-    @IBOutlet var allowClipboardHandoff: NSButton!
     @IBOutlet var addTotpOtpAuth: NSButton!
     @IBOutlet var addLegacyTotpFields: NSButton!
-    @IBOutlet var showCopyFieldsButton: NSButton!
-    @IBOutlet var useNextGenUI: NSButton!
-    @IBOutlet var blockScreenshots: NSButton!
     @IBOutlet var useIsolatedDropbox: NSButton!
-    @IBOutlet var newEntryUsesParentGroupIcon: NSButton!
-    @IBOutlet weak var stripUnusedIcons: NSButton!
-    @IBOutlet weak var enableThirdParty: NSButton!
+    @IBOutlet var stripUnusedIcons: NSButton!
+    @IBOutlet var stripHistoricalIcons: NSButton!
+
+    @IBOutlet var quitClosesAllWindowsNotTerminate: NSButton!
+    @IBOutlet var concealedClipboard: NSButton!
+    @IBOutlet var atomicSftpWrites: NSButton!
+
+    @IBOutlet var stackViewStrongboxSyncStatus: NSStackView!
+    @IBOutlet var labelStrongboxSyncStatus: NSTextField!
+    @IBOutlet var imageViewStrongboxSyncStatus: NSImageView!
+
+    @IBOutlet var associatedWebsites: NSButton!
+    @IBOutlet var disableCustomViews: NSButton!
+    @IBOutlet var clearQuickSearchOnOpen: NSButton!
+    @IBOutlet var deleteDatabaseAfterXFailedUnlockAttempts: NSButton!
     
+    @IBOutlet var showOfflineOptionsForFilesDatabases: NSButton!
+    
+
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        if #available(macOS 11.0, *) {
-        } else {
-            useNextGenUI.isHidden = true
-        }
-        
+        setupScrollViewLayout()
+
+        useIsolatedDropbox.isHidden = !StrongboxProductBundle.supports3rdPartyStorageProviders
+        atomicSftpWrites.isHidden = !StrongboxProductBundle.supportsSftpWebDAV
+
+
         bindUI()
 
-        NotificationCenter.default.addObserver(forName: .preferencesChanged, object: nil, queue: nil) { [weak self] _ in
-            guard let self = self else { return }
-
-            self.bindUI()
+        NotificationCenter.default.addObserver(forName: .settingsChanged, object: nil, queue: nil) { [weak self] _ in
+            self?.bindUI()
         }
+
+        NotificationCenter.default.addObserver(forName: .proStatusChanged, object: nil, queue: nil) { [weak self] _ in
+            self?.bindUI()
+        }
+    }
+
+    private func setupScrollViewLayout() {
+        guard let scrollView else { return }
+        guard let documentView = scrollView.documentView else { return }
+        let clipView = scrollView.contentView
+
+        documentView.translatesAutoresizingMaskIntoConstraints = false
+
+        if scrollViewDocumentConstraints.isEmpty {
+            scrollViewDocumentConstraints = [
+                documentView.leadingAnchor.constraint(equalTo: clipView.leadingAnchor),
+                documentView.trailingAnchor.constraint(equalTo: clipView.trailingAnchor),
+                documentView.topAnchor.constraint(equalTo: clipView.topAnchor),
+                documentView.widthAnchor.constraint(equalTo: clipView.widthAnchor)
+            ]
+
+            NSLayoutConstraint.activate(scrollViewDocumentConstraints)
+        }
+
+        scrollViewBottomConstraint?.priority = .defaultLow
+
+        if scrollViewHeightCap == nil {
+            let cap = scrollView.heightAnchor.constraint(lessThanOrEqualToConstant: 500)
+            cap.priority = .required
+            cap.isActive = true
+            scrollViewHeightCap = cap
+        }
+
+        scrollView.setContentHuggingPriority(.defaultLow + 1, for: .vertical)
     }
 
     func bindUI() {
         let settings = Settings.sharedInstance()
-        
-        quickReveal.state = settings.quickRevealWithOptionKey ? .on : .off
+
+        newEntryUsesParentGroupIcon.state = settings.useParentGroupIconOnCreate ? .on : .off
+        makeBackups.state = settings.makeLocalRollingBackups ? .on : .off
         autoSave.state = settings.autoSave ? .on : .off
         rememberKeyFile.state = (!settings.doNotRememberKeyFile) ? .on : .off
         hideKeyFile.state = settings.hideKeyFileNameOnLockScreen ? .on : .off
-        showManagerOnAllClosed.state = settings.showDatabasesManagerOnCloseAllWindows ? .on : .off
         useColorBindPalette.state = settings.colorizeUseColorBlindPalette ? .on : .off
-        revealImmediately.state = settings.revealPasswordsImmediately ? .on : .off
-        hideManagerAfterLaunching.state = settings.closeManagerOnLaunch ? .on : .off
-        makeBackups.state = settings.makeLocalRollingBackups ? .on : .off
-        colorizePasswords.state = settings.colorizePasswords ? .on : .off
-        markdown.state = settings.markdownNotes ? .on : .off
-        allowClipboardHandoff.state = Settings.sharedInstance().clipboardHandoff ? .on : .off
-        addLegacyTotpFields.state = settings.addLegacySupplementaryTotpCustomFields ? .on : .off
         addTotpOtpAuth.state = settings.addOtpAuthUrl ? .on : .off
-
-        showCopyFieldsButton.state = settings.showCopyFieldButton ? .on : .off
-
-        useColorBindPalette.isEnabled = settings.colorizePasswords
-        hideKeyFile.isEnabled = !settings.doNotRememberKeyFile
-
-        
-
-        showManagerOnAllClosed.isEnabled = !settings.runningAsATrayApp
-
-        useNextGenUI.state = settings.nextGenUI ? .on : .off
-
-        blockScreenshots.state = settings.screenCaptureBlocked ? .on : .off
+        addLegacyTotpFields.state = settings.addLegacySupplementaryTotpCustomFields ? .on : .off
         useIsolatedDropbox.state = settings.useIsolatedDropbox ? .on : .off
-        newEntryUsesParentGroupIcon.state = settings.useParentGroupIconOnCreate ? .on : .off;
-        
+
         stripUnusedIcons.state = Settings.sharedInstance().stripUnusedIconsOnSave ? .on : .off
-            
-        enableThirdParty.isEnabled = settings.isPro;
-        enableThirdParty.state = settings.isPro && settings.runBrowserAutoFillProxyServer ? .on : .off;
-    }
-     
-    @IBAction func onUseDropboxIsolated(_ sender: Any) {
-        onChanged(sender)
+        stripHistoricalIcons.state = Settings.sharedInstance().stripUnusedHistoricalIcons ? .on : .off
 
-        DropboxV2StorageProvider.sharedInstance().signOut()
+        quitClosesAllWindowsNotTerminate.state = settings.quitTerminatesProcessEvenInSystemTrayMode ? .off : .on
+        concealedClipboard.state = settings.concealClipboardFromMonitors ? .on : .off
+        atomicSftpWrites.state = settings.atomicSftpWrite ? .on : .off
+        disableCustomViews.state = settings.disableCustomViews ? .on : .off
+        clearQuickSearchOnOpen.state = settings.clearQuickSearchOnOpen ? .on : .off
 
-        MacAlerts.info(NSLocalizedString("generic_restart_required", comment: "Restart Required"),
-                       informativeText: NSLocalizedString("generic_restart_required_for_changes_to_take_effect", comment: "You must restart Strongbox for these changes to take effect."),
-                       window: view.window,
-                       completion: nil)
-    }
-
-    @IBAction func onChanged(_: Any) {
-        Settings.sharedInstance().quickRevealWithOptionKey = quickReveal.state == .on
-        Settings.sharedInstance().autoSave = autoSave.state == .on
-        Settings.sharedInstance().doNotRememberKeyFile = rememberKeyFile.state != .on
-        Settings.sharedInstance().hideKeyFileNameOnLockScreen = hideKeyFile.state == .on
-        Settings.sharedInstance().showDatabasesManagerOnCloseAllWindows = showManagerOnAllClosed.state == .on
-        Settings.sharedInstance().colorizeUseColorBlindPalette = useColorBindPalette.state == .on
-        Settings.sharedInstance().revealPasswordsImmediately = revealImmediately.state == .on
-        Settings.sharedInstance().closeManagerOnLaunch = hideManagerAfterLaunching.state == .on
-        Settings.sharedInstance().makeLocalRollingBackups = makeBackups.state == .on
-        Settings.sharedInstance().colorizePasswords = colorizePasswords.state == .on
-        Settings.sharedInstance().markdownNotes = markdown.state == .on
-        Settings.sharedInstance().clipboardHandoff = allowClipboardHandoff.state == .on
-        Settings.sharedInstance().addLegacySupplementaryTotpCustomFields = addLegacyTotpFields.state == .on
-        Settings.sharedInstance().addOtpAuthUrl = addTotpOtpAuth.state == .on
-        Settings.sharedInstance().showCopyFieldButton = showCopyFieldsButton.state == .on
-        Settings.sharedInstance().nextGenUI = useNextGenUI.state == .on
-        Settings.sharedInstance().screenCaptureBlocked = blockScreenshots.state == .on
-        Settings.sharedInstance().useIsolatedDropbox = useIsolatedDropbox.state == .on
-        Settings.sharedInstance().useParentGroupIconOnCreate = newEntryUsesParentGroupIcon.state == .on
-        Settings.sharedInstance().stripUnusedIconsOnSave = stripUnusedIcons.state == .on
         
-        bindUI()
+
+        quitClosesAllWindowsNotTerminate.isHidden = !Settings.sharedInstance().configuredAsAMenuBarApp
+
+        useColorBindPalette.isHidden = !settings.colorizePasswords
+        hideKeyFile.isHidden = settings.doNotRememberKeyFile
+        
+
+        
+
+        stackViewStrongboxSyncStatus.isHidden = true 
+
+        #if !NO_NETWORKING
+            labelStrongboxSyncStatus.textColor = .secondaryLabelColor
+            labelStrongboxSyncStatus.stringValue = NSLocalizedString("generic_loading", comment: "Loading...")
+            imageViewStrongboxSyncStatus.image = NSImage(systemSymbolName: "arrow.triangle.2.circlepath", accessibilityDescription: nil)!
+
+            Task.detached(priority: .background) { [weak self] in
+                guard let self else { return }
+
+                do {
+                    let status = try await CloudKitDatabasesInteractor.shared.getCloudKitAccountStatus()
+
+                    await updateStrongboxSyncStatus(status: status, error: nil)
+                } catch {
+                    await updateStrongboxSyncStatus(status: nil, error: error)
+                }
+            }
+        #endif
+
+        associatedWebsites.state = settings.associatedWebsites ? .on : .off
+        showOfflineOptionsForFilesDatabases.state = settings.showOfflineOptionsOnLocalDeviceDatabases ? .on : .off
+        deleteDatabaseAfterXFailedUnlockAttempts.state = .off
+        deleteDatabaseAfterXFailedUnlockAttempts.isHidden = true
+    }
+
+    #if !NO_NETWORKING
+        @MainActor
+        func updateStrongboxSyncStatus(status: CKAccountStatus?, error: Error?) {
+            if let error {
+                labelStrongboxSyncStatus.textColor = .systemRed
+                labelStrongboxSyncStatus.stringValue = "\(error)"
+
+                imageViewStrongboxSyncStatus.image = NSImage(systemSymbolName: "exclamationmark.triangle", accessibilityDescription: nil)!
+                    .withSymbolConfiguration(NSImage.SymbolConfiguration(hierarchicalColor: .systemRed))
+            } else if let status {
+                labelStrongboxSyncStatus.textColor = status == .available ? .secondaryLabelColor : .systemOrange
+                labelStrongboxSyncStatus.stringValue = CloudKitDatabasesInteractor.getAccountStatusString(status: status)
+
+                if status == .available {
+                    imageViewStrongboxSyncStatus.image = NSImage(systemSymbolName: "checkmark.circle", accessibilityDescription: nil)!
+                        .withSymbolConfiguration(NSImage.SymbolConfiguration(hierarchicalColor: .systemGreen))
+                } else {
+                    imageViewStrongboxSyncStatus.image = NSImage(systemSymbolName: "exclamationmark.triangle", accessibilityDescription: nil)!
+                        .withSymbolConfiguration(NSImage.SymbolConfiguration(hierarchicalColor: .systemOrange))
+                }
+            } else {
+                labelStrongboxSyncStatus.textColor = .systemRed
+                labelStrongboxSyncStatus.stringValue = NSLocalizedString("generic_unknown", comment: "Unknown")
+
+                imageViewStrongboxSyncStatus.image = NSImage(systemSymbolName: "exclamationmark.triangle", accessibilityDescription: nil)!
+                    .withSymbolConfiguration(NSImage.SymbolConfiguration(hierarchicalColor: .systemRed))
+            }
+        }
+    #endif
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    @IBAction func onChanged(_ sender: Any) {
+        let settings = Settings.sharedInstance()
+
+        settings.useParentGroupIconOnCreate = newEntryUsesParentGroupIcon.state == .on
+        settings.makeLocalRollingBackups = makeBackups.state == .on
+        settings.autoSave = autoSave.state == .on
+        settings.doNotRememberKeyFile = rememberKeyFile.state != .on
+        settings.hideKeyFileNameOnLockScreen = hideKeyFile.state == .on
+        settings.colorizeUseColorBlindPalette = useColorBindPalette.state == .on
+        settings.addOtpAuthUrl = addTotpOtpAuth.state == .on
+        settings.addLegacySupplementaryTotpCustomFields = addLegacyTotpFields.state == .on
+        settings.useIsolatedDropbox = useIsolatedDropbox.state == .on
+        settings.stripUnusedIconsOnSave = stripUnusedIcons.state == .on
+        settings.stripUnusedHistoricalIcons = stripHistoricalIcons.state == .on
+        settings.quitTerminatesProcessEvenInSystemTrayMode = quitClosesAllWindowsNotTerminate.state == .off
+        settings.concealClipboardFromMonitors = concealedClipboard.state == .on
+        settings.atomicSftpWrite = atomicSftpWrites.state == .on
+        settings.associatedWebsites = associatedWebsites.state == .on
+        settings.disableCustomViews = disableCustomViews.state == .on
+        settings.clearQuickSearchOnOpen = clearQuickSearchOnOpen.state == .on
+
+        
+
+        settings.showOfflineOptionsOnLocalDeviceDatabases = showOfflineOptionsForFilesDatabases.state == .on
 
         notifyChanged()
     }
 
     func notifyChanged() {
-        NotificationCenter.default.post(name: .preferencesChanged, object: nil)
+        NotificationCenter.default.post(name: .settingsChanged, object: nil)
     }
-    
-    @IBAction func onEnableThirdParty(_ sender: Any) {
-        let settings = Settings.sharedInstance();
 
-        settings.runBrowserAutoFillProxyServer = enableThirdParty.state == .on
-    
-        if ( settings.runBrowserAutoFillProxyServer ) {
-            NativeMessagingManifestInstallHelper.installNativeMessagingHostsFiles();
-            AutoFillProxyServer.sharedInstance().start();
+    @IBAction func onFactoryReset(_: Any) {
+        MacAlerts.areYouSure("WARNING: This will completely remove all settings, databases, directories, caches and connections belonging to Strongbox.\n\nIt will NOT delete the database files themselves whether on cloud or locally stored.\n\nAre you sure you want to Factory Reset Strongbox?",
+                             window: view.window)
+        { [weak self] response in
+            if response {
+                self?.startFactoryReset()
+            }
         }
-        else {
-            AutoFillProxyServer.sharedInstance().stop();
+    }
+
+    func startFactoryReset() {
+        let allLocked = DatabasesCollection.shared.unlockedCollection.allKeys.isEmpty
+
+        if !allLocked {
+            DatabasesCollection.shared.tryToLockAll()
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in 
+                self?.continueFactoryResetAfterLockAllAttempt()
+            }
+        } else {
+            continueFactoryResetAfterLockAllAttempt()
         }
+    }
+
+    func continueFactoryResetAfterLockAllAttempt() {
+        let allLocked = DatabasesCollection.shared.unlockedCollection.allKeys.isEmpty
+
+        swlog("Factory Reset: All Locked: %hhd", allLocked)
+
+        if allLocked {
+            let allDocsClosed = DocumentController.shared.documents.isEmpty
+
+            if !allDocsClosed {
+                DocumentController.shared.closeAllDocuments(withDelegate: nil, didCloseAllSelector: nil, contextInfo: nil)
+
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in 
+                    self?.continueFactoryResetAfterAllDocsClosed()
+                }
+            } else {
+                continueFactoryResetAfterAllDocsClosed()
+            }
+        } else {
+            MacAlerts.info("Strongbox could not lock, close and sync all databases before resetting. Please make sure all syncs are done, lock any open databases and close any open Strongbox windows. Then try Factory Reset again.",
+                           window: view.window)
+        }
+    }
+
+    func continueFactoryResetAfterAllDocsClosed() {
+
+
+        let allDocsClosed = DocumentController.shared.documents.isEmpty
+
+        if !allDocsClosed {
+            MacAlerts.info("Strongbox could not lock, close and sync all databases before resetting. Please make sure all syncs are done, lock any open databases and close any open Strongbox windows. Then try Factory Reset again.",
+                           window: view.window)
+            return
+        }
+
+        let asyncUpdatesInProgress = MacDatabasePreferences.allDatabases.first { obj in
+            obj.asyncUpdateId != nil
+        }
+
+        let syncInProgress = asyncUpdatesInProgress != nil || MacSyncManager.sharedInstance().syncInProgress
+
+        if syncInProgress {
+            MacAlerts.info("Strongbox could not lock, close and sync all databases before resetting. Please make sure all syncs are done, lock any open databases and close any open Strongbox windows. Then try Factory Reset again.",
+                           window: view.window)
+            return
+        }
+
+
+
+        
+
+        DBManagerPanel.sharedInstance.hide()
+
+        
+
+        AutoFillProxyServer.sharedInstance().stop()
+
+        
+
+        SSHAgentServer.sharedInstance().stop()
+
+        
+
+        Settings.sharedInstance().factoryReset()
+
+        
+
+        SecretStore.sharedInstance().factoryReset()
+
+        
+
+
+
+        NSApp.terminate(self)
+        exit(0)
+    }
+
+    func restartStrongbox(afterDelay seconds: TimeInterval = 1.0) {
+        let task = Process()
+        task.launchPath = "/bin/sh"
+        task.arguments = ["-c", "sleep \(seconds); open \"\(Bundle.main.bundlePath)\""]
+        task.launch()
+
+        NSApp.terminate(self)
+        exit(0)
+    }
+
+    @IBAction func onUseDropboxIsolated(_ sender: Any) {
+        #if !NO_3RD_PARTY_STORAGE_PROVIDERS
+            onChanged(sender)
+
+            DropboxV2StorageProvider.sharedInstance().signOut()
+
+            MacAlerts.info(NSLocalizedString("generic_restart_required", comment: "Restart Required"),
+                           informativeText: NSLocalizedString("generic_restart_required_for_changes_to_take_effect", comment: "You must restart Strongbox for these changes to take effect."),
+                           window: view.window,
+                           completion: nil)
+        #endif
     }
 }

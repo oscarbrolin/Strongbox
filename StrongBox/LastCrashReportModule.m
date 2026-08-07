@@ -8,7 +8,7 @@
 
 #import "LastCrashReportModule.h"
 #import "GenericOnboardingViewController.h"
-#import "FileManager.h"
+#import "StrongboxiOSFilesManager.h"
 #import "DebugHelper.h"
 #import "ClipboardManager.h"
 
@@ -27,17 +27,20 @@
     
     
 
-    if ( [NSFileManager.defaultManager fileExistsAtPath:FileManager.sharedInstance.crashFile.path] ) {
-        [NSFileManager.defaultManager removeItemAtURL:FileManager.sharedInstance.archivedCrashFile error:nil];
-        [NSFileManager.defaultManager moveItemAtURL:FileManager.sharedInstance.crashFile toURL:FileManager.sharedInstance.archivedCrashFile error:nil];
+    if ( [NSFileManager.defaultManager fileExistsAtPath:StrongboxFilesManager.sharedInstance.crashFile.path] ) {
+        [NSFileManager.defaultManager removeItemAtURL:StrongboxFilesManager.sharedInstance.archivedCrashFile error:nil];
+        [NSFileManager.defaultManager moveItemAtURL:StrongboxFilesManager.sharedInstance.crashFile toURL:StrongboxFilesManager.sharedInstance.archivedCrashFile error:nil];
 
+        NSData* data = [NSData dataWithContentsOfURL:StrongboxFilesManager.sharedInstance.archivedCrashFile];
+        NSString* crashStr = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+                
         return YES;
     }
     
     return NO;
 }
 
-- (nonnull UIViewController *)instantiateViewController:(nonnull OnboardingModuleDoneBlock)onDone {
+- (UIViewController *)instantiateViewController:(nonnull OnboardingModuleDoneBlock)onDone {
     UIStoryboard* storyboard = [UIStoryboard storyboardWithName:@"GenericOnboardSlide" bundle:nil];
     GenericOnboardingViewController* vc = [storyboard instantiateInitialViewController];
     
@@ -50,7 +53,7 @@
 
     __weak id weakSelf = self;
     vc.onButtonClicked = ^(NSInteger buttonIdCancelIsZero, UIViewController * _Nonnull viewController, OnboardingModuleDoneBlock  _Nonnull onDone) {
-        NSLog(@"onButtonClicked: %ld", (long)buttonIdCancelIsZero);
+        slog(@"onButtonClicked: %ld", (long)buttonIdCancelIsZero);
         
         if ( buttonIdCancelIsZero == 1 ) {
             [weakSelf sharePreviousCrash:viewController onDone:onDone];
@@ -68,16 +71,25 @@
     return vc;
 }
 
-- (NSString*)getCrashMessage {
-    NSString* loc = NSLocalizedString(@"safes_vc_please_send_crash_report", @"Please send this crash to support@strongboxsafe.com");
-    NSString* message = [NSString stringWithFormat:@"%@\n\n%@", loc, [DebugHelper getCrashEmailDebugString]];
-    
-    return message;
+- (void)getCrashMessage:(void(^)(NSString* message))completion {
+    [DebugHelper getCrashEmailDebugString:^(NSString * _Nonnull debugInfo) {
+        NSString* loc = NSLocalizedString(@"safes_vc_please_send_crash_report", @"Please send this crash to support@strongboxsafe.com");
+        
+        NSString* message = [NSString stringWithFormat:@"%@\n\n%@", loc, debugInfo];
+        
+        completion ( message );
+    }];
 }
 
 - (void)sharePreviousCrash:(UIViewController*)viewController onDone:(OnboardingModuleDoneBlock  _Nonnull)onDone {
-    NSString* message = [self getCrashMessage];
-    
+    [self getCrashMessage:^(NSString *message) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self sharePreviousCrashWithDebugInfo:viewController message:message onDone:onDone];
+        });
+    }];
+}
+
+- (void)sharePreviousCrashWithDebugInfo:(UIViewController*)viewController message:(NSString*)message onDone:(OnboardingModuleDoneBlock  _Nonnull)onDone  {
     NSArray *activityItems = @[
                                message];
     
@@ -99,8 +111,11 @@
 }
 
 - (void)copyPreviousCrashToClipboard {
-    NSString* message = [self getCrashMessage];
-    [ClipboardManager.sharedInstance copyStringWithNoExpiration:message];
+    [self getCrashMessage:^(NSString *message) {
+        dispatch_async(dispatch_get_main_queue(), ^{ 
+            [ClipboardManager.sharedInstance copyStringWithNoExpiration:message];
+        });
+    }];
  }
 
 @end

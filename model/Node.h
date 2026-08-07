@@ -140,6 +140,8 @@ NS_ASSUME_NONNULL_BEGIN
           addLegacyFields:(BOOL)addLegacyFields
             addOtpAuthUrl:(BOOL)addOtpAuthUrl;
 
+- (BOOL) isCreditCard;
+
 
 
 
@@ -149,6 +151,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, strong, nullable) NSObject *linkedData;
 
 extern NSComparator finderStyleNodeComparator;
+extern NSComparator finderStyleNodeComparatorTyped;
 + (BOOL)sortTitleLikeFinder:(Node*)a b:(Node*)b;
 
 - (BOOL)isSyncEqualTo:(Node*)other;

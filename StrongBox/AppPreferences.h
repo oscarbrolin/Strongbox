@@ -13,8 +13,16 @@
 #import "AppPrivacyShieldMode.h"
 #import "AppLockMode.h"
 #import "ApplicationPreferences.h"
+#import "SearchScope.h"
 
 NS_ASSUME_NONNULL_BEGIN
+
+typedef NS_ENUM(NSUInteger, DatabaseSortOption) {
+    DatabaseSortOptionDate = 0,
+    DatabaseSortOptionName = 1,
+    DatabaseSortOptionSize = 2,
+    DatabaseSortOptionNone = 3,
+};
 
 @interface AppPreferences : NSObject<ApplicationPreferences>
 
@@ -22,6 +30,11 @@ NS_ASSUME_NONNULL_BEGIN
 
 @property (nullable, readonly) NSUserDefaults* sharedAppGroupDefaults;
 @property (readonly) NSString* appGroupName;
+
+@property (nonatomic) SearchScope searchScope; 
+@property (nonatomic) BOOL rememberSearchScope; 
+@property (nonatomic, readonly) SearchScope initialSearchScope;
+- (void)persistSearchScopeIfEnabled:(SearchScope)scope NS_SWIFT_NAME(persistSearchScope(ifEnabled:));
 @property BOOL suppressAppBackgroundTriggers; 
 
 @property BOOL colorizeUseColorBlindPalette;
@@ -43,7 +56,8 @@ NS_ASSUME_NONNULL_BEGIN
 
 @property BOOL showAllFilesInLocalKeyFiles;
 @property BOOL monitorInternetConnectivity;
-@property (nonatomic) BOOL iCloudOn;
+@property BOOL sentryCrashReportingEnabled;
+
 @property FavIconDownloadOptions *favIconDownloadOptions;
 @property BOOL showDatabasesSeparator;
 @property BOOL showDatabaseStatusIcon;
@@ -65,6 +79,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 @property BOOL autoFillExitedCleanly;
 @property BOOL autoFillWroteCleanly;
+
 @property BOOL haveWarnedAboutAutoFillCrash;
 @property BOOL dontNotifyToSwitchToMainAppForSync;
 
@@ -76,7 +91,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property BOOL autoFillAutoLaunchSingleDatabase;
 @property (nullable) NSString* autoFillQuickLaunchUuid;
 @property BOOL migratedQuickLaunchToAutoFill;
-@property BOOL autoFillShowPinned;
+@property BOOL autoFillShowFavourites;
 @property BOOL coalesceAppLockAndQuickLaunchBiometrics;
 
 @property AppPrivacyShieldMode appPrivacyShieldMode;
@@ -93,10 +108,6 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (NSString*)getFlagsStringForDiagnostics;
 
-@property (nonatomic) BOOL iCloudWasOn;
-@property (nonatomic) BOOL iCloudPrompted;
-@property (nonatomic) BOOL iCloudAvailable;
-
 @property (nonatomic) NSDate* installDate;
 @property (nonatomic, readonly) NSInteger daysInstalled;
 - (void)clearInstallDate;
@@ -107,6 +118,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property NSString* appLockPin;
 @property NSInteger appLockDelay;
 @property BOOL appLockAppliesToPreferences;
+@property BOOL deleteDatabaseAfterXFailedUnlockAttempts;
 @property NSInteger deleteDataAfterFailedUnlockCount;
 @property NSUInteger failedUnlockAttempts;
 
@@ -123,6 +135,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 @property PasswordStrengthConfig* passwordStrengthConfig;
 @property NSInteger promptedForSale;
+@property NSInteger saleBannerDismissedForSale;
 
 @property BOOL addLegacySupplementaryTotpCustomFields;
 @property BOOL addOtpAuthUrl;
@@ -146,11 +159,14 @@ NS_ASSUME_NONNULL_BEGIN
 
 @property BOOL hasPromptedThatFreeTrialWillEndSoon;
 
-@property BOOL disableReadOnlyToggles;
 @property BOOL databasesAreAlwaysReadOnly;
+@property BOOL disableExport;
+@property BOOL disablePrinting;
+@property BOOL disableWiFiSyncClientMode;
 @property BOOL disableFavIconFeature;
 @property BOOL disableNetworkBasedFeatures; 
 
+@property DatabaseSortOption databasesSortOption;
 
 @property BOOL useIsolatedDropbox;
 
@@ -177,8 +193,54 @@ NS_ASSUME_NONNULL_BEGIN
 @property BOOL useParentGroupIconOnCreate;
 
 @property BOOL stripUnusedIconsOnSave;
+@property BOOL stripUnusedHistoricalIcons;
+
 @property BOOL pinCodeHapticFeedback;
-@property (readonly) BOOL expressUpdateSyncPerfImprovementEnabled;
+
+@property BOOL hasMigratedToLazySync;
+
+@property (nullable) NSString* businessOrganisationName;
+
+@property BOOL appendDateToExportFileName;
+
+@property (nullable) NSDate* lastQuickTypeMultiDbRegularClear;
+
+@property BOOL atomicSftpWrite;
+
+@property NSString* databasesSerializationError;
+
+@property BOOL wiFiSyncHasRequestedNetworkPermissions;
+
+@property BOOL runAsWiFiSyncSourceDevice;
+@property (nullable) NSString* wiFiSyncServiceName;
+@property (nullable) NSString* wiFiSyncPasscode;
+
+@property BOOL cloudKitZoneCreated;
+
+@property BOOL showDatabasesOnAppShortcutMenu;
+
+@property BOOL hasWarnedAboutCloudKitUnavailability;
+@property BOOL hasGotUserNotificationsPermissions;
+@property (nullable) NSDate* lastAskToEnableNotifications;
+@property BOOL showDatabaseNamesInBrowse;
+@property BOOL warnAboutLocalDeviceDatabases;
+
+@property BOOL disableCopyTo;
+@property BOOL disableMakeVisibleInFiles;
+
+@property BOOL associatedWebsites;
+@property BOOL twoFactorEasyReadSeparator;
+@property BOOL twoFactorHideCountdownDigits;
+
+@property BOOL appleWatchIntegration;
+
+@property BOOL showInteractiveAppleWatchSyncGuide;
+
+@property NSInteger zipExportBehaviour; 
+
+@property BOOL showHiddenDatabases;
+
+@property BOOL disableCustomViews;
 
 @end
 

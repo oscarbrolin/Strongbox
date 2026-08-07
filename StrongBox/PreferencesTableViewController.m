@@ -12,7 +12,6 @@
 #import "AppPreferences.h"
 #import <MessageUI/MessageUI.h>
 #import "DatabasePreferences.h"
-#import "PinEntryController.h"
 #import "NSArray+Extensions.h"
 #import "AutoFillManager.h"
 #import "SelectItemTableViewController.h"
@@ -53,6 +52,12 @@
 @property (weak, nonatomic) IBOutlet UIImageView *imageViewClipboard;
 @property (weak, nonatomic) IBOutlet UITableViewCell *cellProStatus;
 
+@property (weak, nonatomic) IBOutlet UITableViewCell *cellNoneCommercialUse;
+@property (weak, nonatomic) IBOutlet UITableViewCell *cellAppAppearance;
+@property (weak, nonatomic) IBOutlet UILabel *labelAppAppearance;
+@property (weak, nonatomic) IBOutlet UILabel *labelPrivacyShieldMode;
+
+
 @end
 
 @implementation PreferencesTableViewController
@@ -70,15 +75,23 @@
     
     [self bindVersionAndProStatus];
     [self bindHideTips];
+
+    [self bindUI];
     
     [NSNotificationCenter.defaultCenter addObserver:self
                                            selector:@selector(onProStatusChanged:)
-                                               name:kProStatusChangedNotificationKey
+                                               name:kProStatusChangedNotification
                                              object:nil];
     
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         [self maybeRequestReview];
     });
+}
+
+- (void)bindUI {
+    AppPreferences* prefs = AppPreferences.sharedInstance;
+    self.labelAppAppearance.text = stringForAppAppearanceMode(prefs.appAppearance);
+    self.labelPrivacyShieldMode.text = stringForPrivacyShieldMode(prefs.appPrivacyShieldMode);
 }
 
 - (void)onProStatusChanged:(id)param {
@@ -93,7 +106,7 @@
     }
     else {
         
-        NSLog(@"Tips Loaded: [%hhd]", TipJarLogic.sharedInstance.isLoaded);
+        slog(@"Tips Loaded: [%hhd]", TipJarLogic.sharedInstance.isLoaded);
     }
     
     if ( !UIApplication.sharedApplication.supportsAlternateIcons ) {
@@ -102,99 +115,38 @@
     
     
     
-    if (@available(iOS 13.0, *)) {
-        if (@available(iOS 15.0, *)) {
-            self.imageViewAbout.image = [UIImage systemImageNamed:@"lock.shield"];
-        }
-        else {
-            self.imageViewAbout.image = [UIImage systemImageNamed:@"lock.shield"];
-        }
-    } else {
-        self.imageViewAbout.hidden = YES;
-    }
-
-    if (@available(iOS 13.0, *)) {
-        self.imageViewTipJar.image = [UIImage systemImageNamed:@"gift"];
-        self.imageViewTipJar.tintColor = UIColor.systemYellowColor;
-    } else {
-        self.imageViewTipJar.hidden = YES;
-    }
+    self.imageViewAbout.image = [UIImage systemImageNamed:@"lock.shield"];
+    self.imageViewTipJar.image = [UIImage systemImageNamed:@"gift"];
+    self.imageViewTipJar.tintColor = UIColor.systemYellowColor;
     
-    if (@available(iOS 13.0, *)) {
-        self.imageViewHelp.image = [UIImage systemImageNamed:@"questionmark.circle"];
-
-            self.imageViewHelp.tintColor = UIColor.systemPurpleColor;
-
-    } else {
-        self.imageViewHelp.hidden = YES;
-    }
     
-    if (@available(iOS 13.0, *)) {
-        self.imageViewAppIcon.image = [UIImage systemImageNamed:@"photo"];
-    } else {
-        self.imageViewAppIcon.hidden = YES;
-    }
-    if (@available(iOS 13.0, *)) {
-        self.imageViewShowTips.image = [UIImage systemImageNamed:@"text.bubble"];
-    } else {
-        self.imageViewShowTips.hidden = YES;
-    }
-    if (@available(iOS 13.0, *)) {
-        if (@available(iOS 15.0, *)) {
-            self.imageViewPrivacyShield.image = [UIImage systemImageNamed:@"checkerboard.shield"];
-        }
-        else {
-            self.imageViewPrivacyShield.image = [UIImage systemImageNamed:@"shield"];
-        }
-    } else {
-        self.imageViewPrivacyShield.hidden = YES;
-    }
+    self.imageViewHelp.image = [UIImage systemImageNamed:@"questionmark.circle"];
+    self.imageViewHelp.tintColor = UIColor.systemPurpleColor;
+    self.imageViewAppIcon.image = [UIImage systemImageNamed:@"photo"];
+    self.imageViewShowTips.image = [UIImage systemImageNamed:@"text.bubble"];
+
+    self.imageViewPrivacyShield.image = [UIImage systemImageNamed:@"checkerboard.shield"];
+    self.imageViewAppLock.image = [UIImage systemImageNamed:@"lock.circle"];
+    self.imageViewAdvanced.image = [UIImage systemImageNamed:@"gear.circle"];
+
+    BOOL licensed = AppPreferences.sharedInstance.isPro;
+    NSString* license = licensed ? @"person.fill.checkmark" : @"person.fill.xmark";
     
-    if (@available(iOS 13.0, *)) {
-        self.imageViewAppLock.image = [UIImage systemImageNamed:@"lock.circle"];
-    } else {
-        self.imageViewAppLock.hidden = YES;
-    }
+    self.imageViewLicense.image =  [UIImage systemImageNamed:license];
+    self.imageViewLicense.tintColor = licensed ? nil : UIColor.systemOrangeColor;
 
-    if (@available(iOS 13.0, *)) {
-        if (@available(iOS 15.0, *)) {
-            self.imageViewAdvanced.image = [UIImage systemImageNamed:@"gear.circle"];
-        }
-        else {
-            self.imageViewAdvanced.image = [UIImage systemImageNamed:@"gear"];
-        }
-    } else {
-        self.imageViewAdvanced.hidden = YES;
-    }
-
-    if (@available(iOS 14.0, *)) {
-        BOOL licensed = AppPreferences.sharedInstance.isPro;
-        NSString* license = licensed ? @"person.fill.checkmark" : @"person.fill.xmark";
+    if ( AppPreferences.sharedInstance.isPro ) {
+        self.imageViewContactSupport.image =  [UIImage systemImageNamed:@"bubble.left"];
+        self.imageViewContactSupport.tintColor = UIColor.systemPurpleColor;
         
-        self.imageViewLicense.image =  [UIImage systemImageNamed:license];
-        self.imageViewLicense.tintColor = licensed ? nil : UIColor.systemOrangeColor;
-    } else {
-        self.imageViewLicense.hidden = YES;
+        [self cell:self.cellNoneCommercialUse setHidden:YES];
     }
-
-    if (@available(iOS 13.0, *)) {
-        if ( AppPreferences.sharedInstance.isPro ) {
-            self.imageViewContactSupport.image =  [UIImage systemImageNamed:@"bubble.left"];
-            self.imageViewContactSupport.tintColor = UIColor.systemPurpleColor;
-        }
-        else {
-            [self cell:self.cellContactSupport setHidden:YES];
-        }
-
-    } else {
-        self.imageViewContactSupport.hidden = YES;
+    else {
+        [self cell:self.cellContactSupport setHidden:YES];
     }
     
-    if (@available(iOS 13.0, *)) {
-        self.imageViewClipboard.image =  [UIImage systemImageNamed:@"doc.on.doc"];
-    } else {
-        self.imageViewClipboard.hidden = YES;
-    }
+    self.imageViewClipboard.image =  [UIImage systemImageNamed:@"doc.on.doc"];
+    
     
     [self reloadDataAnimated:YES];
 }
@@ -213,7 +165,14 @@
         NSArray<NSNumber*>* options = @[@(kAppPrivacyShieldModeNone),
                                         @(kAppPrivacyShieldModeBlur),
                                         @(kAppPrivacyShieldModePixellate),
-                                        @(kAppPrivacyShieldModeBlueScreen)];
+                                        @(kAppPrivacyShieldModeBlueScreen),
+                                        @(kAppPrivacyShieldModeBlackScreen),
+                                        @(kAppPrivacyShieldModeDarkLogo),
+                                        @(kAppPrivacyShieldModeRed),
+                                        @(kAppPrivacyShieldModeGreen),
+                                        @(kAppPrivacyShieldModeLightLogo),
+                                        @(kAppPrivacyShieldModeWhite),
+        ];
         
         NSArray<NSString*>* optionStrings = [options map:^id _Nonnull(NSNumber * _Nonnull obj, NSUInteger idx) {
             return stringForPrivacyShieldMode(obj.integerValue);
@@ -225,6 +184,38 @@
                    completion:^(BOOL success, NSInteger selectedIndex) {
             if ( success ) {
                 AppPreferences.sharedInstance.appPrivacyShieldMode = selectedIndex;
+                [self bindUI];
+            }
+        }];
+    }
+    else if ( cell == self.cellAppAppearance ) {
+        NSArray<NSNumber*>* options = @[@(kAppAppearanceSystem),
+                                        @(kAppAppearanceLight),
+                                        @(kAppAppearanceDark)];
+        
+        NSArray<NSString*>* optionStrings = [options map:^id _Nonnull(NSNumber * _Nonnull obj, NSUInteger idx) {
+            return stringForAppAppearanceMode(obj.integerValue);
+        }];
+        
+        [self promptForChoice:NSLocalizedString(@"prefs_vc_app_appearance", @"App Appearance")
+                      options:optionStrings
+         currentlySelectIndex:AppPreferences.sharedInstance.appAppearance
+                   completion:^(BOOL success, NSInteger selectedIndex) {
+            if ( success ) {
+                if ( selectedIndex != AppPreferences.sharedInstance.appAppearance ) {
+                    AppPreferences.sharedInstance.appAppearance = selectedIndex;
+                    
+                    AppAppearance appearance = selectedIndex;
+                    
+                    if ( appearance == kAppAppearanceSystem ) {
+                        UIApplication.sharedApplication.delegate.window.overrideUserInterfaceStyle = UIUserInterfaceStyleUnspecified;
+                    }
+                    else {
+                        UIApplication.sharedApplication.delegate.window.overrideUserInterfaceStyle = appearance == kAppAppearanceLight ? UIUserInterfaceStyleLight : UIUserInterfaceStyleDark;
+                    }
+                    
+                    [self bindUI];
+                }
             }
         }];
     }
@@ -252,17 +243,32 @@
 }
 
 - (void)showUpgradeScreenIfAppropriate {
-    if ( CustomizationManager.isAProBundle || ( AppPreferences.sharedInstance.isPro && ProUpgradeIAPManager.sharedInstance.isLegacyLifetimeIAPPro )) {
+    if (CustomizationManager.isAProBundle || AppPreferences.sharedInstance.isPro) {
         return;
     }
     
-    [self performSegueWithIdentifier:@"segueToUpgradeScreen" sender:nil];
+    if (
+        ProUpgradeIAPManager.sharedInstance.isLegacyLifetimeIAPPro ||
+        ProUpgradeIAPManager.sharedInstance.hasSetapp
+    ) {
+        return;
+    }
+    
+    
+    #if SUBSCRIPTIONS
+    [[SuperwallService shared] presentWithCampaign:SuperwallCampaignSettings completion:^(BOOL subscribed) {
+        
+    }];
+    #endif
 }
 
 - (void)bindVersionAndProStatus {
     NSString *aboutString;
     
-    if( AppPreferences.sharedInstance.isPro ) {
+    if ( StrongboxProductBundle.isZeroEdition ) {
+        aboutString = [NSString stringWithFormat:NSLocalizedString(@"about_strongbox_zero_version_fmt", @"Zero Version %@"), [Utils getAppVersion]];
+    }
+    else if( AppPreferences.sharedInstance.isPro ) {
         aboutString = [NSString stringWithFormat:NSLocalizedString(@"about_strongbox_pro_version_fmt", @"Pro Version %@"), [Utils getAppVersion]];
     }
     else {
@@ -271,11 +277,9 @@
         
     self.labelVersion.text = aboutString;
         
-    if (@available(iOS 13.0, *)) {
-        self.labelProStatus.textColor = UIColor.labelColor;
-        self.cellProStatus.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
-        self.cellProStatus.selectionStyle = UITableViewCellSelectionStyleDefault;
-    }
+    self.labelProStatus.textColor = UIColor.labelColor;
+    self.cellProStatus.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+    self.cellProStatus.selectionStyle = UITableViewCellSelectionStyleDefault;
     
     if ( CustomizationManager.isAProBundle ) {
         self.labelProStatus.text = NSLocalizedString(@"pro_status_lifetime_pro", @"Lifetime Pro");
@@ -288,6 +292,9 @@
                 self.labelProStatus.text = NSLocalizedString(@"pro_status_lifetime_pro_iap", @"Lifetime Pro (In-App Purchase)");
                 self.cellProStatus.accessoryType = UITableViewCellAccessoryNone;
                 self.cellProStatus.selectionStyle = UITableViewCellSelectionStyleNone;
+            }
+            else if ( ProUpgradeIAPManager.sharedInstance.hasSetapp) {
+                self.labelProStatus.text = NSLocalizedString(@"pro_status_setapp", @"Setapp");
             }
             else if ( ProUpgradeIAPManager.sharedInstance.hasActiveYearlySubscription ){
                 self.labelProStatus.text = NSLocalizedString(@"pro_status_yearly_pro", @"Pro (Yearly subscription)");
@@ -308,12 +315,10 @@
     
     
     
-    if (@available(iOS 14.0, *)) {
-        BOOL licensed = AppPreferences.sharedInstance.isPro;
-        NSString* license = licensed ? @"person.fill.checkmark" : @"person.fill.xmark";
-        self.imageViewLicense.image =  [UIImage systemImageNamed:license];
-        self.imageViewLicense.tintColor = licensed ? nil : UIColor.systemOrangeColor;
-    }
+    BOOL licensed = AppPreferences.sharedInstance.isPro;
+    NSString* license = licensed ? @"person.fill.checkmark" : @"person.fill.xmark";
+    self.imageViewLicense.image =  [UIImage systemImageNamed:license];
+    self.imageViewLicense.tintColor = licensed ? nil : UIColor.systemOrangeColor;
     
     [self cell:self.cellContactSupport setHidden:!AppPreferences.sharedInstance.isPro];
 }
@@ -341,7 +346,7 @@
 
 
 
-        NSURL* url = [NSURL URLWithString:@"https:
+        NSURL* url = [NSURL URLWithString:@"https://strongboxsafe.com/support/"];
         [UIApplication.sharedApplication openURL:url options:@{} completionHandler:nil];
 
 }
@@ -356,10 +361,43 @@ static NSString* stringForPrivacyShieldMode(AppPrivacyShieldMode mode ){
         return NSLocalizedString(@"app_privacy_shield_mode_pixellate", @"Pixellate");
     }
     else if ( mode == kAppPrivacyShieldModeNone ) {
-        return NSLocalizedString(@"generic_none", @"None");
+        return NSLocalizedString(@"privacy_shield_none", @"None"); 
+    }
+    else if ( mode == kAppPrivacyShieldModeBlueScreen ) {
+        return NSLocalizedString(@"app_privacy_shield_mode_blue_screen", @"Blue Screen");
+    }
+    else if ( mode == kAppPrivacyShieldModeBlackScreen ) {
+        return NSLocalizedString(@"app_privacy_shield_mode_black_screen", @"Black Screen");
+    }
+    else if ( mode == kAppPrivacyShieldModeDarkLogo ) {
+        return NSLocalizedString(@"app_privacy_shield_mode_dark_logo", @"Dark Logo");
+    }
+    else if ( mode == kAppPrivacyShieldModeRed ) {
+        return NSLocalizedString(@"app_privacy_shield_mode_red_screen", @"Red Screen");
+    }
+    else if ( mode == kAppPrivacyShieldModeGreen ) {
+        return NSLocalizedString(@"app_privacy_shield_mode_green_screen", @"Green Screen");
+    }
+    else if ( mode == kAppPrivacyShieldModeLightLogo ) {
+        return NSLocalizedString(@"app_privacy_shield_mode_blue_light_logo", @"Light Logo");
+    }
+    else if ( mode == kAppPrivacyShieldModeWhite ) {
+        return NSLocalizedString(@"app_privacy_shield_mode_white_screen", @"White Screen");
     }
     else {
-        return NSLocalizedString(@"app_privacy_shield_mode_blue_screen", @"Blue Screen");
+        return @"🔴 Error unknown privacy shield mode";
+    }
+}
+
+static NSString* stringForAppAppearanceMode(AppAppearance mode ){
+    if ( mode == kAppAppearanceSystem ) {
+        return NSLocalizedString(@"app_appearance_mode_system", @"System");
+    }
+    else if (mode == kAppAppearanceLight ) {
+        return NSLocalizedString(@"app_appearance_mode_light", @"Light");
+    }
+    else {
+        return NSLocalizedString(@"app_appearance_mode_dark", @"Dark");
     }
 }
 
@@ -401,7 +439,14 @@ static NSString* stringForPrivacyShieldMode(AppPrivacyShieldMode mode ){
 
 
 - (void)composeEmail {
-    NSString* debugInfo = [DebugHelper getAboutDebugString];
+    [DebugHelper getAboutDebugString:^(NSString * _Nonnull debugInfo) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self composeEmailWithDebugInfo:debugInfo];
+        });
+    }];
+}
+
+- (void)composeEmailWithDebugInfo:(NSString*)debugInfo {
     NSString* subject = @"Support Request";
     
     if(![MFMailComposeViewController canSendMail]) {

@@ -18,7 +18,7 @@ class AuditExcludedItems: NSViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        excludedItems = database.getExcludedAuditItems()
+        excludedItems = database.excludedFromAuditEntries
 
         tableView.register(NSNib(nibNamed: TitleAndIconCell.NibIdentifier.rawValue, bundle: nil), forIdentifier: TitleAndIconCell.NibIdentifier)
 
@@ -29,7 +29,7 @@ class AuditExcludedItems: NSViewController {
 
 extension AuditExcludedItems: NSTableViewDataSource, NSTableViewDelegate {
     func numberOfRows(in _: NSTableView) -> Int {
-        return excludedItems.count
+        excludedItems.count
     }
 
     func tableView(_: NSTableView, viewFor _: NSTableColumn?, row: Int) -> NSView? {
@@ -40,17 +40,19 @@ extension AuditExcludedItems: NSTableViewDataSource, NSTableViewDelegate {
     func getTitleCell(node: Node) -> NSTableCellView {
         let cell = tableView.makeView(withIdentifier: TitleAndIconCell.NibIdentifier, owner: self) as! TitleAndIconCell
 
-        cell.icon.objectValue = getIconForNode(node)
-        cell.title.stringValue = dereference(text: node.title, node: node)
+        cell.setContent(dereference(text: node.title, node: node), iconImage: getIconForNode(node), iconTintColor: .systemBlue)
+
+        
+
 
         return cell
     }
 
     func getIconForNode(_ node: Node) -> IMAGE_TYPE_PTR {
-        return NodeIconHelper.getIconFor(node, predefinedIconSet: database!.iconSet, format: database!.format, large: false)
+        NodeIconHelper.getIconFor(node, predefinedIconSet: database!.keePassIconSet, format: database!.format, large: false)
     }
 
     func dereference(text: String, node: Node) -> String {
-        return database.dereference(text, node: node)
+        database.dereference(text, node: node)
     }
 }

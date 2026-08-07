@@ -22,6 +22,8 @@ class QRCodeScanner: NSViewController, NSPopoverDelegate {
     @IBOutlet var labelFoundInWindow: NSTextField!
     @IBOutlet var labelNoneFoundHeader: NSTextField!
     @IBOutlet var labelPermissionsHeader: NSTextField!
+    @IBOutlet var stackViewPreviewTotp: NSStackView!
+    @IBOutlet var checkboxAutoCommit: NSButton!
 
     struct ScanResult {
         var totpString: String
@@ -40,6 +42,9 @@ class QRCodeScanner: NSViewController, NSPopoverDelegate {
 
         stackViewNoneFound.setCustomSpacing(8, after: labelNoneFoundHeader)
         stackViewResultConfirm.setCustomSpacing(8, after: labelFoundInWindow)
+        stackViewResultConfirm.setCustomSpacing(12, after: checkboxAutoCommit)
+
+        stackViewPreviewTotp.isHidden = true 
 
         bindUI()
 
@@ -49,19 +54,17 @@ class QRCodeScanner: NSViewController, NSPopoverDelegate {
     }
 
     var hasPermissions: Bool {
-        if #available(macOS 11.0, *) {
-            
-            
+        CGPreflightScreenCaptureAccess()
+    }
 
-            return CGPreflightScreenCaptureAccess()
-        } else {
-            return checkForScreenRecordingPermissionsOnMac()
-        }
+    @IBAction func onClose(_: Any) {
+        dismiss(nil)
     }
 
     @IBAction func onLooksGood(_: Any) {
         if let totp = scanResult?.totpString {
             onSetTotp?(totp)
+            dismiss(nil)
         }
     }
 
@@ -71,17 +74,34 @@ class QRCodeScanner: NSViewController, NSPopoverDelegate {
         bindUI()
     }
 
+    @IBAction func onChangedAutoCommit(_: Any) {
+        if checkboxAutoCommit.state == .off {
+            MacAlerts.areYouSure(NSLocalizedString("are_you_sure_auto_commit_totp_msg", comment: "Disabling Auto-Commit could mean you lose this 2FA Code if you forget to commit later. Are you sure?"),
+                                 window: view.window)
+            { [weak self] response in
+                if response {
+                    Settings.sharedInstance().autoCommitScannedTotp = false
+                }
+                self?.bindUI()
+            }
+        } else {
+            Settings.sharedInstance().autoCommitScannedTotp = true
+            bindUI()
+        }
+    }
+
     func bindUI() {
         stackViewPermissions.isHidden = hasPermissions
         stackViewSearching.isHidden = !hasPermissions || !isScanning
         stackViewResultConfirm.isHidden = scanResult == nil
         stackViewNoneFound.isHidden = scanResult != nil || isScanning || !hasPermissions
+        checkboxAutoCommit.state = Settings.sharedInstance().autoCommitScannedTotp ? .on : .off
 
         if let result = scanResult {
             imageView.image = result.image
             labelTotpUrl.stringValue = result.totpString
 
-            let locString = NSLocalizedString("found_totp_code_in_x_window_fmt", comment: "Found TOTP Code in '%@' Window")
+            let locString = NSLocalizedString("found_totp_code_in_x_window_fmt", comment: "Found 2FA Code in '%@' Window")
             labelFoundInWindow.stringValue = String(format: locString, result.ownerWindow)
             bindTotpCode()
             startTotpRefreshTimer()
@@ -105,7 +125,7 @@ class QRCodeScanner: NSViewController, NSPopoverDelegate {
     }
 
     @objc func bindTotpCode() {
-        if let scanResult = scanResult,
+        if let scanResult,
            let url = URL(string: scanResult.totpString),
            let totp = OTPToken(url: url)
         {
@@ -120,34 +140,32 @@ class QRCodeScanner: NSViewController, NSPopoverDelegate {
             progressTotpCode.minValue = 0
             progressTotpCode.maxValue = totp.period
             progressTotpCode.doubleValue = remainingSeconds
+        } else {
+            labelTotpCode.stringValue = ""
+            progressTotpCode.doubleValue = 0
         }
     }
 
-    var dontDismissOnNextDismissal: Bool = false
+
     @IBAction func onLaunchPreferences(_: Any) {
-
-
-
-
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
             NSWorkspace.shared.open(url)
-            dontDismissOnNextDismissal = true 
         }
-
     }
 
-    func popoverShouldClose(_: NSPopover) -> Bool {
-        if dontDismissOnNextDismissal {
-            dontDismissOnNextDismissal = false
-            return false
-        }
 
-        return true
-    }
 
-    func popoverDidClose(_: Notification) {
-        stopTotpRefreshTimer()
-    }
+
+
+
+
+
+
+
+
+
+
+
 
     func startScanning() {
         isScanning = true
@@ -172,17 +190,17 @@ class QRCodeScanner: NSViewController, NSPopoverDelegate {
         DispatchQueue.global().async { [weak self] in
             self?.scanWindows(qrDetector: qrDetector, infoList: infoList) { result in
                 DispatchQueue.main.async { [weak self] in
-                    self?.onFinishedScanningForTOTPCode(result: result)
+                    self?.onFinishedScanningFor2FACode(result: result)
                 }
             }
         }
     }
 
-    func onFinishedScanningForTOTPCode(result: ScanResult?) {
+    func onFinishedScanningFor2FACode(result: ScanResult?) {
         progressIndicator.stopAnimation(nil)
         isScanning = false
 
-        if let result = result {
+        if let result {
 
             scanResult = result
         } else {
@@ -197,6 +215,7 @@ class QRCodeScanner: NSViewController, NSPopoverDelegate {
         for dict in infoList {
             guard let maybeOwner = dict[kCGWindowOwnerName as String] as? String?,
                   let ownerWindow = maybeOwner,
+                  ownerWindow != "Strongbox",
                   let windowIDNum = dict[kCGWindowNumber as String] as? NSNumber,
                   let windowImage: CGImage = CGWindowListCreateImage(.null, .optionIncludingWindow, windowIDNum.uint32Value as CGWindowID, [.boundsIgnoreFraming, .nominalResolution])
             else {
@@ -204,7 +223,6 @@ class QRCodeScanner: NSViewController, NSPopoverDelegate {
             }
 
             let ciImage = CIImage(cgImage: windowImage)
-
             let features = qrDetector.features(in: ciImage)
 
             if let qrc = features.first as? CIQRCodeFeature, let string = qrc.messageString {
@@ -212,9 +230,19 @@ class QRCodeScanner: NSViewController, NSPopoverDelegate {
 
 
 
-                if let url = URL(string: string), let _ = OTPToken(url: url) {
-                    completionHandler(ScanResult(totpString: string, ownerWindow: ownerWindow, image: image))
-                    return
+                
+                
+
+                if let url = (string as NSString).urlExtendedParse {
+
+
+                    if OTPToken(url: url) != nil || IDMeOtpAuthImporter.canImport(url) {
+
+
+
+                        completionHandler(ScanResult(totpString: url.absoluteString, ownerWindow: ownerWindow, image: image))
+                        return
+                    }
                 }
             }
         }

@@ -14,6 +14,7 @@
 #import "Settings.h"
 #import "ClipboardManager.h"
 #import "MBProgressHUD.h"
+#import "AppDelegate.h"
 
 #ifndef IS_APP_EXTENSION
 #import "Strongbox-Swift.h"
@@ -23,7 +24,7 @@
 
 #import "MacDatabasePreferences.h"
 
-@interface SystemTrayViewController ()
+@interface SystemTrayViewController () 
 
 @property (weak) IBOutlet ClickableTextField *basic;
 @property (weak) IBOutlet ClickableTextField *diceWare;
@@ -59,20 +60,18 @@
     
     
     self.fontMenlo = [NSFontManager.sharedFontManager fontWithFamily:@"Menlo" traits:kNilOptions weight:NSFontWeightRegular size:16.0];
-
-    if (@available(macOS 11.0, *)) {
-        [self.buttonRefresh setImage:[NSImage imageWithSystemSymbolName:@"arrow.triangle.2.circlepath" accessibilityDescription:nil]];
-        [self.buttonRefresh setControlSize:NSControlSizeLarge];
-        
-        [self.buttonPasswordPreferences setImage:[NSImage imageWithSystemSymbolName:@"gear" accessibilityDescription:nil]];
-        [self.buttonPasswordPreferences setControlSize:NSControlSizeLarge];
-
-        [self.barButtonDice setImage:[NSImage imageWithSystemSymbolName:@"die.face.6" accessibilityDescription:nil]];
-        [self.barButtonDice setControlSize:NSControlSizeLarge];
-        
-        [self.barButtonPreferences setImage:[NSImage imageWithSystemSymbolName:@"gear" accessibilityDescription:nil]];
-        [self.barButtonPreferences setControlSize:NSControlSizeLarge];
-    }
+    
+    [self.buttonRefresh setImage:[NSImage imageWithSystemSymbolName:@"arrow.triangle.2.circlepath" accessibilityDescription:nil]];
+    [self.buttonRefresh setControlSize:NSControlSizeLarge];
+    
+    [self.buttonPasswordPreferences setImage:[NSImage imageWithSystemSymbolName:@"gear" accessibilityDescription:nil]];
+    [self.buttonPasswordPreferences setControlSize:NSControlSizeLarge];
+    
+    [self.barButtonDice setImage:[NSImage imageWithSystemSymbolName:@"dice" accessibilityDescription:nil]];
+    [self.barButtonDice setControlSize:NSControlSizeLarge];
+    
+    [self.barButtonPreferences setImage:[NSImage imageWithSystemSymbolName:@"gear" accessibilityDescription:nil]];
+    [self.barButtonPreferences setControlSize:NSControlSizeLarge];
     
     self.basic.onClick = ^{
         [self onBasicClick];
@@ -83,7 +82,7 @@
     
     [self bindUI];
     
-    [self sizePopoverToFit];
+    [self sizeAndPositionPopoverToFit];
 }
 
 - (void)viewWillAppear {
@@ -93,7 +92,7 @@
     
     [self bindUI];
     
-    [self sizePopoverToFit];
+    [self sizeAndPositionPopoverToFit];
     
     [self onRefresh:nil];
 }
@@ -123,9 +122,7 @@
     databaseButton.identifier = db.uuid;
     
     [databaseButton setTitle:db.nickName];
-    if (@available(macOS 11.0, *)) {
-        [databaseButton setControlSize:NSControlSizeLarge];
-    }
+    [databaseButton setControlSize:NSControlSizeLarge];
     
     [databaseButton setFrameSize:NSMakeSize(300.,50.)];
     databaseButton.translatesAutoresizingMaskIntoConstraints = NO;
@@ -164,8 +161,10 @@
         }
     }
     
-    BOOL showPasswordGen = Settings.sharedInstance.showPasswordGenInTray;
-    self.miniPasswordGenerator.hidden = showPasswordGen;
+    BOOL showPasswordGen = NO; 
+    
+    self.miniPasswordGenerator.hidden = !showPasswordGen;
+    
     self.horizontRuleAfterPasswordGen.hidden = showPasswordGen;
     self.constraintGapDatabasesAndPasswordGen.constant = showPasswordGen ? 0 : 4;
 }
@@ -182,7 +181,7 @@
     }
 }
 
-- (void)sizePopoverToFit {
+- (void)sizeAndPositionPopoverToFit {
     CGSize old = self.view.frame.size;
     CGSize fit = [self.view fittingSize];
 
@@ -374,16 +373,18 @@
     }
 }
 
-- (IBAction)onQuit:(id)sender {
+- (IBAction)onQuit:(id)sender {  
     [NSApplication.sharedApplication terminate:nil];
 }
 
 - (IBAction)onShowPasswordGenerator:(id)sender {
-    Settings.sharedInstance.showPasswordGenInTray = !Settings.sharedInstance.showPasswordGenInTray;
+
+
+
+
+
     
-    [self bindUI];
-    
-    [self sizePopoverToFit];
+    [self onPasswordPreferences:nil];
 }
 
 - (IBAction)onPasswordPreferences:(id)sender {
@@ -391,7 +392,9 @@
         self.onShowClicked( nil );
     }
 
-    [AppPreferencesWindowController.sharedInstance showWithTab:AppPreferencesTabPasswordGeneration];
+
+    
+    [PasswordGenerator.sharedInstance show];
 }
 
 - (IBAction)onShowPreferences:(id)sender {
@@ -399,7 +402,7 @@
         self.onShowClicked( nil );
     }
     
-    [AppPreferencesWindowController.sharedInstance showWithTab:AppPreferencesTabGeneral];
+    [AppSettingsWindowController.sharedInstance showGeneralTab];
 }
 
 @end

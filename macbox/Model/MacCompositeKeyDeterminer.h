@@ -12,43 +12,67 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+typedef NSViewController* _Nonnull (^MacCompositeKeyDeterminerOnDemandUIProviderBlock)(void); // Allows lazy creation of UI only when required, so we can run very silently / in background
+
 @interface MacCompositeKeyDeterminer : NSObject
 
-+ (instancetype)determinerWithViewController:(NSViewController*)viewController
++ (instancetype)determinerWithViewController:(NSViewController*_Nullable)viewController
                                     database:(METADATA_PTR)database
-                              isAutoFillOpen:(BOOL)isAutoFillOpen;
+            isNativeAutoFillAppExtensionOpen:(BOOL)isNativeAutoFillAppExtensionOpen;
 
-
-+ (instancetype)determinerWithViewController:(NSViewController*)viewController
++ (instancetype)determinerWithViewController:(NSViewController*_Nullable)viewController
                                     database:(METADATA_PTR)database
-                              isAutoFillOpen:(BOOL)isAutoFillOpen
+            isNativeAutoFillAppExtensionOpen:(BOOL)isNativeAutoFillAppExtensionOpen
                      isAutoFillQuickTypeOpen:(BOOL)isAutoFillQuickTypeOpen;
 
++ (instancetype)determinerWithDatabase:(METADATA_PTR)database
+      isNativeAutoFillAppExtensionOpen:(BOOL)isNativeAutoFillAppExtensionOpen
+               isAutoFillQuickTypeOpen:(BOOL)isAutoFillQuickTypeOpen
+                    onDemandUiProvider:(MacCompositeKeyDeterminerOnDemandUIProviderBlock)onDemandUiProvider;
+
 - (void)getCkfs:(CompositeKeyDeterminedBlock)completion;
+- (void)getCkfs:(NSString*_Nullable)message completion:(CompositeKeyDeterminedBlock)completion;
+- (void)getCkfs:(NSString *_Nullable)message
+ manualHeadline:(NSString *_Nullable)manualHeadline
+  manualSubhead:(NSString *_Nullable)manualSubhead
+     completion:(CompositeKeyDeterminedBlock)completion;
 
 - (void)getCkfsManually:(CompositeKeyDeterminedBlock)completion;
 
+- (void)getCkfsManually:(NSString*_Nullable)headline
+            subheadline:(NSString*_Nullable)subheadline
+             completion:(CompositeKeyDeterminedBlock)completion;
+
 - (void)getCkfsWithBiometrics:(NSString*_Nullable)keyFileBookmark
+           keyFileFallbackUrl:(NSURL*_Nullable)keyFileFallbackUrl
          yubiKeyConfiguration:(YubiKeyConfiguration*_Nullable)yubiKeyConfiguration
                    completion:(CompositeKeyDeterminedBlock)completion;
 
-- (void)getCkfsWithExplicitPassword:(NSString*_Nullable)password
-                    keyFileBookmark:(NSString*_Nullable)keyFileBookmark
-               yubiKeyConfiguration:(YubiKeyConfiguration*_Nullable)yubiKeyConfiguration
+- (void)getCkfsAfterSuccessfulBiometricAuth:(NSString *)keyFileBookmark
+                       yubiKeyConfiguration:(YubiKeyConfiguration *)yubiKeyConfiguration
+                         keyFileFallbackUrl:(NSURL*_Nullable)keyFileFallbackUrl
+                                 completion:(CompositeKeyDeterminedBlock)completion;
+
+- (void)getCkfsWithExplicitPassword:(NSString *)password
+                    keyFileBookmark:(NSString *)keyFileBookmark
+               yubiKeyConfiguration:(YubiKeyConfiguration *)yubiKeyConfiguration
+                 keyFileFallbackUrl:(NSURL*_Nullable)keyFileFallbackUrl
                          completion:(CompositeKeyDeterminedBlock)completion;
 
 @property (readonly) BOOL bioOrWatchUnlockIsPossible;
 
-+ (BOOL)bioOrWatchUnlockIsPossible:(MacDatabasePreferences*)database;
+@property BOOL verifyCkfsMode; 
+
++ (BOOL)bioOrWatchUnlockIsPossible:(MacDatabasePreferences*)database isAutoFillOpen:(BOOL)isAutoFillOpen;
 
 
 
 + (CompositeKeyFactors* _Nullable)getCkfsWithConfigs:(NSString*_Nullable)password
-                           keyFileBookmark:(NSString*_Nullable)keyFileBookmark
-                      yubiKeyConfiguration:(YubiKeyConfiguration*_Nullable)yubiKeyConfiguration
-          hardwareKeyInteractionWindowHint:(NSWindow*)hardwareKeyInteractionWindowHint
-                         formatKeyFileHint:(DatabaseFormat)formatKeyFileHint
-                                     error:(NSError**)outError;
+                                     keyFileBookmark:(NSString*_Nullable)keyFileBookmark
+                                yubiKeyConfiguration:(YubiKeyConfiguration*_Nullable)yubiKeyConfiguration
+                hardwareKeyInteractionViewController:(NSViewController*)hardwareKeyInteractionViewController
+                                   formatKeyFileHint:(DatabaseFormat)formatKeyFileHint
+                                               error:(NSError**)outError;
 @end
 
 NS_ASSUME_NONNULL_END

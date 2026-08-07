@@ -7,10 +7,23 @@
 //
 
 #import "Settings.h"
-#import "NotificationConstants.h"
 #import "Utils.h"
 #import "Constants.h"
 #import "Model.h"
+
+#ifndef IS_APP_EXTENSION
+#ifndef NO_3RD_PARTY_STORAGE_PROVIDERS
+#import "GoogleDriveManager.h"
+#endif
+
+#endif
+
+#ifndef IS_APP_EXTENSION
+#import "MacCustomizationManager.h"
+#import "Strongbox-Swift.h"
+#else
+#import "Strongbox_Auto_Fill-Swift.h"
+#endif
 
 NSString* const kTitleColumn = @"TitleColumn";
 NSString* const kUsernameColumn = @"UsernameColumn";
@@ -30,6 +43,7 @@ static const NSInteger kDefaultClearClipboardTimeout = 60;
 static NSString* const kPro = @"fullVersion";
 static NSString* const kEndFreeTrialDate = @"endFreeTrialDate";
 static NSString* const kAutoLockTimeout = @"autoLockTimeout";
+static NSString* const kAutoLockIfInBackgroundTimeoutSeconds = @"autoLockIfInBackgroundTimeoutSeconds";
 
 static NSString* const kAlwaysShowPassword = @"alwaysShowPassword";
 static NSString* const kAutoFillNewRecordSettings = @"autoFillNewRecordSettings";
@@ -59,19 +73,19 @@ static NSString* const kMiniaturizeOnCopy = @"miniaturizeOnCopy";
 static NSString* const kQuickRevealWithOptionKey = @"quickRevealWithOptionKey";
 static NSString* const kMarkdownNotes = @"markdownNotes";
 static NSString* const kShowPasswordGenInTray = @"showPasswordGenInTray";
-static NSString* const kNextGenUI = @"nextGenUI-Production-17-Mar-2022";
 static NSString* const kAddOtpAuthUrl = @"addOtpAuthUrl";
 static NSString* const kAddLegacySupplementaryTotpCustomFields = @"addLegacySupplementaryTotpCustomFields";
 static NSString* const kQuitOnAllWindowsClosed = @"quitOnAllWindowsClosed";
-static NSString* const kLastPromptedToUseNextGenUI = @"lastPromptedToUseNextGenUI";
 static NSString* const kShowCopyFieldButton = @"showCopyFieldButton";
 static NSString* const kLockEvenIfEditing = @"lockEvenIfEditing";
 static NSString* const kScreenCaptureBlocked = @"screenCaptureBlocked";
+static NSString* const kDisableCustomViews = @"disableCustomViews";
+static NSString* const kClearQuickSearchOnOpen = @"clearQuickSearchOnOpen";
 
 
 
 static NSString* const kLastEntitlementCheckAttempt = @"lastEntitlementCheckAttempt";
-static NSString* const kNumberOfEntitlementCheckFails = @"numberOfEntitlementCheckFails";
+static NSString* const kNumberOfEntitlementCheckFails = @"numberOfEntitlementCheckFails-reset-all-27-dec-2022";
 static NSString* const kAppHasBeenDowngradedToFreeEdition = @"appHasBeenDowngradedToFreeEdition";
 static NSString* const kHasPromptedThatAppHasBeenDowngradedToFreeEdition = @"hasPromptedThatAppHasBeenDowngradedToFreeEdition";
 static NSString* const kHasPromptedThatFreeTrialWillEndSoon = @"hasPromptedThatFreeTrialWillEndSoon";
@@ -85,12 +99,84 @@ static NSString* const kUseIsolatedDropbox = @"useIsolatedDropbox";
 static NSString* const kUseParentGroupIconOnCreate = @"useParentGroupIconOnCreate";
 static NSString* const kStripUnusedIconsOnSave = @"stripUnusedIconsOnSave";
 static NSString* const kRunBrowserAutoFillProxyServer = @"runBrowserAutoFillProxyServer-Prod-22-Oct-2022";
+static NSString* const kBrowserAutoFillStrictSubdomainMatching = @"browserAutoFillStrictSubdomainMatching-08-Apr-2026";
+static NSString* const kQuitTerminatesProcessEvenInSystemTrayMode = @"quitTerminatesProcessEvenInSystemTrayMode";
+static NSString* const kLockDatabaseOnWindowClose = @"lockDatabaseOnWindowClose";
+static NSString* const kLockDatabasesOnScreenLock = @"lockDatabasesOnScreenLock";
+static NSString* const KShowDatabasesManagerOnAppLaunch = @"showDatabasesManagerOnAppLaunch";
+static NSString* const kHasAskedAboutDatabaseOpenInBackground = @"hasAskedAboutDatabaseOpenInBackground";
+static NSString* const kConcealClipboardFromMonitors = @"concealClipboardFromMonitors-DefaultON-27-Dec-2022";
+static NSString* const kAutoCommitScannedTotp = @"autoCommitScannedTotp";
+static NSString* const kHideOnCopy = @"hideOnCopy";
+static NSString* const kHasPromptedForThirdPartyAutoFill = @"hasPromptedForThirdPartyAutoFill";
+
+static NSString* const kHasDismissedSettingsProUpsells = @"hasDismissedSettingsProUpsells-2026-07";
+static NSString* const kRunSshAgent = @"runSshAgent";
+
+static NSString* const kBusinessOrganisationName = @"businessOrganisationName";
+static NSString* const kLastQuickTypeMultiDbRegularClear = @"lastQuickTypeMultiDbRegularClear";
+static NSString* const kSshAgentApprovalDefaultExpiryMinutes = @"sshAgentApprovalDefaultExpiryMinutes";
 
 
 
-static NSString* const kDefaultAppGroupName = @"group.strongbox.mac.mcguill";
+static NSString* const kDatabasesAreAlwaysReadOnly = @"databasesAreAlwaysReadOnly";
+static NSString* const kDisableExport = @"disableExport";
+static NSString* const kDisablePrinting = @"disablePrinting";
+static NSString* const kSshAgentRequestDatabaseUnlockAllowed = @"sshAgentRequestDatabaseUnlockAllowed";
+static NSString* const kSshAgentPreventRapidRepeatedUnlockRequests = @"sshAgentPreventRapidRepeatedUnlockRequests";
+static NSString* const kAutoFillWroteCleanly = @"autoFillWroteCleanly";
+static NSString* const kAtomicSftpWrite = @"atomicSftpWrite";
+static NSString* const kStripUnusedHistoricalIcons = @"stripUnusedHistoricalIcons";
+
+static NSString* const kWiFiSyncOn = @"wiFiSyncOn";
+static NSString* const kWiFiSyncServiceName = @"wiFiSyncServiceName";
+static NSString* const kWiFiSyncPasscodeSSKey = @"wiFiSyncPasscodeSSKey";
+static NSString* const kWiFiSyncPasscodeSSKeyHasBeenInitialized = @"wiFiSyncPasscodeSSKeyHasBeenInitialized";
+
+static NSString* const kDisableWiFiSyncClientMode = @"disableWiFiSyncClientMode";
+static NSString* const kCloudKitZoneCreated = @"cloudKitZoneCreated";
+static NSString* const kChangeNotificationsSubscriptionCreated = @"changeNotificationsSubscriptionCreated";
+static NSString* const kDisableNativeNetworkStorageOptions = @"disableNativeNetworkStorageOptions";
+static NSString* const kHasWarnedAboutCloudKitUnavailability = @"hasWarnedAboutCloudKitUnavailability";
+static NSString* const kPasswordGeneratorFloatOnTop = @"passwordGeneratorFloatOnTop";
+static NSString* const kLargeTextViewFloatOnTop = @"largeTextViewFloatOnTop";
+static NSString* const kLastWiFiSyncPasscodeError = @"lastWiFiSyncPasscodeError";
+static NSString* const kUseUSGovAuthority = @"useUSGovAuthority";
+static NSString* const kAppAppearance = @"appAppearance2";
+static NSString* const kDisableCopyTo = @"disableCopyTo";
+static NSString* const kDisableMakeVisibleInFiles = @"disableMakeVisibleInFiles";
+static NSString* const kSystemMenuClickAction = @"systemMenuClickAction";
+static NSString* const kLastCloudKitRefresh = @"lastCloudKitRefresh";
+
+static NSString* const kLastKnownGoodDatabaseState = @"lastKnownGoodDatabaseState";
+static NSString* const kAutoFillLastKnownGoodDatabaseState = @"autoFillLastKnownGoodDatabaseState";
+
+static NSString* const kDuplicateItemPreserveTimestamp = @"duplicateItemPreserveTimestamp";
+static NSString* const kDuplicateItemReferencePassword = @"duplicateItemReferencePassword";
+static NSString* const kDuplicateItemReferenceUsername = @"duplicateItemReferenceUsername";
+static NSString* const kDuplicateItemEditAfterwards = @"duplicateItemEditAfterwards";
+static NSString* const kAssociatedWebsites = @"associatedWebsites";
+static NSString* const kTwoFactorEasyReadSeparator = @"twoFactorEasyReadSeparator";
+static NSString* const kTwoFactorHideCountdownDigits = @"twoFactorHideCountdownDigits";
+static NSString* const kShowOfflineOptionsOnLocalDeviceDatabases = @"showOfflineOptionsOnLocalDeviceDatabases";
+static NSString* const kDeleteDatabaseAfterXFailedUnlockAttempts = @"deleteDatabaseAfterXFailedUnlockAttempts";
 
 
+static NSString* const kAppLockMode = @"appLockMode2.0";
+static NSString* const kAppLockPin = @"appLockPin2.0";
+static NSString* const kAppLockDelay = @"appLockDelay2.0";
+static NSString* const kAppLockAppliesToPreferences = @"appLockAppliesToPreferences";
+static NSString* const kFailedUnlockAttempts = @"failedUnlockAttempts";
+
+static NSString* const kShowHiddenDatabases = @"showHiddenDatabases";
+
+
+
+@interface Settings ()
+
+@property BOOL wiFiSyncPasscodeSSKeyHasBeenInitialized;
+
+@end
 
 @implementation Settings
 
@@ -112,7 +198,7 @@ static NSString* const kDefaultAppGroupName = @"group.strongbox.mac.mcguill";
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:kDefaultAppGroupName];
     
     if(defaults == nil) {
-        NSLog(@"🔴 ERROR: Could not get NSUserDefaults for Suite Name: [%@]", kDefaultAppGroupName);
+        slog(@"🔴 ERROR: Could not get NSUserDefaults for Suite Name: [%@]", kDefaultAppGroupName);
     }
     
     return defaults;
@@ -137,6 +223,474 @@ static NSString* const kDefaultAppGroupName = @"group.strongbox.mac.mcguill";
     [self.userDefaults synchronize];
 }
 
+- (NSInteger)getInteger:(NSString*)key {
+    return [self.userDefaults integerForKey:key];
+}
+
+- (void)setInteger:(NSString*)key value:(NSInteger)value {
+    [self.userDefaults setInteger:value forKey:key];
+    [self.userDefaults synchronize];
+}
+
+- (NSString*)getString:(NSString*)key fallback:(NSString*)fallback {
+    NSString* obj = [self.userDefaults objectForKey:key];
+    
+    return obj != nil ? obj : fallback;
+}
+
+- (void)setString:(NSString*)key value:(NSString*)value {
+    [self.userDefaults setObject:value forKey:key];
+    [self.userDefaults synchronize];
+}
+
+#ifndef IS_APP_EXTENSION
+
+- (void)clearAllDefaults {
+    for (NSString* key in self.sharedAppGroupDefaults.dictionaryRepresentation.allKeys) {
+        slog(@"✅ Deleting from Shared App Group: [%@]", key);
+        [self.sharedAppGroupDefaults removeObjectForKey:key];
+    }
+    
+    [self.sharedAppGroupDefaults synchronize];
+    
+    for ( NSString* key in NSUserDefaults.standardUserDefaults.dictionaryRepresentation.allKeys ) {
+        slog(@"✅ Deleting from Standard: [%@]", key);
+        [NSUserDefaults.standardUserDefaults removeObjectForKey:key];
+        [self.sharedAppGroupDefaults removeObjectForKey:key];
+    }
+    
+    [NSUserDefaults.standardUserDefaults synchronize];
+}
+
+- (void)factoryReset {
+    [self clearAllDefaults];
+    
+    
+    
+    NSURL* fileUrl = [StrongboxFilesManager.sharedInstance.preferencesDirectory URLByAppendingPathComponent:@"sftp-connections.json"];
+    
+    NSError *error;
+    [NSFileManager.defaultManager removeItemAtURL:fileUrl error:&error];
+    if ( error ) {
+        slog(@"🔴 Error Deleting SFTP Connections File [%@]", error);
+    }
+    
+    fileUrl = [StrongboxFilesManager.sharedInstance.preferencesDirectory URLByAppendingPathComponent:@"webdav-connections.json"];
+    [NSFileManager.defaultManager removeItemAtURL:fileUrl error:&error];
+    if ( error ) {
+        slog(@"🔴 Error Deleting WebDAV Connections File [%@]", error);
+    }
+
+    
+    
+#ifndef NO_3RD_PARTY_STORAGE_PROVIDERS
+    [GoogleDriveManager.sharedInstance signout];
+    [OneDriveStorageProvider.sharedInstance signOutAll];
+    [DropboxV2StorageProvider.sharedInstance signOut];
+#endif
+    
+    
+    
+    [StrongboxFilesManager.sharedInstance deleteAllNukeFromOrbit];
+    
+    
+    
+    [NativeMessagingManifestInstallHelper removeNativeMessagingHostsFiles];
+    
+    
+    
+    [SecretStore.sharedInstance deleteSecureItem:kWiFiSyncPasscodeSSKey];
+
+    
+    
+    [self clearAllDefaults];
+}
+
+#endif
+
+
+
+- (BOOL)showOfflineOptionsOnLocalDeviceDatabases {
+    return [self getBool:kShowOfflineOptionsOnLocalDeviceDatabases];
+}
+
+- (void)setShowOfflineOptionsOnLocalDeviceDatabases:(BOOL)showOfflineOptionsOnLocalDeviceDatabases {
+    [self setBool:kShowOfflineOptionsOnLocalDeviceDatabases value:showOfflineOptionsOnLocalDeviceDatabases];
+}
+
+- (BOOL)twoFactorHideCountdownDigits {
+    return [self getBool:kTwoFactorHideCountdownDigits fallback:YES];
+}
+
+- (void)setTwoFactorHideCountdownDigits:(BOOL)twoFactorHideCountdownDigits {
+    [self setBool:kTwoFactorHideCountdownDigits value:twoFactorHideCountdownDigits];
+}
+
+- (BOOL)twoFactorEasyReadSeparator {
+    return [self getBool:kTwoFactorEasyReadSeparator fallback:YES];
+}
+
+- (void)setTwoFactorEasyReadSeparator:(BOOL)twoFactorEasyReadSeparator {
+    [self setBool:kTwoFactorEasyReadSeparator value:twoFactorEasyReadSeparator];
+}
+
+- (BOOL)associatedWebsites {
+    return [self getBool:kAssociatedWebsites fallback:YES];
+}
+
+- (void)setAssociatedWebsites:(BOOL)showAssociatedWebsites {
+    [self setBool:kAssociatedWebsites value:showAssociatedWebsites];
+}
+
+- (BOOL)duplicateItemEditAfterwards {
+    return [self getBool:kDuplicateItemEditAfterwards];
+}
+
+- (void)setDuplicateItemEditAfterwards:(BOOL)duplicateItemEditAfterwards {
+    [self setBool:kDuplicateItemEditAfterwards value:duplicateItemEditAfterwards];
+}
+
+- (BOOL)disableCustomViews {
+    return [self getBool:kDisableCustomViews fallback:NO];
+}
+
+- (void)setDisableCustomViews:(BOOL)disableCustomViews {
+    [self setBool:kDisableCustomViews value:disableCustomViews];
+}
+
+- (BOOL)clearQuickSearchOnOpen {
+    return [self getBool:kClearQuickSearchOnOpen fallback:NO];
+}
+
+- (void)setClearQuickSearchOnOpen:(BOOL)clearQuickSearchOnOpen {
+    [self setBool:kClearQuickSearchOnOpen value:clearQuickSearchOnOpen];
+}
+
+- (BOOL)duplicateItemPreserveTimestamp {
+    return [self getBool:kDuplicateItemPreserveTimestamp fallback:YES];
+}
+
+- (void)setDuplicateItemPreserveTimestamp:(BOOL)duplicateItemPreserveTimestamp {
+    [self setBool:kDuplicateItemPreserveTimestamp value:duplicateItemPreserveTimestamp];
+}
+
+- (BOOL)duplicateItemReferencePassword {
+    return [self getBool:kDuplicateItemReferencePassword];
+}
+
+- (void)setDuplicateItemReferencePassword:(BOOL)duplicateItemReferencePassword {
+    [self setBool:kDuplicateItemReferencePassword value:duplicateItemReferencePassword];
+}
+
+- (BOOL)duplicateItemReferenceUsername {
+    return [self getBool:kDuplicateItemReferenceUsername];
+}
+
+- (void)setDuplicateItemReferenceUsername:(BOOL)duplicateItemReferenceUsername {
+    [self setBool:kDuplicateItemReferenceUsername value:duplicateItemReferenceUsername];
+}
+
+
+
+- (NSData *)lastKnownGoodBiometricsDatabaseState {
+    return [self.sharedAppGroupDefaults objectForKey:kLastKnownGoodDatabaseState];
+}
+
+- (void)setLastKnownGoodBiometricsDatabaseState:(NSData *)lastKnownGoodBiometricsDatabaseState {
+    [self.sharedAppGroupDefaults setObject:lastKnownGoodBiometricsDatabaseState forKey:kLastKnownGoodDatabaseState];
+    [self.sharedAppGroupDefaults synchronize];
+}
+
+- (NSData *)autoFillLastKnownGoodBiometricsDatabaseState {
+    return [self.sharedAppGroupDefaults objectForKey:kAutoFillLastKnownGoodDatabaseState];
+}
+
+- (void)setAutoFillLastKnownGoodBiometricsDatabaseState:(NSData *)autoFillLastKnownGoodBiometricsDatabaseState {
+    [self.sharedAppGroupDefaults setObject:autoFillLastKnownGoodBiometricsDatabaseState forKey:kAutoFillLastKnownGoodDatabaseState];
+    [self.sharedAppGroupDefaults synchronize];
+}
+
+
+
+- (NSDate *)lastCloudKitRefresh {
+    NSUserDefaults *userDefaults = Settings.sharedInstance.sharedAppGroupDefaults;
+    return [userDefaults objectForKey:kLastCloudKitRefresh];
+
+}
+
+- (void)setLastCloudKitRefresh:(NSDate *)lastCloudKitRefresh {
+    NSUserDefaults *userDefaults = Settings.sharedInstance.sharedAppGroupDefaults;
+    
+    [userDefaults setObject:lastCloudKitRefresh forKey:kLastCloudKitRefresh];
+    
+    [userDefaults synchronize];
+}
+
+- (SystemMenuClickAction)systemMenuClickAction {
+    return [self getInteger:kSystemMenuClickAction];
+}
+
+- (void)setSystemMenuClickAction:(SystemMenuClickAction)systemMenuClickAction {
+    [self setInteger:kSystemMenuClickAction value:systemMenuClickAction];
+}
+
+- (BOOL)disableCopyTo {
+    return [self getBool:kDisableCopyTo fallback:self.disableExport];
+}
+
+- (void)setDisableCopyTo:(BOOL)disableCopyTo {
+    [self setBool:kDisableCopyTo value:disableCopyTo];
+}
+
+- (BOOL)disableMakeVisibleInFiles {
+    return [self getBool:kDisableMakeVisibleInFiles fallback:self.disableExport];
+}
+
+- (void)setDisableMakeVisibleInFiles:(BOOL)disableMakeVisibleInFiles {
+    [self setBool:kDisableMakeVisibleInFiles value:disableMakeVisibleInFiles];
+}
+
+- (AppAppearance)appAppearance {
+    return [self getInteger:kAppAppearance];
+}
+
+- (void)setAppAppearance:(AppAppearance)appAppearance {
+    [self setInteger:kAppAppearance value:appAppearance];
+}
+
+- (BOOL)useOneDriveUSGovCloudInstance {
+
+    return NO;
+}
+
+- (void)setUseOneDriveUSGovCloudInstance:(BOOL)useOneDriveUSGovCloudInstance {
+
+}
+
+- (BOOL)largeTextViewFloatOnTop {
+    return [self getBool:kLargeTextViewFloatOnTop];
+}
+
+- (void)setLargeTextViewFloatOnTop:(BOOL)largeTextViewFloatOnTop {
+    [self setBool:kLargeTextViewFloatOnTop value:largeTextViewFloatOnTop];
+}
+
+- (BOOL)passwordGeneratorFloatOnTop {
+    return [self getBool:kPasswordGeneratorFloatOnTop];
+}
+
+- (void)setPasswordGeneratorFloatOnTop:(BOOL)passwordGeneratorFloatOnTop {
+    [self setBool:kPasswordGeneratorFloatOnTop value:passwordGeneratorFloatOnTop];
+}
+
+- (BOOL)hasWarnedAboutCloudKitUnavailability {
+    return [self getBool:kHasWarnedAboutCloudKitUnavailability];
+}
+
+- (void)setHasWarnedAboutCloudKitUnavailability:(BOOL)hasWarnedAboutCloudKitUnavailability {
+    [self setBool:kHasWarnedAboutCloudKitUnavailability value:hasWarnedAboutCloudKitUnavailability];
+}
+
+- (BOOL)disableNetworkBasedFeatures {
+    return [self getBool:kDisableNativeNetworkStorageOptions];
+}
+
+- (void)setDisableNetworkBasedFeatures:(BOOL)disableNativeNetworkStorageOptions {
+    [self setBool:kDisableNativeNetworkStorageOptions value:disableNativeNetworkStorageOptions];
+}
+
+- (BOOL)changeNotificationsSubscriptionCreated {
+    return [self getBool:kChangeNotificationsSubscriptionCreated];
+}
+
+- (void)setChangeNotificationsSubscriptionCreated:(BOOL)changeNotificationsSubscriptionCreated {
+    [self setBool:kChangeNotificationsSubscriptionCreated value:changeNotificationsSubscriptionCreated];
+}
+
+- (BOOL)cloudKitZoneCreated {
+    return [self getBool:kCloudKitZoneCreated];
+}
+
+- (void)setCloudKitZoneCreated:(BOOL)cloudKitZoneCreated {
+    [self setBool:kCloudKitZoneCreated value:cloudKitZoneCreated];
+}
+
+- (BOOL)disableWiFiSyncClientMode {
+    return [self getBool:kDisableWiFiSyncClientMode];
+}
+
+- (void)setDisableWiFiSyncClientMode:(BOOL)disableWiFiSyncClientMode {
+    [self setBool:kDisableWiFiSyncClientMode value:disableWiFiSyncClientMode];
+}
+
+- (BOOL)runAsWiFiSyncSourceDevice {
+    return [self getBool:kWiFiSyncOn fallback:NO];
+}
+
+- (void)setRunAsWiFiSyncSourceDevice:(BOOL)wiFiSyncOn {
+    [self setBool:kWiFiSyncOn value:wiFiSyncOn];
+}
+
+- (BOOL)wiFiSyncPasscodeSSKeyHasBeenInitialized {
+    return [self getBool:kWiFiSyncPasscodeSSKeyHasBeenInitialized];
+}
+
+- (void)setWiFiSyncPasscodeSSKeyHasBeenInitialized:(BOOL)wiFiSyncPasscodeSSKeyHasBeenInitialized {
+    [self setBool:kWiFiSyncPasscodeSSKeyHasBeenInitialized value:wiFiSyncPasscodeSSKeyHasBeenInitialized];
+}
+
+- (NSString *)lastWiFiSyncPasscodeError {
+    return [self getString:kLastWiFiSyncPasscodeError fallback:nil];
+}
+
+- (void)setLastWiFiSyncPasscodeError:(NSString *)lastWiFiSyncPasscodeError {
+    [self setString:kLastWiFiSyncPasscodeError value:lastWiFiSyncPasscodeError];
+}
+
+- (NSString *)wiFiSyncPasscode {
+    NSError* error;
+    NSString* thePasscode = [SecretStore.sharedInstance getSecureString:kWiFiSyncPasscodeSSKey error:&error];
+
+    [self setLastWiFiSyncPasscodeError:error ? [NSString stringWithFormat:@"%@", error] : nil];
+
+    if ( self.wiFiSyncPasscodeSSKeyHasBeenInitialized ) {
+        if ( thePasscode == nil ) {
+            slog(@"🔴 WiFiSync Passcode nil but has already been initialized. Something very wrong... [%@]", error);
+        }
+        
+        return thePasscode;
+    }
+    else {
+        if ( thePasscode != nil ) {
+            self.wiFiSyncPasscodeSSKeyHasBeenInitialized = YES;
+            return thePasscode;
+        }
+        else {
+            NSString* passcode = [NSString stringWithFormat:@"%0.6d", arc4random_uniform(1000000)];
+            
+            [self setWiFiSyncPasscode:passcode];
+            self.wiFiSyncPasscodeSSKeyHasBeenInitialized = YES;
+            
+            return passcode;
+        }
+    }
+}
+
+- (void)setWiFiSyncPasscode:(NSString *)wiFiSyncPasscode {
+    [SecretStore.sharedInstance setSecureString:wiFiSyncPasscode forIdentifier:kWiFiSyncPasscodeSSKey];
+}
+
+- (NSString *)wiFiSyncServiceName {
+    NSString* current = [self getString:kWiFiSyncServiceName fallback:nil];
+    
+    if ( !current ) {
+        current = [NSString stringWithFormat:@"%@ (%@)", NSHost.currentHost.localizedName, NSUserName()];
+        [self setWiFiSyncServiceName:current];
+    }
+    
+    return current;
+}
+
+- (void)setWiFiSyncServiceName:(NSString *)wiFiSyncServiceName {
+    [self setString:kWiFiSyncServiceName value:wiFiSyncServiceName];
+}
+
+- (BOOL)stripUnusedHistoricalIcons {
+    return [self getBool:kStripUnusedHistoricalIcons fallback:Settings.sharedInstance.stripUnusedIconsOnSave];
+}
+
+- (void)setStripUnusedHistoricalIcons:(BOOL)stripUnusedHistoricalIcons {
+    [self setBool:kStripUnusedHistoricalIcons value:stripUnusedHistoricalIcons];
+}
+
+- (BOOL)atomicSftpWrite {
+    return [self getBool:kAtomicSftpWrite fallback:YES];
+}
+
+- (void)setAtomicSftpWrite:(BOOL)atomicSftpWrite {
+    [self setBool:kAtomicSftpWrite value:atomicSftpWrite];
+}
+- (BOOL)autoFillWroteCleanly {
+    return [self getBool:kAutoFillWroteCleanly fallback:YES]; 
+}
+
+- (void)setAutoFillWroteCleanly:(BOOL)autoFillWroteCleanly {
+    [self setBool:kAutoFillWroteCleanly value:autoFillWroteCleanly];
+}
+
+- (BOOL)sshAgentPreventRapidRepeatedUnlockRequests {
+    return [self getBool:kSshAgentPreventRapidRepeatedUnlockRequests fallback:YES];
+}
+
+- (void)setSshAgentPreventRapidRepeatedUnlockRequests:(BOOL)sshAgentPreventRapidRepeatedUnlockRequests {
+    [self setBool:kSshAgentPreventRapidRepeatedUnlockRequests value:sshAgentPreventRapidRepeatedUnlockRequests];
+}
+
+- (BOOL)sshAgentRequestDatabaseUnlockAllowed {
+    return [self getBool:kSshAgentRequestDatabaseUnlockAllowed fallback:YES];
+}
+
+- (void)setSshAgentRequestDatabaseUnlockAllowed:(BOOL)sshAgentRequestDatabaseUnlockAllowed {
+    [self setBool:kSshAgentRequestDatabaseUnlockAllowed value:sshAgentRequestDatabaseUnlockAllowed];
+}
+
+- (BOOL)databasesAreAlwaysReadOnly {
+    return [self getBool:kDatabasesAreAlwaysReadOnly];
+}
+
+- (void)setDatabasesAreAlwaysReadOnly:(BOOL)databasesAreAlwaysReadOnly {
+    [self setBool:kDatabasesAreAlwaysReadOnly value:databasesAreAlwaysReadOnly];
+}
+
+- (BOOL)disableExport {
+    return [self getBool:kDisableExport];
+}
+
+- (void)setDisableExport:(BOOL)disableExport {
+    [self setBool:kDisableExport value:disableExport];
+}
+
+- (BOOL)disablePrinting {
+    return [self getBool:kDisablePrinting];
+}
+
+- (void)setDisablePrinting:(BOOL)disablePrinting {
+    [self setBool:kDisablePrinting value:disablePrinting];
+}
+
+- (NSInteger)sshAgentApprovalDefaultExpiryMinutes {
+    NSInteger ret = [self.sharedAppGroupDefaults integerForKey:kSshAgentApprovalDefaultExpiryMinutes];
+    
+    return ret == 0 ? -1 : ret;
+}
+
+- (void)setSshAgentApprovalDefaultExpiryMinutes:(NSInteger)sshAgentApprovalDefaultExpiryMinutes {
+    [self.sharedAppGroupDefaults setInteger:sshAgentApprovalDefaultExpiryMinutes forKey:kSshAgentApprovalDefaultExpiryMinutes];
+    [self.sharedAppGroupDefaults synchronize];
+
+}
+
+- (NSDate *)lastQuickTypeMultiDbRegularClear {
+    NSUserDefaults *userDefaults = Settings.sharedInstance.sharedAppGroupDefaults;
+    return [userDefaults objectForKey:kLastQuickTypeMultiDbRegularClear];
+}
+
+- (void)setLastQuickTypeMultiDbRegularClear:(NSDate *)lastQuickTypeMultiDbRegularClear {
+    NSUserDefaults *userDefaults = Settings.sharedInstance.sharedAppGroupDefaults;
+    
+    [userDefaults setObject:lastQuickTypeMultiDbRegularClear forKey:kLastQuickTypeMultiDbRegularClear];
+    
+    [userDefaults synchronize];
+}
+
+- (NSString *)businessOrganisationName {
+    return [Settings.sharedInstance.sharedAppGroupDefaults objectForKey:kBusinessOrganisationName];
+}
+
+- (void)setBusinessOrganisationName:(NSString *)businessOrganisationName {
+    [Settings.sharedInstance.sharedAppGroupDefaults setObject:businessOrganisationName forKey:kBusinessOrganisationName];
+    [Settings.sharedInstance.sharedAppGroupDefaults synchronize];
+}
 
 
 
@@ -145,8 +699,93 @@ static NSString* const kDefaultAppGroupName = @"group.strongbox.mac.mcguill";
 
 
 
-- (BOOL)expressUpdateSyncPerfImprovementEnabled {
-    return YES;
+
+- (BOOL)runSshAgent {
+    return [self getBool:kRunSshAgent];
+}
+
+- (void)setRunSshAgent:(BOOL)runSshAgent {
+    [self setBool:kRunSshAgent value:runSshAgent];
+}
+
+- (BOOL)hasPromptedForThirdPartyAutoFill {
+    return [self getBool:kHasPromptedForThirdPartyAutoFill fallback:NO];
+}
+
+- (void)setHasPromptedForThirdPartyAutoFill:(BOOL)hasPromptedForThirdPartyAutoFill {
+    [self setBool:kHasPromptedForThirdPartyAutoFill value:hasPromptedForThirdPartyAutoFill];
+}
+
+- (BOOL)hasDismissedSettingsProUpsells {
+    return [self getBool:kHasDismissedSettingsProUpsells fallback:NO];
+}
+
+- (void)setHasDismissedSettingsProUpsells:(BOOL)hasDismissedSettingsProUpsells {
+    [self setBool:kHasDismissedSettingsProUpsells value:hasDismissedSettingsProUpsells];
+}
+
+- (BOOL)hideOnCopy {
+    return [self getBool:kHideOnCopy fallback:NO];
+}
+
+- (void)setHideOnCopy:(BOOL)hideOnCopy {
+    [self setBool:kHideOnCopy value:hideOnCopy];
+}
+
+- (BOOL)autoCommitScannedTotp {
+    return [self getBool:kAutoCommitScannedTotp fallback:YES];
+}
+
+- (void)setAutoCommitScannedTotp:(BOOL)autoCommitScannedTotp {
+    [self setBool:kAutoCommitScannedTotp value:autoCommitScannedTotp];
+}
+
+- (BOOL)concealClipboardFromMonitors {
+    return [self getBool:kConcealClipboardFromMonitors fallback:YES];
+}
+
+- (void)setConcealClipboardFromMonitors:(BOOL)concealClipboardFromMonitors {
+    [self setBool:kConcealClipboardFromMonitors value:concealClipboardFromMonitors];
+}
+
+- (BOOL)hasAskedAboutDatabaseOpenInBackground {
+    return [self getBool:kHasAskedAboutDatabaseOpenInBackground];
+}
+
+- (void)setHasAskedAboutDatabaseOpenInBackground:(BOOL)hasAskedAboutDatabaseOpenInBackground {
+    [self setBool:kHasAskedAboutDatabaseOpenInBackground value:hasAskedAboutDatabaseOpenInBackground];
+}
+
+- (BOOL)showDatabasesManagerOnAppLaunch {
+    return [self getBool:KShowDatabasesManagerOnAppLaunch fallback:YES];
+}
+
+- (void)setShowDatabasesManagerOnAppLaunch:(BOOL)showDatabasesManagerOnAppLaunch {
+    [self setBool:KShowDatabasesManagerOnAppLaunch value:showDatabasesManagerOnAppLaunch];
+}
+
+- (BOOL)lockDatabasesOnScreenLock {
+    return [self getBool:kLockDatabasesOnScreenLock fallback:YES];
+}
+
+- (void)setLockDatabasesOnScreenLock:(BOOL)lockDatabasesOnScreenLock {
+    [self setBool:kLockDatabasesOnScreenLock value:lockDatabasesOnScreenLock];
+}
+
+- (BOOL)lockDatabaseOnWindowClose {
+    return [self getBool:kLockDatabaseOnWindowClose fallback:YES];
+}
+
+- (void)setLockDatabaseOnWindowClose:(BOOL)lockDatabaseOnWindowClose {
+    [self setBool:kLockDatabaseOnWindowClose value:lockDatabaseOnWindowClose];
+}
+
+- (BOOL)quitTerminatesProcessEvenInSystemTrayMode {
+    return [self getBool:kQuitTerminatesProcessEvenInSystemTrayMode fallback:NO];
+}
+
+- (void)setQuitTerminatesProcessEvenInSystemTrayMode:(BOOL)quitTerminatesProcessEvenInSystemTrayMode {
+    [self setBool:kQuitTerminatesProcessEvenInSystemTrayMode value:quitTerminatesProcessEvenInSystemTrayMode];
 }
 
 - (BOOL)runBrowserAutoFillProxyServer {
@@ -157,8 +796,16 @@ static NSString* const kDefaultAppGroupName = @"group.strongbox.mac.mcguill";
     [self setBool:kRunBrowserAutoFillProxyServer value:runBrowserAutoFillProxyServer];
 }
 
+- (BOOL)browserAutoFillStrictSubdomainMatching {
+    return [self getBool:kBrowserAutoFillStrictSubdomainMatching fallback:NO];
+}
+
+- (void)setBrowserAutoFillStrictSubdomainMatching:(BOOL)browserAutoFillStrictSubdomainMatching {
+    [self setBool:kBrowserAutoFillStrictSubdomainMatching value:browserAutoFillStrictSubdomainMatching];
+}
+
 - (BOOL)stripUnusedIconsOnSave {
-    return [self getBool:kStripUnusedIconsOnSave];
+    return [self getBool:kStripUnusedIconsOnSave fallback:YES]; 
 }
 
 - (void)setStripUnusedIconsOnSave:(BOOL)stripUnusedIconsOnSave {
@@ -218,7 +865,7 @@ static NSString* const kDefaultAppGroupName = @"group.strongbox.mac.mcguill";
     
     launchCount++;
     
-    NSLog(@"Application has been launched %ld times", (long)launchCount);
+
     
     [self.userDefaults setInteger:launchCount forKey:kLaunchCountKey];
     [self.userDefaults synchronize];
@@ -285,7 +932,7 @@ static NSString* const kDefaultAppGroupName = @"group.strongbox.mac.mcguill";
 
 
 - (BOOL)screenCaptureBlocked {
-    return [self getBool:kScreenCaptureBlocked fallback:YES];
+    return [self getBool:kScreenCaptureBlocked];
 }
 
 - (void)setScreenCaptureBlocked:(BOOL)screenCaptureBlocked {
@@ -333,14 +980,14 @@ static NSString* const kDefaultAppGroupName = @"group.strongbox.mac.mcguill";
 }
 
 - (BOOL)checkPinYin {
-    return NO;
+    return NO; 
 }
 
 - (void)setCheckPinYin:(BOOL)checkPinYin {
     
 }
 
-- (BOOL)runningAsATrayApp {
+- (BOOL)configuredAsAMenuBarApp {
     return Settings.sharedInstance.showSystemTrayIcon && Settings.sharedInstance.hideDockIconOnAllMinimized;
 }
 
@@ -353,7 +1000,7 @@ static NSString* const kDefaultAppGroupName = @"group.strongbox.mac.mcguill";
 }
 
 - (BOOL)markdownNotes {
-    return [self getBool:kMarkdownNotes];
+    return [self getBool:kMarkdownNotes fallback:YES];
 }
 
 - (void)setMarkdownNotes:(BOOL)markdownNotes {
@@ -374,28 +1021,6 @@ static NSString* const kDefaultAppGroupName = @"group.strongbox.mac.mcguill";
 
 - (void)setMiniaturizeOnCopy:(BOOL)miniaturizeOnCopy {
     [self setBool:kMiniaturizeOnCopy value:miniaturizeOnCopy];
-}
-
-- (NSDate *)lastPromptedToUseNextGenUI {
-    return [self.sharedAppGroupDefaults objectForKey:kLastPromptedToUseNextGenUI];
-}
-
-- (void)setLastPromptedToUseNextGenUI:(NSDate *)lastPromptedToUseNextGenUI {
-    [self.sharedAppGroupDefaults setObject:lastPromptedToUseNextGenUI forKey:kLastPromptedToUseNextGenUI];
-    [self.sharedAppGroupDefaults synchronize];
-}
-
-- (BOOL)nextGenUI {
-    if (@available(macOS 11.0, *)) {
-        return [self getBool:kNextGenUI fallback:YES];
-    }
-    else {
-        return NO;
-    }
-}
-
-- (void)setNextGenUI:(BOOL)nextGenUI {
-    [self setBool:kNextGenUI value:nextGenUI];
 }
 
 - (BOOL)makeLocalRollingBackups {
@@ -420,14 +1045,6 @@ static NSString* const kDefaultAppGroupName = @"group.strongbox.mac.mcguill";
 
 - (void)setHideDockIconOnAllMinimized:(BOOL)hideDockIconOnAllMinimized {
     return [self setBool:kHideDockIconOnAllMinimized value:hideDockIconOnAllMinimized];
-}
-
-- (BOOL)autoFillAutoLaunchSingleDatabase {
-    return [self getBool:kAutoLaunchSingleDatabase fallback:YES];
-}
-
-- (void)setAutoFillAutoLaunchSingleDatabase:(BOOL)autoFillAutoLaunchSingleDatabase {
-    return [self setBool:kAutoLaunchSingleDatabase value:autoFillAutoLaunchSingleDatabase];
 }
 
 - (BOOL)showAutoFillTotpCopiedMessage {
@@ -576,10 +1193,31 @@ static NSString* const kDefaultAppGroupName = @"group.strongbox.mac.mcguill";
     return [self getBool:kPro];
 }
 
+
 - (void)setPro:(BOOL)value {
-    [self setBool:kPro value:value];
     
-    [[NSNotificationCenter defaultCenter] postNotificationName:kProStatusChangedNotificationKey object:nil];
+    
+    #ifndef IS_APP_EXTENSION
+    if (MacCustomizationManager.isAProBundle || MacCustomizationManager.isSetapp) {
+        [self setBool:kPro value:YES];
+    } else {
+        [self setBool:kPro value:value];
+    }
+    #else
+    [self setBool:kPro value:value];
+    #endif
+    
+    [[NSNotificationCenter defaultCenter] postNotificationName:kProStatusChangedNotification object:nil];
+}
+
+- (NSInteger)autoLockIfInBackgroundTimeoutSeconds {
+    return [self.userDefaults integerForKey:kAutoLockIfInBackgroundTimeoutSeconds];
+}
+
+- (void)setAutoLockIfInBackgroundTimeoutSeconds:(NSInteger)autoLockIfInBackgroundTimeoutSeconds {
+    [self.userDefaults setInteger:autoLockIfInBackgroundTimeoutSeconds forKey:kAutoLockIfInBackgroundTimeoutSeconds];
+    
+    [self.userDefaults synchronize];
 }
 
 - (NSInteger)autoLockTimeoutSeconds {
@@ -587,8 +1225,6 @@ static NSString* const kDefaultAppGroupName = @"group.strongbox.mac.mcguill";
 }
 
 - (void)setAutoLockTimeoutSeconds:(NSInteger)autoLockTimeoutSeconds {
-    
-    
     [self.userDefaults setInteger:autoLockTimeoutSeconds forKey:kAutoLockTimeout];
     
     [self.userDefaults synchronize];
@@ -682,12 +1318,12 @@ static NSString* const kDefaultAppGroupName = @"group.strongbox.mac.mcguill";
 
 
 - (NSData *)duressDummyData {
-    NSLog(@"🔴 NOTIMPL: duressDummyData");
+    slog(@"🔴 NOTIMPL: duressDummyData");
     return nil;
 }
 
 - (void)setDuressDummyData:(NSData *)duressDummyData {
-    NSLog(@"🔴 NOTIMPL: setDuressDummyData");
+    slog(@"🔴 NOTIMPL: setDuressDummyData");
 }
 
 - (PasswordStrengthConfig *)passwordStrengthConfig {
@@ -695,15 +1331,7 @@ static NSString* const kDefaultAppGroupName = @"group.strongbox.mac.mcguill";
 }
 
 - (void)setPasswordStrengthConfig:(PasswordStrengthConfig *)passwordStrengthConfig {
-    NSLog(@"🔴 NOTIMPL: setPasswordStrengthConfig");
-}
-
-- (BOOL)databasesAreAlwaysReadOnly {
-    return NO;
-}
-
-- (void)setDatabasesAreAlwaysReadOnly:(BOOL)databasesAreAlwaysReadOnly {
-    
+    slog(@"🔴 NOTIMPL: setPasswordStrengthConfig");
 }
 
 - (BOOL)hasShownFirstRunWelcome {
@@ -714,4 +1342,85 @@ static NSString* const kDefaultAppGroupName = @"group.strongbox.mac.mcguill";
     [self setBool:kHasShownFirstRunWelcome value:hasShownFirstRunWelcome];
 }
 
+- (BOOL)showHiddenDatabases {
+    return [self getBool:kShowHiddenDatabases];
+}
+
+- (void)setShowHiddenDatabases:(BOOL)showHiddenDatabases {
+    [self setBool:kShowHiddenDatabases value:showHiddenDatabases];
+}
+
+- (BOOL)deleteDatabaseAfterXFailedUnlockAttempts {
+    return NO;
+}
+
+- (void)setDeleteDatabaseAfterXFailedUnlockAttempts:(BOOL)deleteDatabaseAfterXFailedUnlockAttempts {
+    
+    [self setBool:kDeleteDatabaseAfterXFailedUnlockAttempts value:NO];
+}
+
 @end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

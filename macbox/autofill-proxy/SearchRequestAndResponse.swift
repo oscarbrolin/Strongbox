@@ -8,23 +8,35 @@
 
 import Foundation
 
-class SearchRequest : Codable {
-    var query : String
-    
-    init ( query : String ) {
+public class SearchRequest: NSObject, Codable {
+    static let DefaultMaxResults = 24
+    static let AbsoluteMaxResults = 64
+
+    var query: String
+    var skip: Int? = 0
+    var take: Int? = DefaultMaxResults
+
+    init(query: String, skip: Int? = nil, take: Int? = nil) {
         self.query = query
+        self.skip = skip
+        self.take = take
+    }
+
+    @objc
+    func toJson() -> String? {
+        AutoFillJsonHelper.toJson(object: self)
     }
 }
 
-class SearchResponse : Codable {
-    var results : [AutoFillCredential]
-    
-    init(results : [AutoFillCredential]) {
+public class SearchResponse: NSObject, Codable {
+    var results: [AutoFillCredential] = []
+
+    init(results: [AutoFillCredential]) {
         self.results = results
     }
-    
+
     @objc
-    func toJson () -> String? {
-        return AutoFillJsonHelper.toJson(object: self)
+    func toJson() -> String? {
+        AutoFillJsonHelper.toJson(object: self)
     }
 }

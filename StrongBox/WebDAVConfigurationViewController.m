@@ -11,7 +11,7 @@
 #import "NSString+Extensions.h"
 #import "Alerts.h"
 
-#ifndef NO_SFTP_WEBDAV_SP
+#ifndef NO_NETWORKING
 #import "WebDAVStorageProvider.h"
 #endif
 
@@ -96,8 +96,8 @@
     configuration.password = self.textFieldPassword.text;
     configuration.allowUntrustedCertificate = self.switchAllowUntrusted.on;
     
-#ifndef NO_SFTP_WEBDAV_SP
-    [WebDAVStorageProvider.sharedInstance testConnection:configuration viewController:self completion:^(NSError * _Nonnull error) {
+#ifndef NO_NETWORKING
+    [WebDAVStorageProvider.sharedInstance testConnection:configuration viewController:self completion:^(NSError * _Nullable error) {
         dispatch_async(dispatch_get_main_queue(), ^{
             if ( error ) {
                 [Alerts error:self error:error];

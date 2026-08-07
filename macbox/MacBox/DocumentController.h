@@ -15,19 +15,15 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface DocumentController : NSDocumentController
 
-- (void)originalOpenDocument:(id _Nullable)sender;
-- (void)openDatabase:(MacDatabasePreferences*)database completion:(void (^_Nullable)(NSError* error))completion;
+- (IBAction)originalOpenDocument:(id _Nullable)sender;
+- (void)originalOpenDocumentWithFileSelection;
 
-- (Document*_Nullable)documentForDatabase:(MacDatabasePreferences*)database;
-- (BOOL)databaseIsDocumentWindow:(MacDatabasePreferences*)database;
-- (BOOL)databaseIsUnlockedInDocumentWindow:(MacDatabasePreferences*)database;
-- (void)closeDocumentWindowForDatabase:(MacDatabasePreferences *)database;
+- (void)openDatabase:(MacDatabasePreferences*)database completion:(void (^_Nullable)(Document*_Nullable document, NSError* _Nullable error))completion;
+
+- (Document*_Nullable)documentForDatabase:(NSString*)uuid;
 
 - (void)onAppStartup;
-- (void)performEmptyLaunchTasksIfNecessary;
-
-- (void)serializeAndAddDatabase:(DatabaseModel*)database
-                         format:(DatabaseFormat)format;
+- (void)launchStartupDatabasesOrShowManagerIfNoDocumentsAvailable;
 
 @end
 

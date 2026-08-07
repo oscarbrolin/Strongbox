@@ -10,7 +10,7 @@
 #import "Constants.h"
 #import "Utils.h"
 
-#if TARGET_OS_IPHONE
+#if TARGET_OS_IOS
 
 #import "SVProgressHUD.h"
 
@@ -58,7 +58,7 @@
 
 - (void)dismissProgressSpinner {
     dispatch_async(dispatch_get_main_queue(), ^{
-#if TARGET_OS_IPHONE
+#if TARGET_OS_IOS
         [SVProgressHUD dismiss];
 #else
         [macOSSpinnerUI.sharedInstance dismiss];
@@ -68,7 +68,7 @@
 
 - (void)showProgressSpinner:(NSString*)message viewController:(VIEW_CONTROLLER_PTR)viewController {
     dispatch_async(dispatch_get_main_queue(), ^{
-#if TARGET_OS_IPHONE
+#if TARGET_OS_IOS
         [SVProgressHUD showWithStatus:message];
 #else
         [macOSSpinnerUI.sharedInstance show:message viewController:viewController];
@@ -77,18 +77,18 @@
 }
 
 
-- (void)    create:(NSString *)nickName
-         extension:(NSString *)extension
-              data:(NSData *)data
-      parentFolder:(NSObject *)parentFolder
-    viewController:(VIEW_CONTROLLER_PTR)viewController
-        completion:(void (^)(METADATA_PTR metadata, const NSError *error))completion {
-    [self showProgressSpinner:@"" viewController:viewController];
 
-    NSString *desiredFilename = [NSString stringWithFormat:@"%@.%@", nickName, extension];
+- (void)create:(NSString *)nickName
+      fileName:(NSString *)fileName 
+          data:(NSData *)data
+  parentFolder:(NSObject *)parentFolder
+viewController:(VIEW_CONTROLLER_PTR)viewController
+    completion:(void (^)(METADATA_PTR _Nullable, const NSError * _Nullable))completion {
+    [self showProgressSpinner:NSLocalizedString(@"storage_provider_status_authenticating_creating", @"Creating...")
+               viewController:viewController]; 
 
     [[GoogleDriveManager sharedInstance] create:viewController
-                                      withTitle:desiredFilename
+                                      withTitle:fileName
                                        withData:data
                                    parentFolder:parentFolder
                                      completion:^(GTLRDrive_File *file, NSError *error)
@@ -109,7 +109,7 @@
 
 
 - (void)getModDate:(nonnull METADATA_PTR)safeMetaData completion:(nonnull StorageProviderGetModDateCompletionBlock)completion {
-#if TARGET_OS_IPHONE
+#if TARGET_OS_IOS
     NSString* fileIdentifier = safeMetaData.fileIdentifier;
     NSString* fileName = safeMetaData.fileName;
 #else
@@ -121,7 +121,7 @@
 }
 
 - (void)pullDatabase:(METADATA_PTR)safeMetaData interactiveVC:(VIEW_CONTROLLER_PTR)viewController options:(StorageProviderReadOptions *)options completion:(StorageProviderReadCompletionBlock)completion {
-#if TARGET_OS_IPHONE
+#if TARGET_OS_IOS
     NSString* fileIdentifier = safeMetaData.fileIdentifier;
     NSString* fileName = safeMetaData.fileName;
 #else
@@ -135,8 +135,9 @@
                                       options:options
                                    completion:^(StorageProviderReadResult result, NSData * _Nullable data, NSDate * _Nullable dateModified, const NSError * _Nullable error) {
         if (result == kReadResultError) {
-            NSLog(@"%@", error);
-            [[GoogleDriveManager sharedInstance] signout];
+            if ( [self shouldSignOutOnError:error]) {
+                [[GoogleDriveManager sharedInstance] signout];
+            }
         }
         
         completion(result, data, dateModified, error);
@@ -148,7 +149,7 @@
         [self showProgressSpinner:@"" viewController:viewController];
     }
     
-#if TARGET_OS_IPHONE
+#if TARGET_OS_IOS
     NSString* fileIdentifier = safeMetaData.fileIdentifier;
     NSString* fileName = safeMetaData.fileName;
 #else
@@ -166,7 +167,9 @@
         }
         
         if(error) {
-            [[GoogleDriveManager sharedInstance] signout];
+            if ( [self shouldSignOutOnError:error]) {
+                [[GoogleDriveManager sharedInstance] signout];
+            }
         }
 
         completion(result, newRemoteModDate, error);
@@ -208,7 +211,9 @@
             completion(NO, [self mapToStorageBrowserItems:driveFiles], nil);
         }
         else {
-            [[GoogleDriveManager sharedInstance] signout];
+            if ( [self shouldSignOutOnError:error]) {
+                [[GoogleDriveManager sharedInstance] signout];
+            }
             completion(userCancelled, nil, error);
         }
     }];
@@ -230,13 +235,27 @@
         }
         
         if ( error ) {
-            [[GoogleDriveManager sharedInstance] signout];
+            if ( [self shouldSignOutOnError:error]) {
+                [[GoogleDriveManager sharedInstance] signout];
+            }
+            
             completionHandler(kReadResultError, nil, nil, error);
         }
         else {
             completionHandler(kReadResultSuccess, data, dateModified, nil);
         }
     }];
+}
+
+- (BOOL)shouldSignOutOnError:(const NSError*)error {
+    if ( error && error.domain == NSURLErrorDomain ) {
+        if (    error.code == NSURLErrorNotConnectedToInternet ||
+                error.code == NSURLErrorTimedOut ) {
+            return NO;
+        }
+    }
+    
+    return YES;
 }
 
 - (NSArray<StorageBrowserItem *> *)mapToStorageBrowserItems:(NSArray<GTLRDrive_File *> *)items {
@@ -266,7 +285,7 @@
                                               withUrl:file.iconLink
                                            completion:^(NSData *data, NSError *error) {
            if (error == nil && data) {
-#if TARGET_OS_IPHONE
+#if TARGET_OS_IOS
                IMAGE_TYPE_PTR image = [UIImage imageWithData:data];
 #else
                IMAGE_TYPE_PTR image = [[NSImage alloc] initWithData:data];
@@ -278,7 +297,7 @@
                }
            }
            else {
-       NSLog(@"An error occurred downloading icon: %@", error);
+       slog(@"An error occurred downloading icon: %@", error);
            }
        }];
     }
@@ -315,27 +334,32 @@
                                                      error:&error];
     
     if ( !data ) {
-        NSLog(@"🔴 Error creating JSON to Google Drive database: [%@]", error);
+        slog(@"🔴 Error creating JSON to Google Drive database: [%@]", error);
         return nil;
     }
 
     NSString* json = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
         
-#if TARGET_OS_IPHONE
+#if TARGET_OS_IOS
     return [DatabasePreferences templateDummyWithNickName:nickName
                                   storageProvider:self.storageId
                                          fileName:file.name
                                    fileIdentifier:json];
 #else
-    NSString* filename = [file.name stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLPathAllowedCharacterSet];
+    NSURLComponents* components = [[NSURLComponents alloc] init];
+    components.scheme = kStrongboxGoogleDriveUrlScheme;
+    components.path = [NSString stringWithFormat:@"/host/%@", file.name]; 
+        
+    METADATA_PTR metadata = [MacDatabasePreferences templateDummyWithNickName:nickName
+                                                              storageProvider:self.storageId
+                                                                      fileUrl:components.URL
+                                                                  storageInfo:json];
     
-    NSURL* url = [NSURL URLWithString:[NSString stringWithFormat:@"%@:
     
-    return [MacDatabasePreferences templateDummyWithNickName:nickName
-                                             storageProvider:self.storageId
-                                                     fileUrl:url
-                                                 storageInfo:json];
+    components.queryItems = @[[NSURLQueryItem queryItemWithName:@"uuid" value:metadata.uuid]];
+    metadata.fileUrl = components.URL;
     
+    return metadata;
 #endif
 }
 

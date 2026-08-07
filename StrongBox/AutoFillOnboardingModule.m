@@ -9,6 +9,7 @@
 #import "AutoFillOnboardingModule.h"
 #import "AutoFillManager.h"
 #import "AutoFillOnboardingViewController.h"
+#import "NSDate+Extensions.h"
 
 @interface AutoFillOnboardingModule ()
 
@@ -27,10 +28,17 @@
 }
 
 - (BOOL)shouldDisplay {
-    return !self.model.metadata.autoFillOnboardingDone && !self.model.metadata.autoFillEnabled && AutoFillManager.sharedInstance.isOnForStrongbox;
+
+
+
+
+    NSDate* cutoff = [NSDate fromYYYY_MM_DD_London_Noon_Time_String:@"2024-01-08"];
+    BOOL newish = [self.model.metadata.databaseCreated isLaterThan:cutoff]; 
+    
+    return !self.model.metadata.autoFillOnboardingDone && !self.model.metadata.autoFillEnabled && AutoFillManager.sharedInstance.isOnForStrongbox && newish;
 }
 
-- (nonnull UIViewController *)instantiateViewController:(nonnull OnboardingModuleDoneBlock)onDone {
+- (UIViewController *)instantiateViewController:(nonnull OnboardingModuleDoneBlock)onDone {
     UIStoryboard* storyboard = [UIStoryboard storyboardWithName:@"AutoFillOnboarding" bundle:nil];
     AutoFillOnboardingViewController* vc = [storyboard instantiateInitialViewController];
     

@@ -9,7 +9,8 @@
 #import "BrowseItemTotpCell.h"
 #import "OTPToken+Generation.h"
 //#import "Settings.h"
-#import "Model.h"
+//#import "Model.h"
+#import "Constants.h"
 
 @interface BrowseItemTotpCell ()
 
@@ -17,6 +18,7 @@
 @property (weak, nonatomic) IBOutlet UILabel *labelTitle;
 @property (weak, nonatomic) IBOutlet UILabel *labelUsername;
 @property (weak, nonatomic) IBOutlet UIImageView *icon;
+@property (weak, nonatomic) IBOutlet UILabel *labelIssuerAndName;
 
 @property OTPToken* otpToken;
 
@@ -28,6 +30,13 @@
     [self stopObservingOtpUpdateTimer];
 }
 
+- (void)awakeFromNib {
+    [super awakeFromNib];
+    
+    self.icon.layer.cornerRadius = 3.0;
+    self.icon.clipsToBounds = YES;
+}
+
 -(void)prepareForReuse {
     [super prepareForReuse];
 
@@ -35,17 +44,40 @@
     [self stopObservingOtpUpdateTimer];
 }
 
-- (void)setItem:(NSString*)title subtitle:(NSString*)subtitle icon:(UIImage*)icon expired:(BOOL)expired otpToken:(OTPToken*)otpToken {
+- (void)setItem:(NSString*)title subtitle:(NSString*)subtitle icon:(UIImage*)icon expired:(BOOL)expired otpToken:(OTPToken*)otpToken hideIcon:(BOOL)hideIcon {
     self.labelTitle.text = title;
     self.labelUsername.text = subtitle;
-    self.icon.image = icon;
+    
+    self.icon.image = hideIcon ? nil :icon;
+    self.icon.hidden = hideIcon;
     
     self.otpToken = otpToken;
     
     self.contentView.alpha = expired ? 0.35 : 1.0f;
     
+    [self bindIssuer];
     [self updateOtpCode];
     [self subscribeToOtpUpdateTimerIfNecessary];
+}
+
+- (void)bindIssuer {
+    self.labelIssuerAndName.text = @"";
+    self.labelIssuerAndName.hidden = YES;
+
+    NSString* issuer = self.otpToken.issuer;
+    NSString* name = self.otpToken.name;
+    
+    if ( issuer.length && ![issuer isEqualToString:@"<Unknown>"] && ![issuer isEqualToString:@"Strongbox"] ) {
+        if ( name.length && ![name isEqualToString:@"<Unknown>"] && ![name isEqualToString:@"Strongbox"] ) {
+            self.labelIssuerAndName.text = [NSString stringWithFormat:@"%@: %@", issuer, name];
+        } else {
+            self.labelIssuerAndName.text = issuer;
+        }
+        self.labelIssuerAndName.hidden = NO;
+    } else if ( name.length && ![name isEqualToString:@"<Unknown>"] && ![name isEqualToString:@"Strongbox"] ) {
+        self.labelIssuerAndName.text = name;
+        self.labelIssuerAndName.hidden = NO;
+    }
 }
 
 - (void)stopObservingOtpUpdateTimer {

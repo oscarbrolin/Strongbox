@@ -9,6 +9,8 @@
 #ifndef Header_h
 #define Header_h
 
+#import "SBLog.h"
+
 static const uint32_t kInnerStreamPlainText = 0;
 static const uint32_t kInnerStreamArc4 = 1;
 static const uint32_t kInnerStreamSalsa20 = 2;
@@ -58,7 +60,9 @@ static NSString* const kCustomIconListElementName = @"CustomIcons";
 static NSString* const kCustomIconElementName = @"Icon";
 static NSString* const kCustomIconDataElementName = @"Data";
 static NSString* const kAttributeProtected = @"Protected";
+
 static NSString* const kAttributeValueTrue = @"True";
+static NSString* const kAttributeValueFalse = @"False";
 
 static NSString* const kCustomDataElementName = @"CustomData";
 static NSString* const kCustomDataItemElementName = @"Item";
@@ -129,7 +133,7 @@ static const uint64_t kDefaultBlockifySize = 1 << 20;
 
 static NSString* const kKdfParametersKeyUuid = @"$UUID";
 
-static const uint32_t kDefaultTransformRounds = 600000;
+static const uint32_t kDefaultTransformRounds = 1000000;
 
 static const int kFlagsSha2 = 1;
 static const int kFlagsAes = 2;

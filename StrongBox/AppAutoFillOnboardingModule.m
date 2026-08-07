@@ -28,15 +28,15 @@
     
     if ( AppPreferences.sharedInstance.lastAskToEnableAutoFill != nil ) {
         if ( ![AppPreferences.sharedInstance.lastAskToEnableAutoFill isMoreThanXDaysAgo:2] ) {
-            NSLog(@"Not asking about AutoFill as last asked less than 2 days ago.");
+            slog(@"Not asking about AutoFill as last asked less than 2 days ago.");
             return NO;
         }
     }
     
-    return AutoFillManager.sharedInstance.isPossible && !AutoFillManager.sharedInstance.isOnForStrongbox;
+    return !AutoFillManager.sharedInstance.isOnForStrongbox;
 }
 
-- (nonnull UIViewController *)instantiateViewController:(nonnull OnboardingModuleDoneBlock)onDone {
+- (UIViewController *)instantiateViewController:(nonnull OnboardingModuleDoneBlock)onDone {
     UIStoryboard* storyboard = [UIStoryboard storyboardWithName:@"Welcome" bundle:nil];
     TurnOnAutoFillViewController* vc = [storyboard instantiateViewControllerWithIdentifier:@"AutoFill"];
     

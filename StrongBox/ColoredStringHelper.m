@@ -48,7 +48,7 @@ static COLOR_PTR defaultNonColorizedColor;
         darkColorBlind.upperLetterColor = ColorFromRGB(0xF0E442); 
         darkColorBlind.lowerLetterColor = ColorFromRGB(0x009E63); 
 
-#if TARGET_OS_IPHONE
+#if TARGET_OS_IOS
         light.numberColor = UIColor.systemBlueColor;
         light.symbolColor = UIColor.systemPinkColor;
         light.upperLetterColor = UIColor.systemGreenColor;
@@ -57,14 +57,21 @@ static COLOR_PTR defaultNonColorizedColor;
         dark.symbolColor = UIColor.systemYellowColor;
         dark.upperLetterColor = UIColor.systemGreenColor;
         
-        if (@available(iOS 13.0, *)) {
-            dark.lowerLetterColor = UIColor.labelColor;
-            light.lowerLetterColor = UIColor.labelColor;
-        }
-        else {
-            dark.lowerLetterColor = UIColor.darkTextColor;
-            light.lowerLetterColor = UIColor.darkTextColor;
-        }
+        dark.lowerLetterColor = UIColor.labelColor;
+        light.lowerLetterColor = UIColor.labelColor;
+    
+#elif TARGET_OS_WATCH
+        light.numberColor = UIColor.blueColor; 
+        dark.numberColor = UIColor.blueColor; 
+        
+        light.upperLetterColor = UIColor.greenColor;
+        dark.upperLetterColor = UIColor.greenColor;
+        
+        dark.symbolColor = UIColor.yellowColor;
+        light.symbolColor = UIColor.yellowColor;
+        
+        dark.lowerLetterColor = UIColor.whiteColor;
+        light.lowerLetterColor = UIColor.whiteColor;
 #else
         dark.numberColor = NSColor.systemBlueColor;
         dark.symbolColor = NSColor.systemYellowColor;
@@ -78,13 +85,10 @@ static COLOR_PTR defaultNonColorizedColor;
 #endif
         
 
-#if TARGET_OS_IPHONE
-        if (@available(iOS 13.0, *)) {
-            defaultNonColorizedColor = UIColor.labelColor;
-        }
-        else {
-            defaultNonColorizedColor = UIColor.darkTextColor;
-        }
+#if TARGET_OS_IOS
+        defaultNonColorizedColor = UIColor.labelColor;
+#elif TARGET_OS_WATCH
+        defaultNonColorizedColor = UIColor.whiteColor;
 #else
         defaultNonColorizedColor = NSColor.labelColor;
 #endif
@@ -122,6 +126,14 @@ static COLOR_PTR defaultNonColorizedColor;
     return ret.copy;
 }
 
++ (COLOR_PTR)getColorForCharacter:(NSString*)character darkMode:(BOOL)darkMode colorBlind:(BOOL)colorBlind {
+    CharacterType type = [ColoredStringHelper getCharacterType:character];
+    
+    Palette *palette = darkMode ? (colorBlind ? &darkColorBlind : &dark )  : (colorBlind ? &lightColorBlind : &light);
+    
+    return [ColoredStringHelper getColorForCharacterType:type palette:palette];
+}
+
 + (NSDictionary*)getAttributesForCharacterType:(CharacterType)type
                                       colorize:(BOOL)colorize
                                        palette:(Palette*)palette
@@ -129,11 +141,7 @@ static COLOR_PTR defaultNonColorizedColor;
     NSMutableDictionary* ret = [NSMutableDictionary dictionaryWithDictionary:@{
         NSForegroundColorAttributeName : colorize ? [ColoredStringHelper getColorForCharacterType:type palette:palette] : defaultNonColorizedColor
     }];
-    
-    if (colorize) {
-        ret[NSKernAttributeName] = @(1.4); 
-    }
-    
+        
     if ( font ) {
         ret[NSFontAttributeName] = font;
     }

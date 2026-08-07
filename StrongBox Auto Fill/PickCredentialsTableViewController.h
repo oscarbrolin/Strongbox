@@ -12,10 +12,19 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+typedef void (^PickCredentialsCompletion)(BOOL userCancelled, Node* _Nullable node, NSString* _Nullable newUsername, NSString* _Nullable newPassword);
+
 @interface PickCredentialsTableViewController : UITableViewController
 
++ (instancetype)fromStoryboard;
+
 @property (nonatomic, strong) Model *model;
-@property (nonatomic, strong) CredentialProviderViewController *rootViewController;
+@property NSArray<ASCredentialServiceIdentifier *> *serviceIdentifiers;
+@property (nonatomic, copy) PickCredentialsCompletion completion;
+
+@property BOOL disableCreateNew;
+@property BOOL twoFactorOnly;
+@property BOOL alsoRequestFieldSelection;
 
 @end
 

@@ -15,6 +15,7 @@
 #import "ProUpgradeIAPManager.h"
 #import "ClickableTextField.h"
 #import "AppDelegate.h"
+#import "Strongbox-Swift.h"
 
 @interface AboutViewController () <NSWindowDelegate>
 
@@ -24,6 +25,7 @@
 @property (weak) IBOutlet NSTextField *labelLicense;
 @property (weak) IBOutlet NSImageView *imageViewLicense;
 @property (weak) IBOutlet ClickableTextField *labelChangeLicense;
+@property (weak) IBOutlet NSImageView *imageViewLogo;
 
 @end
 
@@ -55,8 +57,11 @@ static AboutViewController* sharedInstance;
 }
 
 - (void)bindUi {
-    NSString* debug = [DebugHelper getAboutDebugString];
-    [self.textView setString:debug];
+    [DebugHelper getAboutDebugString:^(NSString * _Nonnull debug) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self.textView setString:debug];
+        });
+    }];
 }
 
 - (void)doInitialSetup {
@@ -93,17 +98,37 @@ static AboutViewController* sharedInstance;
 }
 
 - (void)bindVersionAndProStatus {
-    NSString* fmt = NSLocalizedString(@"prefs_vc_app_version_info_none_pro_fmt", @"About Strongbox %@");
-    NSString* about = [NSString stringWithFormat:fmt, [Utils getAppVersion]];
-    self.view.window.title = about;
-    self.labelAbout.stringValue = [Utils getAppVersion];
-    
-    
 
+
+    
+    NSString* fmt;
+    if ( StrongboxProductBundle.isSetapp) {
+        fmt = NSLocalizedString(@"prefs_vc_app_version_info_none_pro_fmt", @"About Strongbox %@");
+    } else if ( StrongboxProductBundle.isZeroEdition ) {
+        fmt = NSLocalizedString(@"prefs_vc_app_version_info_zero_fmt", @"About Strongbox Zero %@");
+    }
+    else {
+        fmt = Settings.sharedInstance.isPro ? NSLocalizedString(@"prefs_vc_app_version_info_pro_fmt", @"About Strongbox Pro %@") : NSLocalizedString(@"prefs_vc_app_version_info_none_pro_fmt", @"About Strongbox %@");
+    }
+    
+    self.view.window.title = [NSString stringWithFormat:fmt, [Utils getAppVersion]];
+    
+    if ( StrongboxProductBundle.isZeroEdition ) {
+        self.labelAbout.stringValue = [NSString stringWithFormat:@"Strongbox Zero %@", [Utils getAppVersion]];
+        self.imageViewLogo.image = [NSImage imageNamed:@"AppIcon-Zero-BigSur"];
+    }
+    else {
+        self.labelAbout.stringValue = [Utils getAppVersion];
+    }
+    
+    
+    
     self.labelLicense.textColor = NSColor.labelColor;
     BOOL linkToUpgradeScreen = NO;
-    
-    if ( MacCustomizationManager.isAProBundle ) {
+
+    if ( MacCustomizationManager.isSetapp ) {
+        self.labelLicense.stringValue = NSLocalizedString(@"pro_status_setapp", @"Setapp");
+    } else if ( MacCustomizationManager.isAProBundle ) {
         self.labelLicense.stringValue = NSLocalizedString(@"pro_status_lifetime_pro", @"Lifetime Pro");
     }
     else {
@@ -143,24 +168,16 @@ static AboutViewController* sharedInstance;
     BOOL licensed = Settings.sharedInstance.isPro;
     NSString* license = licensed ? @"person.fill.checkmark" : @"person.fill.xmark";
     
-    if (@available(macOS 11.0, *)) {
-        NSImage* image = [NSImage imageWithSystemSymbolName:license  accessibilityDescription:nil];
-        self.imageViewLicense.image = image;
-                
-        NSImageSymbolConfiguration* scaleConfig = [NSImageSymbolConfiguration configurationWithTextStyle:NSFontTextStyleHeadline scale:NSImageSymbolScaleLarge];
-
-        if (@available(macOS 12.0, *)) {
-            NSImageSymbolConfiguration* proConfig = [NSImageSymbolConfiguration configurationWithPaletteColors:@[NSColor.systemGreenColor, NSColor.systemBlueColor]];
-            NSImageSymbolConfiguration* noneProConfig = [NSImageSymbolConfiguration configurationWithPaletteColors:@[NSColor.systemRedColor, NSColor.systemOrangeColor]];
-            NSImageSymbolConfiguration* imageConfig = licensed ? proConfig : noneProConfig;
-            
-            self.imageViewLicense.symbolConfiguration = [scaleConfig configurationByApplyingConfiguration:imageConfig];
-            
-        } else {
-            self.imageViewLicense.symbolConfiguration = scaleConfig;
-            self.imageViewLicense.contentTintColor = licensed ? NSColor.systemBlueColor : NSColor.systemOrangeColor;
-        }
-    }
+    NSImage* image = [NSImage imageWithSystemSymbolName:license  accessibilityDescription:nil];
+    self.imageViewLicense.image = image;
+    
+    NSImageSymbolConfiguration* scaleConfig = [NSImageSymbolConfiguration configurationWithTextStyle:NSFontTextStyleHeadline scale:NSImageSymbolScaleLarge];
+    
+    NSImageSymbolConfiguration* proConfig = [NSImageSymbolConfiguration configurationWithPaletteColors:@[NSColor.systemGreenColor, NSColor.systemBlueColor]];
+    NSImageSymbolConfiguration* noneProConfig = [NSImageSymbolConfiguration configurationWithPaletteColors:@[NSColor.systemRedColor, NSColor.systemOrangeColor]];
+    NSImageSymbolConfiguration* imageConfig = licensed ? proConfig : noneProConfig;
+    
+    self.imageViewLicense.symbolConfiguration = [scaleConfig configurationByApplyingConfiguration:imageConfig];
 }
 
 - (void)showUpgradeScreen {

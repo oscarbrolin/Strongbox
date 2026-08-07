@@ -18,9 +18,9 @@
 #import "AutoFillManager.h"
 #import "CASGTableViewController.h"
 #import "BookmarksHelper.h"
-#import "FileManager.h"
+#import "StrongboxiOSFilesManager.h"
 #import "Serializator.h"
-#import "KeyFileParser.h"
+#import "KeyFileManagement.h"
 #import "YubiManager.h"
 #import "Utils.h"
 #import "VirtualYubiKeys.h"
@@ -35,7 +35,7 @@ static const int kMaxFailedPinAttempts = 3;
 @property (nonnull) UIViewController* viewController;
 @property (nonnull) DatabasePreferences* database;
 @property BOOL isAutoFillOpen;
-@property BOOL isAutoFillQuickTypeOpen;
+@property BOOL transparentAutoFillBackgroundForBiometrics;
 @property BOOL biometricPreCleared; 
 @property BOOL noConvenienceUnlock;
 
@@ -48,13 +48,13 @@ static const int kMaxFailedPinAttempts = 3;
 + (instancetype)determinerWithViewController:(UIViewController *)viewController
                                     database:(DatabasePreferences *)database
                               isAutoFillOpen:(BOOL)isAutoFillOpen
-                     isAutoFillQuickTypeOpen:(BOOL)isAutoFillQuickTypeOpen
+                     transparentAutoFillBackgroundForBiometrics:(BOOL)transparentAutoFillBackgroundForBiometrics
                          biometricPreCleared:(BOOL)biometricPreCleared
                          noConvenienceUnlock:(BOOL)noConvenienceUnlock {
     return [[IOSCompositeKeyDeterminer alloc] initWithViewController:viewController
                                                          database:database
                                                    isAutoFillOpen:isAutoFillOpen
-                                          isAutoFillQuickTypeOpen:isAutoFillQuickTypeOpen
+                                          transparentAutoFillBackgroundForBiometrics:transparentAutoFillBackgroundForBiometrics
                                               biometricPreCleared:biometricPreCleared
                                               noConvenienceUnlock:noConvenienceUnlock];
 }
@@ -62,7 +62,7 @@ static const int kMaxFailedPinAttempts = 3;
 - (instancetype)initWithViewController:(UIViewController *)viewController
                               database:(DatabasePreferences *)database
                         isAutoFillOpen:(BOOL)isAutoFillOpen
-               isAutoFillQuickTypeOpen:(BOOL)isAutoFillQuickTypeOpen
+               transparentAutoFillBackgroundForBiometrics:(BOOL)transparentAutoFillBackgroundForBiometrics
                    biometricPreCleared:(BOOL)biometricPreCleared
                    noConvenienceUnlock:(BOOL)noConvenienceUnlock {
     self = [super init];
@@ -70,7 +70,7 @@ static const int kMaxFailedPinAttempts = 3;
         self.viewController = viewController;
         self.database = database;
         self.isAutoFillOpen = isAutoFillOpen;
-        self.isAutoFillQuickTypeOpen = isAutoFillQuickTypeOpen;
+        self.transparentAutoFillBackgroundForBiometrics = transparentAutoFillBackgroundForBiometrics;
         self.biometricPreCleared = biometricPreCleared;
         self.noConvenienceUnlock = noConvenienceUnlock;
     }
@@ -102,7 +102,7 @@ static const int kMaxFailedPinAttempts = 3;
     self.completion = completion;
 
     if ( self.isAutoFillConvenienceAutoLockPossible ) {
-        NSLog(@"AutoFill and within convenience auto unlock timeout. Will auto open...");
+        slog(@"AutoFill and within convenience auto unlock timeout. Will auto open...");
         
         [self onGotCredentials:self.database.autoFillConvenienceAutoUnlockPassword
                keyFileBookmark:self.database.keyFileBookmark
@@ -180,15 +180,21 @@ static const int kMaxFailedPinAttempts = 3;
 }
 
 - (void)displayConvenienceExpiryMessage {
-    NSLog(@"displayConvenienceExpiryMessage");
+    slog(@"displayConvenienceExpiryMessage");
     
     dispatch_async(dispatch_get_main_queue(), ^{
         if ( self.database.showConvenienceExpiryMessage ) {
-            [Alerts okCancel:self.viewController
-                       title:NSLocalizedString(@"mac_unlock_screen_button_title_convenience_unlock_expired", @"Master Password Required")
-                     message:NSLocalizedString(@"composite_key_determiner_convenience_expired_message", @"It's time now to re-enter your Master Password manually. You can change this master password expiry interval in Database Settings.")
-                      action:^(BOOL response) {
-                if ( response ) { 
+            [Alerts twoOptionsWithCancel:self.viewController
+                                   title:NSLocalizedString(@"mac_unlock_screen_button_title_convenience_unlock_expired", @"Master Password Required")
+                                 message:NSLocalizedString(@"composite_key_determiner_convenience_expired_message", @"It's time now to re-enter your Master Password manually. You can change this master password expiry interval in Database Settings.")
+                       defaultButtonText:NSLocalizedString(@"alerts_ok", @"OK")
+                        secondButtonText:NSLocalizedString(@"generic_ok_dont_remind_me_again", @"OK, Don't Remind Me Again")
+                              completion:^(int response) {
+                if ( response == 0 ) { 
+                    [self promptForManualCredentials];
+                }
+                else if ( response == 1 ) {
+                    self.database.showConvenienceExpiryMessage = NO;
                     [self promptForManualCredentials];
                 }
                 else {
@@ -224,7 +230,7 @@ static const int kMaxFailedPinAttempts = 3;
 
     for (DatabasePreferences* database in databases) {
         if(database.isTouchIdEnabled) {
-            NSLog(@"Clearing Biometrics for Database: [%@]", database.nickName);
+            slog(@"Clearing Biometrics for Database: [%@]", database.nickName);
             
             database.conveniencePasswordHasBeenStored = NO;
             database.convenienceMasterPassword = nil;
@@ -314,33 +320,40 @@ static const int kMaxFailedPinAttempts = 3;
 
 
 - (void)showBiometricAuthentication:(NSString*)password {
-    
-    
     if(self.biometricPreCleared) {
-        NSLog(@"BIOMETRIC has been PRE-CLEARED - Coalescing Auths - Proceeding without prompting for auth");
+        slog(@"BIOMETRIC has been PRE-CLEARED - Coalescing Auths - Proceeding without prompting for auth");
         [self onBiometricAuthenticationDone:password success:YES error:nil];
     }
     else {
-        
 
-        CGFloat previousAlpha = self.viewController.view.alpha;
-        if (self.isAutoFillQuickTypeOpen) {
+        
+        CGFloat delay = 0.0;
+        if (self.transparentAutoFillBackgroundForBiometrics) {  
             self.viewController.view.alpha = 0.0f;
+            delay = 0.35;
         }
         
-        BOOL ret = [BiometricsManager.sharedInstance requestBiometricId:NSLocalizedString(@"open_sequence_biometric_unlock_prompt_title", @"Identify to Unlock Database")
-                                                          fallbackTitle:NSLocalizedString(@"open_sequence_biometric_unlock_fallback", @"Unlock Manually...")
-                                                             completion:^(BOOL success, NSError * _Nullable error) {
-            [self onBiometricAuthenticationDone:password success:success error:error];
-            
-            if (self.isAutoFillQuickTypeOpen) {
-                self.viewController.view.alpha = previousAlpha;
-            }
-        }];
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            BOOL ret = [BiometricsManager.sharedInstance requestBiometricId:NSLocalizedString(@"open_sequence_biometric_unlock_prompt_title", @"Identify to Unlock Database")
+                                                   fallbackTitle:NSLocalizedString(@"open_sequence_biometric_unlock_fallback", @"Unlock Manually...")
+                                                      completion:^(BOOL success, NSError * _Nullable error) {
+                    [self onBiometricAuthenticationDone:password success:success error:error];
+                    
+                
+                
 
-        if(!ret) { 
-            NSLog(@"iOS13 Biometric Bug? Please try shaking your device to make the Biometric dialog appear. This is expected to be fixed in iOS13.2. Tap OK now and then shake.");
-        }
+
+
+
+
+
+
+            }];
+
+            if(!ret) {
+                self.completion(kGetCompositeKeyResultError, nil, NO, [Utils createNSError:@"Could not complete biometric request" errorCode:-1234]);
+            }
+        });
     }
 }
 
@@ -371,27 +384,39 @@ static const int kMaxFailedPinAttempts = 3;
     else {
         if (error.code == LAErrorAuthenticationFailed) {
             dispatch_async(dispatch_get_main_queue(), ^{
-                [Alerts   warn:self.viewController
-                         title:[NSString stringWithFormat:NSLocalizedString(@"open_sequence_biometric_unlock_warn_failed_title_fmt", @"%@ Failed"), biometricIdName]
-                       message:[NSString stringWithFormat:NSLocalizedString(@"open_sequence_biometric_unlock_warn_failed_message_fmt", @"%@ Authentication Failed. You must now enter your password manually to open the database."), biometricIdName]
-                    completion:^{
+                [Alerts oneOptionsWithCancel:self.viewController
+                                       title:[NSString stringWithFormat:NSLocalizedString(@"open_sequence_biometric_unlock_warn_failed_title_fmt", @"%@ Failed"), biometricIdName]
+                                     message:[NSString stringWithFormat:NSLocalizedString(@"open_sequence_biometric_unlock_warn_failed_message_fmt", @"%@ Authentication Failed. You must now enter your password manually to open the database."), biometricIdName]
+                                  buttonText:NSLocalizedString(@"open_sequence_biometric_unlock_fallback", @"Unlock Manually...")
+                                      action:^(BOOL response) {
+                    if ( response ) {
                         [self promptForManualCredentials];
-                    }];
+                    }
+                    else {
+                        self.completion(kGetCompositeKeyResultUserCancelled, nil, NO, nil);
+                    }
+                }];
             });
         }
-        else if (error.code == LAErrorUserFallback) {
+        else if (error.code == LAErrorUserFallback || error.code == LAErrorSystemCancel) {
             dispatch_async(dispatch_get_main_queue(), ^{
                 [self promptForManualCredentials];
             });
         }
-        else if (error.code != LAErrorUserCancel) {
+        else if ( error.code != LAErrorUserCancel ) {
             dispatch_async(dispatch_get_main_queue(), ^{
-                [Alerts   warn:self.viewController
-                         title:[NSString stringWithFormat:NSLocalizedString(@"open_sequence_biometric_unlock_warn_failed_title_fmt", @"%@ Failed"), biometricIdName]
-                       message:[NSString stringWithFormat:NSLocalizedString(@"open_sequence_biometric_unlock_warn_not_configured_fmt", @"%@ has failed: %@. You must now enter your password manually to open the database."), biometricIdName, error]
-                    completion:^{
+                [Alerts oneOptionsWithCancel:self.viewController
+                                       title:[NSString stringWithFormat:NSLocalizedString(@"open_sequence_biometric_unlock_warn_failed_title_fmt", @"%@ Failed"), biometricIdName]
+                                     message:[NSString stringWithFormat:NSLocalizedString(@"open_sequence_biometric_unlock_warn_not_configured_fmt", @"%@ has failed: %@. You must now enter your password manually to open the database."), biometricIdName, error]
+                                  buttonText:NSLocalizedString(@"open_sequence_biometric_unlock_fallback", @"Unlock Manually...")
+                                      action:^(BOOL response) {
+                    if ( response ) {
                         [self promptForManualCredentials];
-                    }];
+                    }
+                    else {
+                        self.completion(kGetCompositeKeyResultUserCancelled, nil, NO, nil);
+                    }
+                }];
             });
         }
         else {
@@ -411,14 +436,14 @@ static const int kMaxFailedPinAttempts = 3;
 }
 
 - (NSString*)getAutoDetectedKeyFileUrl {
-    NSURL *directory = FileManager.sharedInstance.documentsDirectory;
+    NSURL *directory = StrongboxFilesManager.sharedInstance.documentsDirectory;
 
     NSError* error;
     NSFileManager *fm = [NSFileManager defaultManager];
     NSArray<NSString*>* files = [fm contentsOfDirectoryAtPath:directory.path error:&error];
     
     if(!files) {
-        NSLog(@"Error looking for auto detected key file url: %@", error);
+        slog(@"Error looking for auto detected key file url: %@", error);
         return nil;
     }
 
@@ -432,7 +457,7 @@ static const int kMaxFailedPinAttempts = 3;
             NSString* bookmark = [BookmarksHelper getBookmarkFromUrl:found readOnly:YES error:&error];
             
             if (error) {
-                NSLog(@"Error while getting auto-detected bookmark -> [%@]", error);
+                slog(@"Error while getting auto-detected bookmark -> [%@]", error);
             }
             
             return bookmark;
@@ -452,6 +477,7 @@ static const int kMaxFailedPinAttempts = 3;
     scVc.initialKeyFileBookmark = self.database.keyFileBookmark;
     scVc.initialReadOnly = self.database.readOnly;
     scVc.initialYubiKeyConfig = self.database.contextAwareYubiKeyConfig;
+    scVc.initialName = self.database.nickName;
     
     scVc.validateCommonKeyFileMistakes = self.database.keyFileBookmark == nil; 
     
@@ -534,14 +560,17 @@ static const int kMaxFailedPinAttempts = 3;
             format = [Serializator getDatabaseFormat:url];
         }
 
-        keyFileDigest = [KeyFileParser getDigestFromSources:keyFileBookmark
-                                            keyFileFileName:keyFileFileName
-                                         onceOffKeyFileData:oneTimeKeyFileData
-                                                     format:format
-                                                      error:&error];
-                
+        keyFileDigest = [KeyFileManagement getDigestFromSources:keyFileBookmark
+                                                    fallbackUrl:nil
+                                                keyFileFileName:keyFileFileName
+                                             onceOffKeyFileData:oneTimeKeyFileData
+                                                         format:format
+                                             resolvedKeyFileUrl:nil
+                                                updatedBookmark:nil
+                                                          error:&error];
+                        
         if( keyFileDigest == nil ) {
-            NSLog(@"WARNWARN: Could not read Key File [%@]", error);
+            slog(@"WARNWARN: Could not read Key File [%@]", error);
             
             
             
@@ -554,7 +583,7 @@ static const int kMaxFailedPinAttempts = 3;
 
             if ( usingImportedKeyFile && self.isAutoFillOpen ) {
                     [Alerts error:self.viewController
-                            title:NSLocalizedString(@"open_sequence_error_reading_key_file_autofill_context", @"Could not read Key File. Has it been imported properly? Check Key Files Management in Preferences")
+                            title:NSLocalizedString(@"open_sequence_error_reading_key_file_autofill_context", @"Could not read Key File. Has it been imported properly? Check Key Files Management in Settings")
                             error:error
                        completion:^{
                         self.completion(kGetCompositeKeyResultError, nil, NO, error);
@@ -589,12 +618,17 @@ static const int kMaxFailedPinAttempts = 3;
     BOOL keyFileFileNameChanged = (!(self.database.keyFileFileName == nil && keyFileFileName == nil)) && (![self.database.keyFileFileName isEqual:keyFileFileName]);
     BOOL keyFileChanged = keyFileBookMarkChanged || keyFileFileNameChanged;
     
-    BOOL yubikeyChanged = (!(self.database.contextAwareYubiKeyConfig == nil && yubiKeyConfiguration == nil)) && (![self.database.contextAwareYubiKeyConfig isEqual:yubiKeyConfiguration]);
+    BOOL yubikeyChanged = (!(self.database.nextGenPrimaryYubiKeyConfig == nil && yubiKeyConfiguration == nil)) && (![self.database.nextGenPrimaryYubiKeyConfig isEqual:yubiKeyConfiguration]);
     
     if(readOnlyChanged || keyFileChanged || yubikeyChanged) {
         self.database.readOnly = readOnly;
         [self.database setKeyFile:keyFileBookmark keyFileFileName:keyFileFileName];
-        self.database.contextAwareYubiKeyConfig = yubiKeyConfiguration;
+        
+#ifndef IS_APP_EXTENSION
+        self.database.nextGenPrimaryYubiKeyConfig = yubiKeyConfiguration;
+#else
+        self.database.contextAwareYubiKeyConfig = yubiKeyConfiguration; 
+#endif
     }
     
     [self completeRequestWithCredentials:password
@@ -637,7 +671,7 @@ static const int kMaxFailedPinAttempts = 3;
         completion(NO, nil, error);
     }
 #else
-    if(yubiKeyConfiguration.mode == kVirtual) {
+    if ( yubiKeyConfiguration.mode == kVirtual ) {
         VirtualYubiKey* key = [VirtualYubiKeys.sharedInstance getById:yubiKeyConfiguration.virtualKeyIdentifier];
         
         if (!key) {
@@ -645,7 +679,7 @@ static const int kMaxFailedPinAttempts = 3;
             completion(NO, nil, error);
         }
         else {
-            NSLog(@"Doing Virtual Challenge Response...");
+            slog(@"Doing Virtual Challenge Response...");
             NSData* response = [key doChallengeResponse:challenge];
             completion(NO, response, nil);
         }

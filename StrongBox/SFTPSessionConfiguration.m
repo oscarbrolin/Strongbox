@@ -8,7 +8,7 @@
 
 #import "SFTPSessionConfiguration.h"
 #import "SecretStore.h"
-
+#import "SBLog.h"
 @interface SFTPSessionConfiguration ()
 
 @end
@@ -39,7 +39,11 @@
     if(self.username) [ret setValue:self.username forKey:@"username"];
     if(self.keyChainUuid) [ret setValue:self.keyChainUuid forKey:@"keyChainUuid"];
     if(self.initialDirectory) [ret setValue:self.initialDirectory forKey:@"initialDirectory"];
-
+    
+    if ( self.sha256FingerPrint ) {
+        [ret setValue:self.sha256FingerPrint forKey:@"sha256FingerPrint"];
+    }
+    
     return ret;
 }
 
@@ -63,6 +67,10 @@
     
     ret.username = [dictionary objectForKey:@"username"];
     ret.initialDirectory = [dictionary objectForKey:@"initialDirectory"];
+    
+    if ( dictionary[@"sha256FingerPrint"] ) {
+        ret.sha256FingerPrint = [dictionary objectForKey:@"sha256FingerPrint"];
+    }
     
     return ret;
 }
@@ -97,23 +105,41 @@
     }
 }
 
-- (NSString *)publicKey {
-    return [SecretStore.sharedInstance getSecureString:[self getKeyChainKey:@"publicKey"]];
-}
-
-- (void)setPublicKey:(NSString *)publicKey {
-    if(publicKey) {
-        [SecretStore.sharedInstance setSecureString:publicKey forIdentifier:[self getKeyChainKey:@"publicKey"]];
-    }
-    else {
-        [SecretStore.sharedInstance deleteSecureItem:[self getKeyChainKey:@"publicKey"]];
-    }
-}
-
 - (void)clearKeychainItems {
-    [self setPublicKey:nil];
     [self setPrivateKey:nil];
     [self setPassword:nil];
+}
+
+- (BOOL)isTheSameConnection:(SFTPSessionConfiguration*)other {
+    return [self isTheSameConnection:other checkNetworkingFieldsOnly:NO];
+}
+
+- (BOOL)isNetworkingFieldsAreSame:(SFTPSessionConfiguration *)other {
+    return [self isTheSameConnection:other checkNetworkingFieldsOnly:YES];
+}
+
+- (BOOL)isTheSameConnection:(SFTPSessionConfiguration*)other checkNetworkingFieldsOnly:(BOOL)checkNetworkingFieldsOnly {
+    if (other == self) {
+        return YES;
+    }
+        
+    BOOL nameChanged = !checkNetworkingFieldsOnly && ![self.name isEqualToString:other.name];
+    
+    BOOL hostChanged = ![self.host isEqualToString:other.host];
+    BOOL userChanged = ![self.username isEqualToString:other.username];
+    BOOL pwChanged = self.password != nil ? ![self.password isEqualToString:other.password] : YES;
+    BOOL authModeChanged = self.authenticationMode != other.authenticationMode;
+    
+    NSString* mp = self.privateKey;
+    NSString* op = other.privateKey;
+    
+    BOOL pkChanged = ![mp isEqualToString:op];
+    
+    BOOL pathChanged = self.initialDirectory != nil ? ![self.initialDirectory isEqualToString:other.initialDirectory] : YES;
+    
+    slog(@"🐞 isTheSameConnection: %hhd, %hhd, %hhd, %hhd, %hhd, %hhd, %hhd", nameChanged, hostChanged, userChanged, pwChanged, authModeChanged, pkChanged, pathChanged);
+    
+    return !(nameChanged || hostChanged || userChanged || pwChanged || authModeChanged || pkChanged || pathChanged);
 }
 
 @end

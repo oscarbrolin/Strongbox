@@ -23,27 +23,24 @@
 - (BOOL)shouldDisplay {
     if( AppPreferences.sharedInstance.isPro ) {
         return NO;
-
     }
     
     if ( ![self userHasAlreadyTriedAppForMoreThan90Days] ) {
         return NO;
     }
     
-    const NSUInteger percentageChanceOfShowing = 1; 
+    const NSUInteger percentageChanceOfShowing = 15;
     NSInteger random = arc4random_uniform(100);
 
     return (random < percentageChanceOfShowing);
 }
 
-- (nonnull UIViewController *)instantiateViewController:(nonnull OnboardingModuleDoneBlock)onDone {
+- (UIViewController *)instantiateViewController:(nonnull OnboardingModuleDoneBlock)onDone {
     UIStoryboard* storyboard = [UIStoryboard storyboardWithName:@"Upgrade" bundle:nil];
     UpgradeViewController* vc = [storyboard instantiateInitialViewController];
-
-    if (@available(iOS 13.0, *)) {
-        vc.modalPresentationStyle = UIModalPresentationFullScreen;
-        vc.modalInPresentation = YES;
-    }
+    
+    vc.modalPresentationStyle = UIModalPresentationFullScreen;
+    vc.modalInPresentation = YES;
 
     vc.onDone = ^{
         onDone(NO, NO);

@@ -9,7 +9,7 @@
 #import <Foundation/Foundation.h>
 #import "Model.h"
 
-#if TARGET_OS_IPHONE
+#if TARGET_OS_IOS
 
 #import <UIKit/UIKit.h>
 
@@ -39,7 +39,7 @@ typedef void (^OnboardingModuleDoneBlock)(BOOL databaseModified, BOOL stopOnboar
 
 
 
-- (VIEW_CONTROLLER_PTR)instantiateViewController:(OnboardingModuleDoneBlock)onDone;
+- (VIEW_CONTROLLER_PTR _Nullable)instantiateViewController:(OnboardingModuleDoneBlock)onDone;
 
 @end
 

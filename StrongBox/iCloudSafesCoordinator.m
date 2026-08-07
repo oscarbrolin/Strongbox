@@ -7,11 +7,10 @@
 //
 
 #import "iCloudSafesCoordinator.h"
-#import "AppleICloudProvider.h"
 #import "LocalDeviceStorageProvider.h"
-#import "Strongbox.h"
 #import "DatabasePreferences.h"
 #import "AppPreferences.h"
+#import "Constants.h"
 
 @implementation iCloudSafesCoordinator
 
@@ -52,7 +51,6 @@ BOOL _migrationInProcessDoNotUpdateSafesCollection;
 
 - (void)initializeiCloudAccess {
     if ( AppPreferences.sharedInstance.disableNetworkBasedFeatures ) {
-        AppPreferences.sharedInstance.iCloudAvailable = NO;
         return;
     }
     
@@ -61,8 +59,7 @@ BOOL _migrationInProcessDoNotUpdateSafesCollection;
         
         BOOL available = (_iCloudRoot != nil);
         
-        NSLog(@"iCloud Initialization Done: Available = [%d]", available);
-        AppPreferences.sharedInstance.iCloudAvailable = available;
+
     });
 }
 
@@ -100,7 +97,7 @@ BOOL _migrationInProcessDoNotUpdateSafesCollection;
 }
 
 - (void)localToiCloudImpl {
-    NSLog(@"local => iCloud impl [%lu]", (unsigned long)_iCloudFiles.count);
+    slog(@"local => iCloud impl [%lu]", (unsigned long)_iCloudFiles.count);
     
     self.showMigrationUi(YES);
     
@@ -118,7 +115,7 @@ BOOL _migrationInProcessDoNotUpdateSafesCollection;
 }
 
 - (void)iCloudToLocalImpl {
-    NSLog(@"iCloud => local impl  [%lu]", (unsigned long)_iCloudFiles.count);
+    slog(@"iCloud => local impl  [%lu]", (unsigned long)_iCloudFiles.count);
     
     self.showMigrationUi(YES);
     
@@ -144,11 +141,11 @@ BOOL _migrationInProcessDoNotUpdateSafesCollection;
     NSURL *destURL = [self getFullICloudURLWithFileName:[self getUniqueICloudFilename:displayName extension:extension]];
     
     NSError * error;
-    BOOL success = [[NSFileManager defaultManager] setUbiquitous:[AppPreferences sharedInstance].iCloudOn itemAtURL:fileURL destinationURL:destURL error:&error];
+    BOOL success = [[NSFileManager defaultManager] setUbiquitous:YES itemAtURL:fileURL destinationURL:destURL error:&error];
     
     if (success) {
         NSString* newNickName = [self displayNameFromUrl:destURL];
-        NSLog(@"New Nickname = [%@] Moved %@ to %@", newNickName, fileURL, destURL);
+        slog(@"New Nickname = [%@] Moved %@ to %@", newNickName, fileURL, destURL);
 
         safe.nickName = newNickName;
         safe.storageProvider = kiCloud;
@@ -156,7 +153,7 @@ BOOL _migrationInProcessDoNotUpdateSafesCollection;
         safe.fileName = [destURL lastPathComponent];
     }
     else {
-        NSLog(@"Failed to move %@ to %@: %@", fileURL, destURL, error.localizedDescription);
+        slog(@"Failed to move %@ to %@: %@", fileURL, destURL, error.localizedDescription);
     }
 }
 
@@ -169,14 +166,14 @@ BOOL _migrationInProcessDoNotUpdateSafesCollection;
         extension = extension ? extension : @"";
         
         [[LocalDeviceStorageProvider sharedInstance] create:safe.nickName
-                                                  extension:extension
+                                                   fileName:safe.fileName
                                                        data:data
                                                parentFolder:nil
                                              viewController:nil
                                                  completion:^(DatabasePreferences *metadata, NSError *error)
          {
              if (error == nil) {
-                 NSLog(@"Copied %@ to %@ (%d)", newURL, metadata.fileIdentifier, [AppPreferences sharedInstance].iCloudOn);
+                 slog(@"Copied %@ to %@", newURL, metadata.fileIdentifier);
                  
                  safe.nickName = metadata.nickName;
                  safe.storageProvider = kLocalDevice;
@@ -184,7 +181,7 @@ BOOL _migrationInProcessDoNotUpdateSafesCollection;
                  safe.fileName = metadata.fileName;
              }
              else {
-                 NSLog(@"Failed to copy %@ to %@: %@", newURL, metadata.fileIdentifier, error.localizedDescription);
+                 slog(@"Failed to copy %@ to %@: %@", newURL, metadata.fileIdentifier, error.localizedDescription);
              }
          }];
     }];
@@ -280,7 +277,7 @@ BOOL _migrationInProcessDoNotUpdateSafesCollection;
     
     _iCloudURLsReady = YES;
     
-    if ([AppPreferences sharedInstance].iCloudOn && !_migrationInProcessDoNotUpdateSafesCollection) {
+    if ( !_migrationInProcessDoNotUpdateSafesCollection ) {
         [self syncICloudUpdateWithSafesCollection:_iCloudFiles];
     }
 
@@ -384,13 +381,17 @@ BOOL _migrationInProcessDoNotUpdateSafesCollection;
         DatabasePreferences *newSafe = [DatabasePreferences templateDummyWithNickName:displayName storageProvider:kiCloud fileName:fileName fileIdentifier:[safeFile.fileUrl absoluteString]];
         newSafe.hasUnresolvedConflicts = safeFile.hasUnresolvedConflicts;
         
-        NSLog(@"Got New iCloud Safe... Adding [%@]", newSafe.nickName);
+        slog(@"Got New iCloud Safe... Adding [%@]", newSafe.nickName);
       
         
         
-        [newSafe addWithDuplicateCheck:nil initialCacheModDate:nil];
-
-        added = YES;
+        NSError* error;
+        if ( [newSafe addWithDuplicateCheck:nil initialCacheModDate:nil error:&error] ) {
+            added = YES;
+        }
+        else {
+            slog(@"Did not add iCloud database - error = [%@]", error);
+        }
     }
     
     return added;
@@ -407,7 +408,7 @@ BOOL _migrationInProcessDoNotUpdateSafesCollection;
     }
     
     for(DatabasePreferences* safe in safeFileNamesToBeRemoved.allValues) {
-        NSLog(@"iCloud Safe Removed: %@", safe);
+        slog(@"iCloud Safe Removed: %@", safe);
         [safe removeFromDatabasesList];
         removed = YES;
     }
@@ -469,7 +470,7 @@ BOOL _migrationInProcessDoNotUpdateSafesCollection;
     NSArray* changed = [notification.userInfo objectForKey:NSMetadataQueryUpdateChangedItemsKey];
     NSArray* removed = [notification.userInfo objectForKey:NSMetadataQueryUpdateRemovedItemsKey];
 
-    NSLog(@"iCloud Update Notification Received: added = %lu / updated = %lu - removed = %lu", (unsigned long)added.count, (unsigned long)changed.count, (unsigned long)removed.count);
+
 
 
 

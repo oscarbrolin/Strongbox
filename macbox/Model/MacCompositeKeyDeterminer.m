@@ -14,18 +14,30 @@
 #import "Utils.h"
 #import "WorkingCopyManager.h"
 #import "Serializator.h"
-#import "KeyFileParser.h"
+#import "KeyFileManagement.h"
 #import <LocalAuthentication/LocalAuthentication.h>
 #import "StrongboxErrorCodes.h"
 #import "AutoFillLoadingVC.h"
+#import "AppDelegate.h"
+
+#ifndef IS_APP_EXTENSION
+#import "Strongbox-Swift.h"
+#else
+#import "Strongbox_Auto_Fill-Swift.h"
+#endif
+
+#import "VirtualYubiKeys.h"
 
 @interface MacCompositeKeyDeterminer ()
 
-@property (nonnull) NSViewController* viewController;
 @property (nonnull) METADATA_PTR database;
-@property BOOL isAutoFillOpen;
+@property BOOL isNativeAutoFillAppExtensionOpen;
 @property BOOL isAutoFillQuickTypeOpen;
 @property (readonly, nullable) NSString* contextAwareKeyFileBookmark;
+
+@property (nonnull, readonly) NSViewController* viewController;
+@property MacCompositeKeyDeterminerOnDemandUIProviderBlock onDemandUiProvider;
+@property NSWindowController* fooWc;
 
 @end
 
@@ -33,82 +45,168 @@
 
 + (instancetype)determinerWithViewController:(NSViewController*)viewController
                                     database:(METADATA_PTR)database
-                              isAutoFillOpen:(BOOL)isAutoFillOpen {
-    return [MacCompositeKeyDeterminer determinerWithViewController:viewController database:database isAutoFillOpen:isAutoFillOpen isAutoFillQuickTypeOpen:NO];
+            isNativeAutoFillAppExtensionOpen:(BOOL)isNativeAutoFillAppExtensionOpen {
+    return [MacCompositeKeyDeterminer determinerWithViewController:viewController
+                                                          database:database
+                                  isNativeAutoFillAppExtensionOpen:isNativeAutoFillAppExtensionOpen
+                                           isAutoFillQuickTypeOpen:NO];
 }
 
 + (instancetype)determinerWithViewController:(NSViewController*)viewController
                                     database:(METADATA_PTR)database
-                              isAutoFillOpen:(BOOL)isAutoFillOpen
+            isNativeAutoFillAppExtensionOpen:(BOOL)isNativeAutoFillAppExtensionOpen
                      isAutoFillQuickTypeOpen:(BOOL)isAutoFillQuickTypeOpen {
-    return [[MacCompositeKeyDeterminer alloc] initWithViewController:viewController
-                                                         database:database
-                                                      isAutoFillOpen:isAutoFillOpen
-                                             isAutoFillQuickTypeOpen:isAutoFillQuickTypeOpen];
-
+    
+    return [MacCompositeKeyDeterminer determinerWithDatabase:database
+                            isNativeAutoFillAppExtensionOpen:isNativeAutoFillAppExtensionOpen
+                                     isAutoFillQuickTypeOpen:isAutoFillQuickTypeOpen
+                                          onDemandUiProvider:^NSViewController * _Nonnull{
+        return viewController;
+    }];
 }
 
-- (instancetype)initWithViewController:(NSViewController*)viewController
-                              database:(METADATA_PTR)database
-                        isAutoFillOpen:(BOOL)isAutoFillOpen
-               isAutoFillQuickTypeOpen:(BOOL)isAutoFillQuickTypeOpen {
++ (instancetype)determinerWithDatabase:(METADATA_PTR)database
+      isNativeAutoFillAppExtensionOpen:(BOOL)isNativeAutoFillAppExtensionOpen
+               isAutoFillQuickTypeOpen:(BOOL)isAutoFillQuickTypeOpen onDemandUiProvider:(MacCompositeKeyDeterminerOnDemandUIProviderBlock)onDemandUiProvider {
+    return [[MacCompositeKeyDeterminer alloc] initWithViewController:database
+                                    isNativeAutoFillAppExtensionOpen:isNativeAutoFillAppExtensionOpen
+                                             isAutoFillQuickTypeOpen:isAutoFillQuickTypeOpen
+                                                  onDemandUiProvider:onDemandUiProvider];
+}
+
+- (instancetype)initWithViewController:(METADATA_PTR)database
+      isNativeAutoFillAppExtensionOpen:(BOOL)isNativeAutoFillAppExtensionOpen
+               isAutoFillQuickTypeOpen:(BOOL)isAutoFillQuickTypeOpen
+                    onDemandUiProvider:(MacCompositeKeyDeterminerOnDemandUIProviderBlock)onDemandUiProvider {
     self = [super init];
     
     if (self) {
-        self.viewController = viewController;
+        self.onDemandUiProvider = onDemandUiProvider;
         self.database = database;
-        self.isAutoFillOpen = isAutoFillOpen;
+        self.isNativeAutoFillAppExtensionOpen = isNativeAutoFillAppExtensionOpen;
         self.isAutoFillQuickTypeOpen = isAutoFillQuickTypeOpen;
     }
     
     return self;
 }
 
+- (NSViewController*)viewController {
+    return self.onDemandUiProvider();
+}
+
 - (void)getCkfs:(CompositeKeyDeterminedBlock)completion {
+    return [self getCkfs:nil completion:completion];
+}
+
+- (void)getCkfs:(NSString*_Nullable)message
+     completion:(CompositeKeyDeterminedBlock)completion {    
+    return [self getCkfs:message manualHeadline:nil manualSubhead:nil completion:completion];
+}
+
+- (void)getCkfs:(NSString *)message
+ manualHeadline:(NSString *)manualHeadline
+  manualSubhead:(NSString *)manualSubhead
+     completion:(CompositeKeyDeterminedBlock)completion {
     if ( self.bioOrWatchUnlockIsPossible ) {
-        NSLog(@"MacCompositeKeyDeterminer::getCkfs. Convenience Possible...");
-        [self getCkfsWithBiometrics:self.contextAwareKeyFileBookmark
+        slog(@"MacCompositeKeyDeterminer::getCkfs. Convenience Possible...");
+        [self getCkfsWithBiometrics:message
+             manualFallbackHeadline:manualHeadline
+          manualFallbackSubHeadline:manualSubhead
+                    keyFileBookmark:self.contextAwareKeyFileBookmark
+                 keyFileFallbackUrl:self.database.keyFileFallbackUrl
                yubiKeyConfiguration:self.database.yubiKeyConfiguration
                       allowFallback:YES
                          completion:completion];
     }
     else {
-        NSLog(@"MacCompositeKeyDeterminer::getCkfs. Convenience Possible...");
-        [self getCkfsManually:completion];
+        slog(@"MacCompositeKeyDeterminer::getCkfs. Convenience Possible...");
+        [self getCkfsManually:manualHeadline subheadline:manualSubhead completion:completion];
     }
 }
 
 - (void)getCkfsManually:(CompositeKeyDeterminedBlock)completion {
-    NSLog(@"MacCompositeKeyDeterminer::getCkfsManually...");
+    [self getCkfsManually:nil subheadline:nil completion:completion];
+}
 
+- (void)getCkfsManually:(NSString *)headline subheadline:(NSString *)subheadline completion:(CompositeKeyDeterminedBlock)completion {
+    slog(@"MacCompositeKeyDeterminer::getCkfsManually...");
+    
     dispatch_async(dispatch_get_main_queue(), ^{
-        [self _getCkfsWithManualUnlock:completion];
+        [self _getCkfsWithManualUnlock:headline
+                           subheadline:subheadline
+                            completion:completion];
     });
 }
 
 - (void)getCkfsWithBiometrics:(NSString *)keyFileBookmark
+           keyFileFallbackUrl:(NSURL*_Nullable)keyFileFallbackUrl
          yubiKeyConfiguration:(YubiKeyConfiguration *)yubiKeyConfiguration
                    completion:(CompositeKeyDeterminedBlock)completion {
-    [self getCkfsWithBiometrics:keyFileBookmark yubiKeyConfiguration:yubiKeyConfiguration allowFallback:NO completion:completion];
+    [self getCkfsWithBiometrics:nil
+         manualFallbackHeadline:nil
+      manualFallbackSubHeadline:nil
+                keyFileBookmark:keyFileBookmark
+             keyFileFallbackUrl:keyFileFallbackUrl
+           yubiKeyConfiguration:yubiKeyConfiguration
+                  allowFallback:NO
+                     completion:completion];
 }
 
-- (void)getCkfsWithBiometrics:(NSString *)keyFileBookmark
+- (void)getCkfsWithBiometrics:(NSString*_Nullable)message
+       manualFallbackHeadline:(NSString*_Nullable)manualFallbackHeadline
+    manualFallbackSubHeadline:(NSString*_Nullable)manualFallbackSubHeadline
+              keyFileBookmark:(NSString *)keyFileBookmark
+           keyFileFallbackUrl:(NSURL*_Nullable)keyFileFallbackUrl
          yubiKeyConfiguration:(YubiKeyConfiguration *)yubiKeyConfiguration
                 allowFallback:(BOOL)allowFallback
                    completion:(CompositeKeyDeterminedBlock)completion {
-    NSLog(@"MacCompositeKeyDeterminer::getCkfsWithBiometrics...");
+
 
     dispatch_async(dispatch_get_main_queue(), ^{
-        [self _getCkfsWithBiometrics:keyFileBookmark yubiKeyConfiguration:yubiKeyConfiguration allowFallback:allowFallback completion:completion];
+        [self _getCkfsWithBiometrics:message
+              manualFallbackHeadline:manualFallbackHeadline
+           manualFallbackSubHeadline:manualFallbackSubHeadline
+                     keyFileBookmark:keyFileBookmark
+                  keyFileFallbackUrl:keyFileFallbackUrl
+                yubiKeyConfiguration:yubiKeyConfiguration
+                       allowFallback:allowFallback
+                          completion:completion];
     });
 }
 
-- (void)_getCkfsWithManualUnlock:(CompositeKeyDeterminedBlock)completion {
+- (void)_getCkfsWithManualUnlock:(NSString *)headline
+                     subheadline:(NSString *)subheadline
+                      completion:(CompositeKeyDeterminedBlock)completion {
+#ifndef IS_APP_EXTENSION
+    Document* doc = [DatabasesCollection.shared documentForDatabaseWithUuid:self.database.uuid];
+    if ( doc && doc.viewModel.locked ) {
+        [doc close]; 
+    }
+#endif
+
+    [self getCkfsWithManualUnlockMiniWindow:headline subheadline:subheadline completion:completion];
+}
+
+- (void)getCkfsWithManualUnlockMiniWindow:(NSString *)headline
+                              subheadline:(NSString *)subheadline
+                               completion:(CompositeKeyDeterminedBlock)completion {
     ManualCredentialsEntry* mce = [[ManualCredentialsEntry alloc] initWithNibName:@"ManualCredentialsEntry" bundle:nil];
-    mce.databaseUuid = self.database.uuid;
-    mce.isAutoFillOpen = self.isAutoFillOpen;
     
-    mce.onDone = ^(BOOL userCancelled, NSString * _Nullable password, NSString * _Nullable keyFileBookmark, YubiKeyConfiguration * _Nullable yubiKeyConfiguration) {
+    mce.databaseUuid = self.database.uuid;
+    mce.isNativeAutoFillAppExtensionOpen = self.isNativeAutoFillAppExtensionOpen;
+    mce.headline = headline;
+    mce.subheadline = subheadline;
+    mce.verifyCkfsMode = self.verifyCkfsMode;
+    
+    __block BOOL completionCalled = NO;
+    
+    mce.onDone = ^(BOOL userCancelled, NSString * _Nullable password, NSString * _Nullable keyFileBookmark, NSURL* keyFileUrl, YubiKeyConfiguration * _Nullable yubiKeyConfiguration) {
+        if ( completionCalled ) { 
+            slog(@"⚠️ Completion already called! Problem in ManualCredentialsEntry");
+            return;
+        }
+        completionCalled = YES;
+        
         if (userCancelled) {
             completion(kGetCompositeKeyResultUserCancelled, nil, NO, nil);
         }
@@ -117,23 +215,57 @@
                       keyFileBookmark:keyFileBookmark
                  yubiKeyConfiguration:yubiKeyConfiguration
                       fromConvenience:NO
+                   keyFileFallbackUrl:keyFileUrl
                            completion:completion];
         }
     };
     
-    [self.viewController presentViewControllerAsSheet:mce];
+
+        [self.viewController presentViewControllerAsSheet:mce];
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    
+
+
+
+
 }
 
-- (void)_getCkfsWithBiometrics:(NSString *)keyFileBookmark
+- (void)_getCkfsWithBiometrics:(NSString*_Nullable)message
+        manualFallbackHeadline:(NSString*_Nullable)manualFallbackHeadline
+     manualFallbackSubHeadline:(NSString*_Nullable)manualFallbackSubHeadline
+               keyFileBookmark:(NSString *)keyFileBookmark
+            keyFileFallbackUrl:(NSURL*_Nullable)keyFileFallbackUrl
           yubiKeyConfiguration:(YubiKeyConfiguration *)yubiKeyConfiguration
                  allowFallback:(BOOL)allowFallback
                     completion:(CompositeKeyDeterminedBlock)completion {
     if ( !self.bioOrWatchUnlockIsPossible ) { 
-        NSLog(@"Biometrics/Watch not possible...");
+        slog(@"Biometrics/Watch not possible...");
         
         if ( allowFallback ) {
-            NSLog(@"Falling back to manual unlock...");
-            [self getCkfsManually:completion];
+            slog(@"Falling back to manual unlock...");
+            [self getCkfsManually:manualFallbackHeadline
+                      subheadline:manualFallbackSubHeadline
+                       completion:completion];
         }
         return;
     }
@@ -145,37 +277,42 @@
     
     
     AutoFillLoadingVC *requiredDummyAutoFillSheet = nil;
-    if ( self.isAutoFillOpen ) {
+    if ( self.isNativeAutoFillAppExtensionOpen ) {
         NSStoryboard* sb = [NSStoryboard storyboardWithName:@"AutoFillLoading" bundle:nil];
         requiredDummyAutoFillSheet = (AutoFillLoadingVC*)[sb instantiateInitialController];
         requiredDummyAutoFillSheet.onCancelButton = ^{
             completion(kGetCompositeKeyResultUserCancelled, nil, NO, nil);
         };
+        
         [self.viewController presentViewControllerAsSheet:requiredDummyAutoFillSheet];
     }
     
     [BiometricIdHelper.sharedInstance authorize:localizedFallbackTitle
+                                         reason:message
                                        database:self.database
                                      completion:^(BOOL success, NSError *error) {
         dispatch_async(dispatch_get_main_queue(), ^{
             
+            
             if ( requiredDummyAutoFillSheet ) {
                 dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                    [self.viewController dismissViewController:requiredDummyAutoFillSheet];
+                    [requiredDummyAutoFillSheet.view.window.sheetParent endSheet:requiredDummyAutoFillSheet.view.window returnCode:NSModalResponseCancel];
+                    
                 });
             }
             
             if(success) {
-                [self getCkfsWithPassword:self.database.conveniencePassword
-                          keyFileBookmark:keyFileBookmark
-                     yubiKeyConfiguration:yubiKeyConfiguration
-                          fromConvenience:YES
-                               completion:completion];
+                [self getCkfsAfterSuccessfulBiometricAuth:keyFileBookmark
+                                     yubiKeyConfiguration:yubiKeyConfiguration
+                                       keyFileFallbackUrl:keyFileFallbackUrl
+                                               completion:completion];
             }
             else {
                 if( allowFallback && error && error.code == LAErrorUserFallback ) {
-                    NSLog(@"User requested fallback. Falling back to manual unlock...");
-                    [self getCkfsManually:completion];
+                    slog(@"User requested fallback. Falling back to manual unlock...");
+                    [self getCkfsManually:manualFallbackHeadline
+                              subheadline:manualFallbackSubHeadline
+                               completion:completion];
                 }
                 else {
                     BOOL cancelled = NO;
@@ -189,14 +326,33 @@
     }];
 }
 
+- (void)getCkfsAfterSuccessfulBiometricAuth:(NSString *)keyFileBookmark
+                       yubiKeyConfiguration:(YubiKeyConfiguration *)yubiKeyConfiguration
+                         keyFileFallbackUrl:(NSURL*_Nullable)keyFileFallbackUrl
+                                 completion:(CompositeKeyDeterminedBlock)completion {
+    if(![BiometricIdHelper.sharedInstance isBiometricDatabaseStateRecorded:self.isNativeAutoFillAppExtensionOpen]) {
+        
+        [BiometricIdHelper.sharedInstance recordBiometricDatabaseState:self.isNativeAutoFillAppExtensionOpen];
+    }
+
+    [self getCkfsWithPassword:self.database.conveniencePassword
+              keyFileBookmark:keyFileBookmark
+         yubiKeyConfiguration:yubiKeyConfiguration
+              fromConvenience:YES
+           keyFileFallbackUrl:keyFileFallbackUrl
+                   completion:completion];
+}
+
 - (void)getCkfsWithExplicitPassword:(NSString *)password
                     keyFileBookmark:(NSString *)keyFileBookmark
                yubiKeyConfiguration:(YubiKeyConfiguration *)yubiKeyConfiguration
+                 keyFileFallbackUrl:(NSURL*_Nullable)keyFileFallbackUrl
                          completion:(CompositeKeyDeterminedBlock)completion {
     [self getCkfsWithPassword:password
               keyFileBookmark:keyFileBookmark
          yubiKeyConfiguration:yubiKeyConfiguration
               fromConvenience:NO
+           keyFileFallbackUrl:keyFileFallbackUrl
                    completion:completion];
 }
 
@@ -204,12 +360,15 @@
             keyFileBookmark:(NSString *)keyFileBookmark
        yubiKeyConfiguration:(YubiKeyConfiguration *)yubiKeyConfiguration
             fromConvenience:(BOOL)fromConvenience
+         keyFileFallbackUrl:(NSURL*_Nullable)keyFileFallbackUrl
                  completion:(CompositeKeyDeterminedBlock)completion {
     NSError* error;
+    
     CompositeKeyFactors* ckf = [self getCkfsWithSelectedUiFactors:password
                                                   keyFileBookmark:keyFileBookmark
                                              yubiKeyConfiguration:yubiKeyConfiguration
                                                   fromConvenience:NO
+                                               keyFileFallbackUrl:keyFileFallbackUrl
                                                             error:&error];
     
     if( !ckf || error) {
@@ -226,21 +385,29 @@
                                      keyFileBookmark:(NSString *)keyFileBookmark
                                 yubiKeyConfiguration:(YubiKeyConfiguration *)yubiKeyConfiguration
                                      fromConvenience:(BOOL)fromConvenience
+                                  keyFileFallbackUrl:(NSURL*_Nullable)keyFileFallbackUrl
                                                error:(NSError**)outError {
-    NSWindow* windowHint = self.viewController.view.window; 
-    
     DatabaseFormat formatKeyFileHint = keyFileBookmark ? [self getKeyFileDatabaseFormat] : kKeePass4;
+
+    NSURL* resolvedKeyFileUrl = nil;
+    NSString* keyFileUpdatedBookmark = nil;
 
     CompositeKeyFactors* ret = [MacCompositeKeyDeterminer getCkfsWithConfigs:password
                                                              keyFileBookmark:keyFileBookmark
                                                         yubiKeyConfiguration:yubiKeyConfiguration
-                                            hardwareKeyInteractionWindowHint:windowHint
+                                                          onDemandUiProvider:self.onDemandUiProvider
                                                            formatKeyFileHint:formatKeyFileHint
+                                                          keyFileFallbackUrl:keyFileFallbackUrl
+                                                          resolvedKeyFileUrl:&resolvedKeyFileUrl
+                                                      keyFileUpdatedBookmark:&keyFileUpdatedBookmark
                                                                        error:outError];
     
+    if ( keyFileUpdatedBookmark ) {
+        keyFileBookmark = keyFileUpdatedBookmark;
+    }
     
     if ( ret == nil && fromConvenience ) {
-        NSLog(@"Could not get CKFs with Convenience Unlock. Clearing Secure Convenience Items");
+        slog(@"Could not get CKFs with Convenience Unlock. Clearing Secure Convenience Items");
 
         self.database.conveniencePassword = nil;
         self.database.autoFillConvenienceAutoUnlockPassword = nil;
@@ -253,12 +420,14 @@
         BOOL rememberKeyFile = !Settings.sharedInstance.doNotRememberKeyFile;
         
         BOOL keyFileChanged = ( !rememberKeyFile && self.contextAwareKeyFileBookmark != nil ) || ((!(self.contextAwareKeyFileBookmark == nil && keyFileBookmark == nil)) && (![self.contextAwareKeyFileBookmark isEqual:keyFileBookmark]));
-        BOOL yubikeyChanged = (!(self.database.yubiKeyConfiguration == nil && yubiKeyConfiguration == nil)) && (![self.database.yubiKeyConfiguration isEqual:yubiKeyConfiguration]);
+        
+        YubiKeyConfiguration* configured = self.database.yubiKeyConfiguration;
+        BOOL yubikeyChanged = (!(configured == nil && yubiKeyConfiguration == nil)) && (![configured isEqual:yubiKeyConfiguration]);
         
         if( keyFileChanged || yubikeyChanged ) {
             NSString* temp = rememberKeyFile ? keyFileBookmark : nil;
             
-            if ( self.isAutoFillOpen ) {
+            if ( self.isNativeAutoFillAppExtensionOpen ) {
                 self.database.autoFillKeyFileBookmark = temp;
             }
             else {
@@ -266,6 +435,10 @@
             }
             
             self.database.yubiKeyConfiguration = yubiKeyConfiguration;
+        }
+        
+        if ( resolvedKeyFileUrl && rememberKeyFile ) {
+            self.database.fallbackLastKnownKeyFileUrl = resolvedKeyFileUrl.absoluteString;
         }
     }
     
@@ -277,20 +450,45 @@
 + (CompositeKeyFactors*)getCkfsWithConfigs:(NSString*)password
                            keyFileBookmark:(NSString*)keyFileBookmark
                       yubiKeyConfiguration:(YubiKeyConfiguration*)yubiKeyConfiguration
-          hardwareKeyInteractionWindowHint:(NSWindow*)hardwareKeyInteractionWindowHint
+      hardwareKeyInteractionViewController:(NSViewController*)hardwareKeyInteractionViewController
                          formatKeyFileHint:(DatabaseFormat)formatKeyFileHint
+                                     error:(NSError**)outError {
+    return [MacCompositeKeyDeterminer getCkfsWithConfigs:password
+                                         keyFileBookmark:keyFileBookmark
+                                    yubiKeyConfiguration:yubiKeyConfiguration
+                                      onDemandUiProvider:^NSViewController * _Nonnull{
+        return hardwareKeyInteractionViewController;
+    }
+                                       formatKeyFileHint:formatKeyFileHint
+                                      keyFileFallbackUrl:nil
+                                      resolvedKeyFileUrl:nil
+                                  keyFileUpdatedBookmark:nil
+                                                   error:outError];
+}
+
++ (CompositeKeyFactors*)getCkfsWithConfigs:(NSString*)password
+                           keyFileBookmark:(NSString*)keyFileBookmark
+                      yubiKeyConfiguration:(YubiKeyConfiguration*)yubiKeyConfiguration
+                        onDemandUiProvider:(MacCompositeKeyDeterminerOnDemandUIProviderBlock)onDemandUiProvider
+                         formatKeyFileHint:(DatabaseFormat)formatKeyFileHint
+                        keyFileFallbackUrl:(NSURL*_Nullable)keyFileFallbackUrl
+                        resolvedKeyFileUrl:(NSURL*_Nullable*_Nullable)resolvedKeyFileUrl
+                    keyFileUpdatedBookmark:(NSString*_Nullable*_Nullable)keyFileUpdatedBookmark
                                      error:(NSError**)outError {
     NSData* keyFileDigest = nil;
 
     if( keyFileBookmark ) {
         NSError *keyFileParseError;
-        keyFileDigest = [KeyFileParser getDigestFromBookmark:keyFileBookmark
-                                             keyFileFileName:nil
-                                                      format:formatKeyFileHint
-                                                       error:&keyFileParseError];
+        keyFileDigest = [KeyFileManagement getDigestFromBookmark:keyFileBookmark
+                                                     fallbackUrl:keyFileFallbackUrl
+                                                 keyFileFileName:nil
+                                                          format:formatKeyFileHint
+                                              resolvedKeyFileUrl:resolvedKeyFileUrl
+                                                 updatedBookmark:keyFileUpdatedBookmark
+                                                           error:&keyFileParseError];
                 
         if( keyFileDigest == nil ) {
-            NSLog(@"WARNWARN: Could not read Key File [%@]", keyFileParseError);
+            slog(@"WARNWARN: Could not read Key File [%@]", keyFileParseError);
             
             if (outError) {
                 *outError = keyFileParseError;
@@ -304,11 +502,60 @@
         return [CompositeKeyFactors password:password keyFileDigest:keyFileDigest];
     }
     else {
-        return [MacCompositeKeyDeterminer getCkfsWithHardwareKey:password
-                                                   keyFileDigest:keyFileDigest
-                                            yubiKeyConfiguration:yubiKeyConfiguration
-                                                      windowHint:hardwareKeyInteractionWindowHint
-                                                           error:outError];
+        return [MacCompositeKeyDeterminer getCkfsWithPassword:password
+                                                keyFileDigest:keyFileDigest
+                                         yubiKeyConfiguration:yubiKeyConfiguration
+                                           onDemandUiProvider:onDemandUiProvider
+                                                        error:outError];
+    }
+}
+
++ (CompositeKeyFactors *)getCkfsWithPassword:(NSString *)password
+                               keyFileDigest:(NSData *)keyFileDigest
+                        yubiKeyConfiguration:(YubiKeyConfiguration *)yubiKeyConfiguration
+                          onDemandUiProvider:(MacCompositeKeyDeterminerOnDemandUIProviderBlock)onDemandUiProvider
+                                       error:(NSError **)error {
+
+    
+    return [CompositeKeyFactors password:password
+                           keyFileDigest:keyFileDigest
+                               yubiKeyCR:^(NSData * _Nonnull challenge, YubiKeyCRResponseBlock  _Nonnull completion) {
+        [MacCompositeKeyDeterminer challengeResponse:yubiKeyConfiguration challenge:challenge onDemandUiProvider:onDemandUiProvider completion:completion];
+    }];
+}
+
++ (void)challengeResponse:(YubiKeyConfiguration*)yubiKeyConfiguration
+                challenge:(NSData*)challenge
+       onDemandUiProvider:(MacCompositeKeyDeterminerOnDemandUIProviderBlock)onDemandUiProvider
+               completion:(YubiKeyCRResponseBlock)completion {
+    if ( !Settings.sharedInstance.isPro ) {
+        NSString* loc = NSLocalizedString(@"open_sequence_yubikey_only_available_in_pro", @"YubiKey Unlock is only available in the Pro edition of Strongbox");
+        NSError* error = [Utils createNSError:loc errorCode:-1];
+        completion(NO, nil, error);
+    }
+    
+    if ( yubiKeyConfiguration.isVirtual ) {
+        VirtualYubiKey* virtual = [VirtualYubiKeys.sharedInstance getById:yubiKeyConfiguration.deviceSerial];
+        if ( virtual ) {
+            slog(@"🐞 Performing Challenge Response using Virtual Hardware Key...");
+            NSData* response = [virtual doChallengeResponse:challenge];
+            completion(NO, response, nil);
+        }
+        else {
+            NSError* error = [Utils createNSError:@"Could not find Virtual Hardware Key!" errorCode:-1];
+            completion(NO, nil, error);
+        }
+    }
+    else {
+        NSInteger slot = yubiKeyConfiguration.slot;
+        
+        [MacHardwareKeyManager.sharedInstance compositeKeyFactorCr:challenge
+                                                              slot:slot
+                                                        completion:completion
+                                            onDemandWindowProvider:^NSWindow * _Nonnull{
+            NSViewController* vc = onDemandUiProvider();
+            return vc.view.window;
+        }];
     }
 }
 
@@ -320,33 +567,16 @@
     }
     else {
         
-        NSLog(@"🔴 WARNWARN: Could not read working copy to check Key File Format");
+        slog(@"🔴 WARNWARN: Could not read working copy to check Key File Format");
     }
     return format;
 }
 
-+ (CompositeKeyFactors *)getCkfsWithHardwareKey:(NSString *)password
-                                  keyFileDigest:(NSData *)keyFileDigest
-                           yubiKeyConfiguration:(YubiKeyConfiguration *)yubiKeyConfiguration
-                                     windowHint:(NSWindow*)windowHint
-                                          error:(NSError **)error {
-    NSInteger slot = yubiKeyConfiguration.slot;
-    
-    return [CompositeKeyFactors password:password
-                           keyFileDigest:keyFileDigest
-                               yubiKeyCR:^(NSData * _Nonnull challenge, YubiKeyCRResponseBlock  _Nonnull completion) {
-        [MacHardwareKeyManager.sharedInstance compositeKeyFactorCr:challenge
-                                                    windowHint:windowHint
-                                                          slot:slot
-                                                    completion:completion];
-    }];
-}
-
 - (BOOL)bioOrWatchUnlockIsPossible {
-    return [MacCompositeKeyDeterminer bioOrWatchUnlockIsPossible:self.database];
+    return [MacCompositeKeyDeterminer bioOrWatchUnlockIsPossible:self.database isAutoFillOpen:self.isNativeAutoFillAppExtensionOpen];
 }
 
-+ (BOOL)bioOrWatchUnlockIsPossible:(MacDatabasePreferences*)database {
++ (BOOL)bioOrWatchUnlockIsPossible:(MacDatabasePreferences*)database isAutoFillOpen:(BOOL)isAutoFillOpen {
     if ( !database ) {
         return NO;
     }
@@ -358,9 +588,15 @@
     BOOL methodEnabled = touchEnabled || watchEnabled;
     BOOL passwordAvailable = database.conveniencePasswordHasBeenStored;
     BOOL featureAvailable = Settings.sharedInstance.isPro;
+    BOOL bioDbHasChanged = [BiometricIdHelper.sharedInstance isBiometricDatabaseStateHasChanged:isAutoFillOpen];
+    
+    if ( bioDbHasChanged ){
+        slog(@"👾 Biometrics Database has changed! Cannot do Biometric Unlock."); 
+    }
+    
     [database triggerPasswordExpiry];
     BOOL expired = database.conveniencePasswordHasExpired;
-    BOOL possible = methodEnabled && featureAvailable && passwordAvailable && !expired;
+    BOOL possible = methodEnabled && featureAvailable && passwordAvailable && !expired && !bioDbHasChanged;
     
 
     
@@ -368,7 +604,7 @@
 }
 
 - (NSString*)contextAwareKeyFileBookmark {
-    return self.isAutoFillOpen ? self.database.autoFillKeyFileBookmark : self.database.keyFileBookmark;
+    return self.isNativeAutoFillAppExtensionOpen ? self.database.autoFillKeyFileBookmark : self.database.keyFileBookmark;
 }
 
 @end

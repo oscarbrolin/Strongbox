@@ -15,7 +15,9 @@ NS_ASSUME_NONNULL_BEGIN
 + (instancetype)fromStoryboard;
 
 @property NSString* string;
+@property NSString* subtext;
 @property BOOL colorize;
+@property BOOL hideLargeTextGrid; 
 
 @end
 

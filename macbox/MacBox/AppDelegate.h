@@ -8,22 +8,33 @@
 
 #import <Cocoa/Cocoa.h>
 
-#define kAutoLockTime @"autoLockTime"
-
 extern const NSInteger kTopLevelMenuItemTagStrongbox;
 extern const NSInteger kTopLevelMenuItemTagFile;
 extern const NSInteger kTopLevelMenuItemTagView;
 
-extern NSString* const kUpdateNotificationQuickRevealStateChanged;
+extern NSString* _Nonnull const kUpdateNotificationQuickRevealStateChanged;
 
 @interface AppDelegate : NSObject <NSApplicationDelegate>
 
-- (IBAction)onUpgradeToFullVersion:(id)sender;
+- (IBAction)onUpgradeToFullVersion:(id _Nullable )sender;
 
 
 
 - (void)clearClipboardWhereAppropriate;
 - (void)onStrongboxDidChangeClipboard; 
+
+@property BOOL suppressQuickLaunchForNextAppActivation; 
+
+@property (readonly) BOOL isWasLaunchedAsLoginItem;
+@property (readonly) NSString *_Nullable pendingAutofillUUID;
+
+
+
+- (void)cancelAutoLockTimer;
+- (void)startAutoLockTimer;
+
+- (void)showAndActivateStrongbox:(NSString*_Nullable)databaseUuid completion:(void (^_Nullable)(void))completion;
+- (void)setPendingAutofillUnlock:(NSString*_Nullable)databaseUuid;
 
 @end
 

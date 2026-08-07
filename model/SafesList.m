@@ -9,18 +9,21 @@
 #import "SafesList.h"
 #import "IOsUtils.h"
 #import "AppPreferences.h"
-#import "FileManager.h"
+#import "StrongboxiOSFilesManager.h"
 #import "NSArray+Extensions.h"
 #import "WorkingCopyManager.h"
 #import "ConcurrentMutableSet.h"
+#import "DatabaseNuker.h"
+#import "Utils.h"
 
 @interface SafesList()
 
 @property (strong, nonatomic) NSMutableArray<SafeMetaData*> *databasesList;
 @property (strong, nonatomic) dispatch_queue_t dataQueue;
 
-@property (readonly) BOOL changedDatabaseSettingsFlag;
-@property ConcurrentMutableSet* editingSet; 
+@property (readonly) BOOL lastChangeByOtherComponent;
+
+- (NSArray<SafeMetaData*> *)snapshotIncludingHidden;
 
 @end
 
@@ -44,14 +47,26 @@ NSString* _Nonnull const kDatabaseUpdatedNotification = @"kDatabaseUpdatedNotifi
 - (instancetype)init {
     if (self = [super init]) {
         self.dataQueue = dispatch_queue_create("SafesList", DISPATCH_QUEUE_CONCURRENT);
-        self.editingSet = ConcurrentMutableSet.mutableSet;
-        self.databasesList = [self deserialize];
+        
+        NSMutableArray<SafeMetaData*>* deserialized;
+        NSError* error;
+        
+        if ( [self deserialize2:&deserialized error:&error] ) {
+            self.databasesList = [deserialized mutableCopy];
+        }
+        else {
+            self.databasesList = @[].mutableCopy;
+        }
+        
+        if ( self.lastChangeByOtherComponent ) { 
+            [self clearChangedDatabaseSettings];
+        }
     }
     
     return self;
 }
 
-- (BOOL)changedDatabaseSettingsFlag {
+- (BOOL)lastChangeByOtherComponent {
 #ifndef IS_APP_EXTENSION
     return AppPreferences.sharedInstance.autoFillDidChangeDatabases;
 #else
@@ -62,8 +77,10 @@ NSString* _Nonnull const kDatabaseUpdatedNotification = @"kDatabaseUpdatedNotifi
 - (void)setChangedDatabaseSettings {
 #ifndef IS_APP_EXTENSION
     AppPreferences.sharedInstance.mainAppDidChangeDatabases = YES;
+    AppPreferences.sharedInstance.autoFillDidChangeDatabases = NO;
 #else
     AppPreferences.sharedInstance.autoFillDidChangeDatabases = YES;
+    AppPreferences.sharedInstance.mainAppDidChangeDatabases = NO;
 #endif
 }
 
@@ -75,60 +92,120 @@ NSString* _Nonnull const kDatabaseUpdatedNotification = @"kDatabaseUpdatedNotifi
 #endif
 }
 
-- (void)reloadIfChangedByOtherComponent {
-    if ( self.changedDatabaseSettingsFlag ) { 
-
-
+- (BOOL)reloadIfChangedByOtherComponent {
+    if ( self.lastChangeByOtherComponent ) {
+#ifndef IS_APP_EXTENSION
+        slog(@"🟢 reloadIfChangedByAutoFillOrMainApp: Databases List CHANGED by AutoFill Extension...");
+#else
+        slog(@"🟢 reloadIfChangedByAutoFillOrMainApp: Databases List CHANGED by main Strongbox App...");
+#endif
         [self clearChangedDatabaseSettings];
-        self.databasesList = [self deserialize];
+        
+        NSMutableArray<SafeMetaData*>* deserialized;
+        NSError* error;
+        
+        if ( [self deserialize2:&deserialized error:&error] ) {
+            self.databasesList = [deserialized mutableCopy];
+            return YES;
+        }
+        else {
+            slog(@"🔴 reloadIfChangedByOtherComponent => Error deserializing: [%@]", error);
+            return NO;
+        }
     }
     else {
-
+        
+        return NO;
     }
 }
 
 
 
 - (NSArray<SafeMetaData *> *)snapshot {
+    if (AppPreferences.sharedInstance.showHiddenDatabases) {
+        return [self snapshotIncludingHidden];
+    } else {
+        __block NSArray<SafeMetaData *> *result;
+        dispatch_sync(self.dataQueue, ^{
+            NSPredicate* visiblePredicate = [NSPredicate predicateWithBlock:^BOOL(SafeMetaData * _Nullable evaluatedObject, NSDictionary<NSString *,id> * _Nullable bindings) {
+                SafeMetaData* metadata = (SafeMetaData*)evaluatedObject;
+                return metadata.hidden == NO;
+            }];
+            
+            result = [[self.databasesList filteredArrayUsingPredicate:visiblePredicate] copy];
+        });
+        return result;
+    }
+}
+
+- (NSArray<SafeMetaData*> *)snapshotIncludingHidden {
     __block NSArray<SafeMetaData *> *result;
-    dispatch_sync(self.dataQueue, ^{ result = [NSArray arrayWithArray:self.databasesList]; });
+    dispatch_sync(self.dataQueue, ^{
+        result = [NSArray arrayWithArray:self.databasesList];
+    });
+
     return result;
 }
 
-- (NSMutableArray<SafeMetaData*>*)deserialize {
-    NSURL* fileUrl = [FileManager.sharedInstance.preferencesDirectory URLByAppendingPathComponent:kDatabasesFilename];
+- (BOOL)deserialize2:(NSMutableArray<SafeMetaData*>**)databases
+               error:(NSError**)error {
+    NSURL* fileUrl = [StrongboxFilesManager.sharedInstance.preferencesDirectory URLByAppendingPathComponent:kDatabasesFilename];
     
-    NSError* error;
+    NSError* coorderror;
     __block NSError* readError;
     __block NSData* json = nil;
     NSFileCoordinator *fileCoordinator = [[NSFileCoordinator alloc] initWithFilePresenter:nil];
     
     [fileCoordinator coordinateReadingItemAtURL:fileUrl
                                         options:kNilOptions
-                                          error:&error
+                                          error:&coorderror
                                      byAccessor:^(NSURL * _Nonnull newURL) {
         json = [NSData dataWithContentsOfURL:fileUrl options:kNilOptions error:&readError];
     }];
     
-    if (!json || error || readError) {
-        NSLog(@"Error reading file for databases: [%@] - [%@]", error, readError);
-        return @[].mutableCopy;
+    if (!json || coorderror || readError) {
+        if ( readError.code != NSFileReadNoSuchFileError) {
+            slog(@"🔴 Error reading file for databases: [%@] - [%@]", coorderror, readError);
+            AppPreferences.sharedInstance.databasesSerializationError = [NSString stringWithFormat:@"Read Error: [%@]", *error];
+            
+            
+            
+            NSException *e = [NSException exceptionWithName:@"DatabasesJSON Read Exception" reason:@"Could not read databases.json" userInfo:nil];
+            @throw e;
+            return NO;
+        }
+        else {
+
+
+            
+            return NO;
+        }
     }
-
-    NSArray* jsonDatabases = [NSJSONSerialization JSONObjectWithData:json options:kNilOptions error:&error];
-
-    if (error) {
-        NSLog(@"Error getting json dictionaries for databases: [%@]", error);
-        return @[].mutableCopy;
+    
+    NSArray* jsonDatabases = [NSJSONSerialization JSONObjectWithData:json options:kNilOptions error:&coorderror];
+    
+    if (coorderror) {
+        slog(@"Error getting json dictionaries for databases: [%@]", coorderror);
+        *error = coorderror;
+        AppPreferences.sharedInstance.databasesSerializationError = [NSString stringWithFormat:@"JSON Error: [%@]", *error];
+        
+        
+        
+        NSException *e = [NSException exceptionWithName:@"DatabasesJSON Read Exception" reason:@"Error getting json dictionaries for databases" userInfo:nil];
+        @throw e;
+        return NO;
     }
-
+    
     NSMutableArray<SafeMetaData*> *ret = NSMutableArray.array;
+    
     for (NSDictionary* jsonDatabase in jsonDatabases) {
         SafeMetaData* database = [SafeMetaData fromJsonSerializationDictionary:jsonDatabase];
         [ret addObject:database];
     }
     
-    return ret;
+    *databases = ret;
+    
+    return YES;
 }
 
 - (void)serialize:(BOOL)listChanged {
@@ -136,6 +213,12 @@ NSString* _Nonnull const kDatabaseUpdatedNotification = @"kDatabaseUpdatedNotifi
 }
 
 - (void)serialize:(BOOL)listChanged databaseIdChanged:(NSString*)databaseIdChanged {
+    
+    
+    if ( self.lastChangeByOtherComponent ) {
+        slog(@"🔴 🔴 🔴 🔴 WARNWARN - Serialize called but changed by other component flag set! 🔴 🔴 🔴 🔴 ");
+    }
+    
     NSMutableArray<NSDictionary*>* jsonDatabases = NSMutableArray.array;
     
     for (SafeMetaData* database in self.databasesList) {
@@ -146,16 +229,16 @@ NSString* _Nonnull const kDatabaseUpdatedNotification = @"kDatabaseUpdatedNotifi
     NSError* error;
     NSUInteger options = NSJSONWritingPrettyPrinted;
     options |= NSJSONWritingSortedKeys;
-
+    
     NSData* json = [NSJSONSerialization dataWithJSONObject:jsonDatabases options:options error:&error];
-
+    
     if (error) {
-        NSLog(@"Error getting json for databases: [%@]", error);
+        slog(@"Error getting json for databases: [%@]", error);
         return;
     }
-
-    NSURL* fileUrl = [FileManager.sharedInstance.preferencesDirectory URLByAppendingPathComponent:kDatabasesFilename];
-
+    
+    NSURL* fileUrl = [StrongboxFilesManager.sharedInstance.preferencesDirectory URLByAppendingPathComponent:kDatabasesFilename];
+    
     NSFileCoordinator *fileCoordinator = [[NSFileCoordinator alloc] initWithFilePresenter:nil];
     __block NSError *writeError = nil;
     __block BOOL success = NO;
@@ -165,14 +248,14 @@ NSString* _Nonnull const kDatabaseUpdatedNotification = @"kDatabaseUpdatedNotifi
                                      byAccessor:^(NSURL *newURL) {
         success = [json writeToURL:newURL options:NSDataWritingAtomic error:&writeError];
     }];
-
+    
     if (!success || error || writeError) {
-        NSLog(@"Error writing Databases file: [%@]-[%@]", error, writeError);
+        slog(@"Error writing Databases file: [%@]-[%@]", error, writeError);
         return;
     }
     
     [self setChangedDatabaseSettings];
-
+    
     if (listChanged) {
         [self notifyDatabasesListChanged];
     }
@@ -201,20 +284,20 @@ NSString* _Nonnull const kDatabaseUpdatedNotification = @"kDatabaseUpdatedNotifi
         
         if(index != NSNotFound) {
             SafeMetaData* metadata = self.databasesList[index];
-
+            
             if ( touch ) {
                 touch ( metadata );
                 [self serialize:NO databaseIdChanged:uuid];
             }
         }
         else {
-            NSLog(@"🔴 WARN: Attempt to update a safe not found in list... [%@]", uuid);
+            slog(@"🔴 WARN: Attempt to update a safe not found in list... [%@]", uuid);
         }
     });
 }
 
 - (SafeMetaData *)getById:(NSString*)uuid {
-    return [self.snapshot firstOrDefault:^BOOL(SafeMetaData * _Nonnull obj) {
+    return [self.snapshotIncludingHidden firstOrDefault:^BOOL(SafeMetaData * _Nonnull obj) {
         return [obj.uuid isEqualToString:uuid];
     }];
 }
@@ -223,66 +306,145 @@ NSString* _Nonnull const kDatabaseUpdatedNotification = @"kDatabaseUpdatedNotifi
     return [SafesList.sharedInstance getById:uuid];
 }
 
-- (void)add:(SafeMetaData *)safe initialCache:(NSData *)initialCache initialCacheModDate:(NSDate *)initialCacheModDate {
-    dispatch_barrier_async(self.dataQueue, ^{
-        [self _internalAdd:safe initialCache:initialCache initialCacheModDate:initialCacheModDate];
-    });
+
+
+
+
+
+
+
+- (BOOL)add:(SafeMetaData *)safe
+      error:(NSError *__autoreleasing  _Nullable *)error {
+    return [self add:safe initialCache:nil initialCacheModDate:nil error:error];
 }
 
-- (NSString*)addWithDuplicateCheck:(SafeMetaData *)safe
+- (BOOL)add:(SafeMetaData *)safe
+initialCache:(NSData *)initialCache
+initialCacheModDate:(NSDate *)initialCacheModDate
+      error:(NSError *__autoreleasing  _Nullable *)error {
+    return [self addWithMaybeDuplicateCheck:safe
+                          checkForDuplicate:NO
+                               initialCache:initialCache
+                        initialCacheModDate:initialCacheModDate
+                              duplicateUuid:nil
+                                      error:error];
+}
+
+- (BOOL)addWithDuplicateCheck:(SafeMetaData *)safe
+                 initialCache:(NSData *)initialCache
+          initialCacheModDate:(NSDate *)initialCacheModDate
+                        error:(NSError**)error {
+    return [self addWithDuplicateCheck:safe
+                          initialCache:initialCache
+                   initialCacheModDate:initialCacheModDate
+                         duplicateUuid:nil
+                                 error:error];
+}
+
+- (BOOL)addWithDuplicateCheck:(SafeMetaData *)safe
+                 initialCache:(NSData *)initialCache
+          initialCacheModDate:(NSDate *)initialCacheModDate
+                duplicateUuid:(NSString **)duplicateUuid
+                        error:(NSError**)error {
+    return [self addWithMaybeDuplicateCheck:safe
+                          checkForDuplicate:YES
+                               initialCache:initialCache
+                        initialCacheModDate:initialCacheModDate
+                              duplicateUuid:duplicateUuid
+                                      error:error];
+}
+
+- (BOOL)addWithMaybeDuplicateCheck:(SafeMetaData *)safe
+                 checkForDuplicate:(BOOL)checkForDuplicate
                       initialCache:(NSData *)initialCache
-               initialCacheModDate:(NSDate *)initialCacheModDate {
-    __block NSString* result;
-
+               initialCacheModDate:(NSDate *)initialCacheModDate
+                     duplicateUuid:(NSString **)duplicateUuid
+                             error:(NSError**)error {
+    __block NSString* duplicateResult = nil;
+    __block BOOL addedDatabase = NO;
+    __block NSError* blockError = nil;
+    
     dispatch_sync(self.dataQueue, ^{
-        SafeMetaData* dupe = [self.databasesList firstOrDefault:^BOOL(SafeMetaData * _Nonnull obj) {
-            BOOL storage = obj.storageProvider == safe.storageProvider;
-            
-            NSString* name1 = obj.fileName;
-            NSString* name2 = safe.fileName;
-            BOOL names = [name1 compare:name2] == NSOrderedSame; 
-
-            NSString* id1 = obj.fileIdentifier;
-            NSString* id2 = safe.fileIdentifier;
-            BOOL ids = [id1 compare:id2] == NSOrderedSame;  
-
-            return storage && names && ids;
-        }];
+        SafeMetaData* dupe = nil;
+        
+        if ( checkForDuplicate ) {
+            dupe = [self.databasesList firstOrDefault:^BOOL(SafeMetaData * _Nonnull obj) {
+                return [self databasesAreDuplicates:safe other:obj];
+            }];
+        }
         
         if( dupe == nil ) {
-            [self _internalAdd:safe initialCache:initialCache initialCacheModDate:initialCacheModDate];
-            result = nil;
+            addedDatabase = [self _internalAdd:safe initialCache:initialCache initialCacheModDate:initialCacheModDate error:&blockError];
         }
         else {
-            NSLog(@"🔴 Found duplicate... Not Adding - [%@]", dupe.uuid);
-            result = dupe.uuid;
+            slog(@"🔴 Found duplicate... Not Adding - [%@]", dupe.uuid);
+            duplicateResult = dupe.uuid;
         }
     });
     
-    return result;
-}
-
-- (void)_internalAdd:(SafeMetaData *)safe initialCache:(NSData *)initialCache initialCacheModDate:(NSDate *)initialCacheModDate {
-    if (initialCache) {
-        NSError* error;
-        NSURL* url = [WorkingCopyManager.sharedInstance setWorkingCacheWithData:initialCache dateModified:initialCacheModDate database:safe.uuid error:&error];
-
-        safe.lastSyncRemoteModDate = initialCacheModDate; 
-        
-        if (error || !url) {
-            NSLog(@"🔴 ERROR: Error adding database - setWorkingCacheWithData: [%@]", error);
-        }
-        else {
-            NSLog(@"✅ Added Database [%@]", safe.uuid);
-            [self.databasesList addObject:safe];
-            [self serialize:YES];
+    if ( duplicateUuid ) {
+        *duplicateUuid = duplicateResult;
+        if ( error ) {
+            *error = [Utils createNSError:@"Duplicate Database Found. Cannot Add." errorCode:-1];
         }
     }
     else {
-        NSLog(@"✅ Added Database [%@]", safe.uuid);
-        [self.databasesList addObject:safe];
-        [self serialize:YES];
+        if ( error ) {
+            *error = blockError;
+        }
     }
+    
+    return addedDatabase;
+}
+
+- (BOOL)databasesAreDuplicates:(SafeMetaData*)safe other:(SafeMetaData*)obj {
+    if ( obj.storageProvider != safe.storageProvider ) {
+        return NO;
+    }
+    
+    NSString* name1 = obj.fileName;
+    NSString* name2 = safe.fileName;
+    BOOL names = [name1 compare:name2] == NSOrderedSame; 
+    if ( !names ) {
+        return NO;
+    }
+    
+    if ( safe.storageProvider != kiCloud ) { 
+        NSString* id1 = obj.fileIdentifier;
+        NSString* id2 = safe.fileIdentifier;
+        
+        return [id1 compare:id2] == NSOrderedSame;  
+    }
+    else {
+        return YES;
+    }
+    
+    return NO;
+}
+
+- (BOOL)_internalAdd:(SafeMetaData *)safe initialCache:(NSData *)initialCache initialCacheModDate:(NSDate *)initialCacheModDate error:(NSError**)error {
+    if (initialCache) {
+        NSError* setWorkingCacheError;
+        NSURL* url = [WorkingCopyManager.sharedInstance setWorkingCacheWithData:initialCache dateModified:initialCacheModDate database:safe.uuid error:&setWorkingCacheError];
+        
+        if ( !url ) {
+            slog(@"🔴 ERROR: Error adding database - setWorkingCacheWithData: [%@]", setWorkingCacheError);
+            
+            if ( error ) {
+                *error = setWorkingCacheError ? setWorkingCacheError : [Utils createNSError:@"Unknown Error Adding Database!" errorCode:-1];
+            }
+            
+            return NO;
+        }
+        
+        safe.lastSyncRemoteModDate = initialCacheModDate; 
+    }
+    
+    slog(@"✅ Added Database [%@]", safe.uuid);
+    [self.databasesList addObject:safe];
+    [self serialize:YES];
+    
+    return YES;
 }
 
 - (void)remove:(NSString*_Nonnull)uuid {
@@ -296,7 +458,7 @@ NSString* _Nonnull const kDatabaseUpdatedNotification = @"kDatabaseUpdatedNotifi
             [self serialize:YES];
         }
         else {
-            NSLog(@"WARN: Attempt to remove a safe not found in list... [%@]", uuid);
+            slog(@"WARN: Attempt to remove a safe not found in list... [%@]", uuid);
         }
     });
 }
@@ -313,39 +475,25 @@ NSString* _Nonnull const kDatabaseUpdatedNotification = @"kDatabaseUpdatedNotifi
     });
 }
 
-- (void)deleteAll {
-    for(SafeMetaData* database in self.snapshot) {
-        [database clearKeychainItems];
-    }
-    
-    dispatch_barrier_async(self.dataQueue, ^{
-        [self.databasesList removeAllObjects];
-        [self serialize:YES];
-    });
-}
-
 - (NSString*)getUniqueNameFromSuggestedName:(NSString*)suggested {
     suggested = [SafesList trimDatabaseNickName:suggested];
 
-    NSString *suggestion = suggested;
-    
-    int attempt = 2;
-    while(![self isUnique:suggestion] && attempt < 100) {
-        suggestion = [NSString stringWithFormat:@"%@ %d", suggested, attempt++];
-    }
-    
-    return [self isUnique:suggestion] ? suggestion : nil;
+    return [self getSuggestedNewDatabaseNameWithPrefix:suggested];
 }
 
-- (NSString*)getSuggestedDatabaseNameUsingDeviceName {
-    NSString *suggestion = NSLocalizedString(@"casg_suggested_database_name_default", @"My Database");
+- (NSString*)getSuggestedNewDatabaseName {
+    return [self getSuggestedNewDatabaseNameWithPrefix:NSLocalizedString(@"casg_suggested_database_name_default", @"My Database")];
+}
+
+- (NSString*)getSuggestedNewDatabaseNameWithPrefix:(NSString*)prefix {
+    NSString *suggestion = prefix;
    
     int attempt = 2;
-    while(![self isUnique:suggestion] && attempt < 100) {
-        suggestion = [NSString stringWithFormat:@"%@ %@", suggestion, @(attempt++)];
+    while(![self isUnique:suggestion] && attempt < 1000) {
+        suggestion = [NSString stringWithFormat:@"%@ %@", prefix, @(attempt++)];
     }
     
-    return [self isUnique:suggestion] ? suggestion : nil;
+    return [self isUnique:suggestion] ? suggestion : [NSUUID UUID].UUIDString;
 }
 
 - (NSArray<SafeMetaData*>*)getSafesOfProvider:(StorageProvider)storageProvider {
@@ -361,16 +509,18 @@ NSString* _Nonnull const kDatabaseUpdatedNotification = @"kDatabaseUpdatedNotifi
 
     trimmed = [[trimmed componentsSeparatedByCharactersInSet:[NSCharacterSet controlCharacterSet]] componentsJoinedByString:@""];
     trimmed = [[trimmed componentsSeparatedByCharactersInSet:[NSCharacterSet illegalCharacterSet]] componentsJoinedByString:@""];
-    trimmed = [[trimmed componentsSeparatedByCharactersInSet:[NSCharacterSet nonBaseCharacterSet]] componentsJoinedByString:@""];
-    trimmed = [[trimmed componentsSeparatedByCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@"±|/\\`~@<>:;£$%^&()=+{}[]!\"|?*"]] componentsJoinedByString:@""];
+
+    trimmed = [[trimmed componentsSeparatedByCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@"±|/\\`~@<>:;£$%^()=+{}[]!\"|?*"]] componentsJoinedByString:@""];
     
     return trimmed;
 }
 
 - (NSSet *)getAllNickNamesLowerCase {
-    NSMutableSet *set = [[NSMutableSet alloc] initWithCapacity:self.snapshot.count];
-    
-    for (SafeMetaData *safe in self.snapshot) {
+    NSArray<SafeMetaData*>* allSafes = [self snapshotIncludingHidden];
+
+    NSMutableSet *set = [[NSMutableSet alloc] initWithCapacity:allSafes.count];
+
+    for (SafeMetaData *safe in allSafes) {
         [set addObject:(safe.nickName).lowercaseString];
     }
     
@@ -387,23 +537,6 @@ NSString* _Nonnull const kDatabaseUpdatedNotification = @"kDatabaseUpdatedNotifi
     NSSet<NSString*> *nicknamesLowerCase = [self getAllNickNamesLowerCase];
     
     return ![nicknamesLowerCase containsObject:nickName.lowercaseString];
-}
-
-
-
-- (BOOL)isEditing:(SafeMetaData *)database {
-    return [self.editingSet containsObject:database.uuid];
-}
-
-- (void)setEditing:(SafeMetaData *)database editing:(BOOL)editing {
-    NSLog(@"SafesList::setEditing: %@ => %hhd", database.nickName, editing);
-    
-    if ( editing ) {
-        [self.editingSet addObject:database.uuid];
-    }
-    else {
-        [self.editingSet removeObject:database.uuid];
-    }
 }
 
 @end

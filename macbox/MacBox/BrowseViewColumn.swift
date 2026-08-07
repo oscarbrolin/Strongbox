@@ -27,12 +27,22 @@ enum BrowseViewColumn: String, CaseIterable {
     case customIcon = "CustomIconColumn"
     case uuid = "UuidColumn"
     case auditIssues = "AuditIsssuesColumn"
-
-    
-
+    case customIconSize = "CustomIconSize"
+    case size = "Size"
 
     var identifier: NSUserInterfaceItemIdentifier {
-        return NSUserInterfaceItemIdentifier(rawValue)
+        NSUserInterfaceItemIdentifier(rawValue)
+    }
+
+    var initialSize: CGFloat {
+        switch self {
+        case .title:
+            return 175
+        case .username:
+            return 100
+        default:
+            return 150
+        }
     }
 
     var visibleByDefault: Bool {
@@ -73,6 +83,10 @@ enum BrowseViewColumn: String, CaseIterable {
             return false
         case .auditIssues:
             return false
+        case .customIconSize:
+            return false
+        case .size:
+            return false
         }
     }
 
@@ -97,7 +111,7 @@ enum BrowseViewColumn: String, CaseIterable {
         case .expires:
             return NSLocalizedString("generic_fieldname_expiry_date", comment: "Expiry Date")
         case .totp:
-            return NSLocalizedString("generic_fieldname_totp", comment: "TOTP")
+            return NSLocalizedString("generic_fieldname_totp", comment: "2FA")
         case .attachmentCount:
             return NSLocalizedString("generic_fieldname_attachments", comment: "Attachments")
         case .customFieldCount:
@@ -105,7 +119,7 @@ enum BrowseViewColumn: String, CaseIterable {
         case .tags:
             return NSLocalizedString("generic_fieldname_tags", comment: "Tags")
         case .path:
-            return NSLocalizedString("generic_fieldname_location", comment: "Location")
+            return NSLocalizedString("generic_field_name_group", comment: "Group")
         case .historicalItemCount:
             return NSLocalizedString("generic_fieldname_historical_item_count", comment: "Historical Item Count")
         case .customIcon:
@@ -113,9 +127,11 @@ enum BrowseViewColumn: String, CaseIterable {
         case .uuid:
             return NSLocalizedString("generic_fieldname_id", comment: "ID")
         case .auditIssues:
-            return NSLocalizedString("quick_view_title_audit_issues_title", comment: "Audit Issues")
-
-
+            return NSLocalizedString("browse_vc_action_audit", comment: "Audit")
+        case .customIconSize:
+            return NSLocalizedString("generic_fieldname_custom_icon_size", comment: "Custom Icon Size")
+        case .size:
+            return NSLocalizedString("generic_fieldname_estimated_size", comment: "Estimated Size")
         }
     }
 }

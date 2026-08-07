@@ -18,6 +18,7 @@
 #import "NSArray+Extensions.h"
 #import "XmlSerializer.h"
 #import "InnerRandomStreamFactory.h"
+#import "NSData+Extensions.h"
 
 static const uint32_t kKdbx4MajorVersionNumber = 4;
 static const uint32_t kKdbx4MaximumAcceptableMinorVersionNumber = 1; 
@@ -52,7 +53,7 @@ sanityCheckInnerStream:(BOOL)sanityCheckInnerStream
                          completion:^(BOOL userCancelled, Kdbx4SerializationData * _Nullable serializationData, NSError * _Nullable innerStreamError, NSError * _Nullable error) {
         if(userCancelled || serializationData == nil || serializationData.rootXmlObject == nil || error) {
             if(error) {
-                NSLog(@"Error getting Decrypting KDBX4 binary: [%@]", error);
+                slog(@"Error getting Decrypting KDBX4 binary: [%@]", error);
             }
             completion(userCancelled, nil, innerStreamError, error);
             return;
@@ -75,7 +76,7 @@ static void onDeserialized(Kdbx4SerializationData * _Nullable serializationData,
     NSError* error;
     Node* rootGroup = [KeePassXmlModelAdaptor toStrongboxModel:xmlRoot attachments:serializationData.attachments customIconPool:customIcons error:&error];
     if(rootGroup == nil) {
-        NSLog(@"Error converting Xml model to Strongbox model: [%@]", error);
+        slog(@"Error converting Xml model to Strongbox model: [%@]", error);
         completion(NO, nil, innerStreamError, error);
         return;
     }
@@ -112,7 +113,10 @@ static void onDeserialized(Kdbx4SerializationData * _Nullable serializationData,
     completion(NO, ret, innerStreamError, nil);
 }
 
-+ (void)save:(DatabaseModel *)database outputStream:(NSOutputStream *)outputStream completion:(SaveCompletionBlock)completion {
++ (void)save:(DatabaseModel *)database 
+outputStream:(NSOutputStream *)outputStream
+      params:(id)params
+  completion:(SaveCompletionBlock)completion {
     if(!database.ckfs.password &&
        !database.ckfs.keyFileDigest &&
        !database.ckfs.yubiKeyCR) {
@@ -133,7 +137,7 @@ static void onDeserialized(Kdbx4SerializationData * _Nullable serializationData,
     
     NSError* error;
     
-    NSArray<DatabaseAttachment*>* minimalAttachmentPool = @[];
+    NSArray<KeePassAttachmentAbstractionLayer*>* minimalAttachmentPool = @[];
     RootXmlDomainObject *rootXmlDocument = [xmlAdaptor toKeePassModel:database.rootNode
                                                    databaseProperties:databaseProperties
                                                               context:[XmlProcessingContext standardV4Context]
@@ -142,7 +146,7 @@ static void onDeserialized(Kdbx4SerializationData * _Nullable serializationData,
                                                                 error:&error];
     
     if(!rootXmlDocument) {
-        NSLog(@"Could not convert Database to Xml Model.");
+        slog(@"Could not convert Database to Xml Model.");
         error = [Utils createNSError:@"Could not convert Database to Xml Model." errorCode:-4];
         completion(NO, nil, error);
         return;
@@ -153,7 +157,7 @@ static void onDeserialized(Kdbx4SerializationData * _Nullable serializationData,
     rootXmlDocument.keePassFile.meta.headerHash = nil; 
         
     id<InnerRandomStream> innerStream = [InnerRandomStreamFactory getStream:database.meta.innerRandomStreamId key:nil];
-        
+            
     
 
     NSDictionary* unknownHeaders = tag ? tag.unknownHeaders : @{ };
@@ -179,7 +183,7 @@ static void onDeserialized(Kdbx4SerializationData * _Nullable serializationData,
             completion(userCancelled, nil, nil);
         }
         else if ( error ) {
-            NSLog(@"Could not serialize Document to KDBX.");
+            slog(@"Could not serialize Document to KDBX.");
             completion(NO, nil, error);
         }
         else {

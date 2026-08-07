@@ -22,15 +22,17 @@ class PasswordGenerationPreferences: NSViewController {
     @IBOutlet var hackerifyPopup: NSPopUpButton!
     @IBOutlet var wordListsLabel: NSTextField!
     @IBOutlet var characterCountSlider: NSSlider!
-    @IBOutlet var characterCountLabel: NSTextField!
     @IBOutlet var characterGroups: NSSegmentedControl!
     @IBOutlet var pickCharactersForAll: NSButton!
     @IBOutlet var nonAmbiguousOnly: NSButton!
     @IBOutlet var easyReadOnly: NSButton!
     @IBOutlet var buttonGenerate: NSButton!
-    @IBOutlet weak var excludedCharactersLabel: NSTextField!
-    @IBOutlet weak var dicewareAdditionalCharacterGroups: NSSegmentedControl!
-    
+    @IBOutlet var excludedCharactersLabel: NSTextField!
+    @IBOutlet var dicewareAdditionalCharacterGroups: NSSegmentedControl!
+
+    @IBOutlet var characterCountTextField: NSTextField!
+
+    @objc
     class func fromStoryboard() -> Self {
         let storyboard = NSStoryboard(name: NSStoryboard.Name("PasswordGenerationPreferences"), bundle: nil)
         return storyboard.instantiateInitialController() as! Self
@@ -40,17 +42,15 @@ class PasswordGenerationPreferences: NSViewController {
         super.viewDidLoad()
 
         samplePassword.onClick = { [weak self] in
-            guard let self = self else {
+            guard let self else {
                 return
             }
 
             self.onSamplePasswordClicked()
         }
 
-        if #available(macOS 11.0, *) {
-            buttonGenerate.image = NSImage(systemSymbolName: "arrow.triangle.2.circlepath", accessibilityDescription: nil)
-            buttonGenerate.symbolConfiguration = .init(scale: .large)
-        }
+        buttonGenerate.image = NSImage(systemSymbolName: "arrow.triangle.2.circlepath", accessibilityDescription: nil)
+        buttonGenerate.symbolConfiguration = .init(scale: .large)
 
         bindUI()
 
@@ -60,7 +60,7 @@ class PasswordGenerationPreferences: NSViewController {
     var onClickSampleOverride: ((_ sample: String) -> Void)?
 
     func onSamplePasswordClicked() {
-        if let onClickSampleOverride = onClickSampleOverride {
+        if let onClickSampleOverride {
             onClickSampleOverride(samplePassword.stringValue)
         } else {
             copySample()
@@ -85,9 +85,9 @@ class PasswordGenerationPreferences: NSViewController {
         hud.removeFromSuperViewOnHide = true
         hud.dismissible = false
         hud.cornerRadius = 5.0
-        hud.dimBackground = true
+        hud.dimBackground = false
 
-        let when = DispatchTime.now() + 0.75
+        let when = DispatchTime.now() + 0.5
         DispatchQueue.main.asyncAfter(deadline: when) {
             hud.hide(true)
         }
@@ -102,7 +102,7 @@ class PasswordGenerationPreferences: NSViewController {
         
 
         characterCountSlider.integerValue = config.basicLength
-        characterCountLabel.stringValue = String(config.basicLength)
+        characterCountTextField.stringValue = String(config.basicLength)
 
         characterGroups.setSelected(false, forSegment: 0)
         characterGroups.setSelected(false, forSegment: 1)
@@ -129,7 +129,7 @@ class PasswordGenerationPreferences: NSViewController {
         pickCharactersForAll.state = config.pickFromEveryGroup ? .on : .off
 
         excludedCharactersLabel.stringValue = config.basicExcludedCharacters.count > 0 ? config.basicExcludedCharacters : NSLocalizedString("generic_none", comment: "None")
-        
+
         
 
         wordCountSlider.integerValue = config.wordCount
@@ -144,7 +144,7 @@ class PasswordGenerationPreferences: NSViewController {
         wordListsLabel.stringValue = config.wordLists.map { key in
             wordlists[key]?.name ?? "Unknown"
         }.sorted().joined(separator: ", ")
-        
+
         dicewareAdditionalCharacterGroups.setSelected(config.dicewareAddUpper, forSegment: 0)
         dicewareAdditionalCharacterGroups.setSelected(config.dicewareAddLower, forSegment: 1)
         dicewareAdditionalCharacterGroups.setSelected(config.dicewareAddNumber, forSegment: 2)
@@ -176,6 +176,7 @@ class PasswordGenerationPreferences: NSViewController {
         paragraphStyle.alignment = .center
 
         mut.addAttribute(.paragraphStyle, value: paragraphStyle, range: NSMakeRange(0, sample.count))
+        mut.addAttribute(.baselineOffset, value: -8.0, range: NSMakeRange(0, sample.count)) 
 
         samplePassword.attributedStringValue = mut
 
@@ -232,25 +233,25 @@ class PasswordGenerationPreferences: NSViewController {
 
     @IBAction func onEditExcludedCharacters(_: Any) {
         let config = Settings.sharedInstance().passwordGenerationConfig
-        
+
         guard let ret = MacAlerts().input(NSLocalizedString("password_gen_vc_prompt_excluded_characters", comment: "Excluded Characters"), defaultValue: config.basicExcludedCharacters, allowEmpty: true) else {
             return
         }
-        
+
         config.basicExcludedCharacters = ret
-        
+
         Settings.sharedInstance().passwordGenerationConfig = config
-        
+
         bindUI()
-        
+
         refreshSample()
     }
-    
+
     override func prepare(for segue: NSStoryboardSegue, sender _: Any?) {
         if segue.identifier == "segueToWordLists" {
             let vc = segue.destinationController as! WordListsController
             vc.onUpdated = { [weak self] in
-                guard let self = self else { return }
+                guard let self else { return }
 
                 self.bindUI()
 
@@ -259,7 +260,7 @@ class PasswordGenerationPreferences: NSViewController {
         }
     }
 
-    @IBAction func onAddCharacterToDiceware(_ sender: Any) {
+    @IBAction func onAddCharacterToDiceware(_: Any) {
         let config = Settings.sharedInstance().passwordGenerationConfig
 
         config.dicewareAddUpper = dicewareAdditionalCharacterGroups.isSelected(forSegment: 0)
@@ -269,12 +270,53 @@ class PasswordGenerationPreferences: NSViewController {
         config.dicewareAddLatin1Supplement = dicewareAdditionalCharacterGroups.isSelected(forSegment: 4)
 
         Settings.sharedInstance().passwordGenerationConfig = config
-        
+
         bindUI()
-        
+
         refreshSample()
     }
-    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    @IBAction func onEditBasicCharacterCount(_: Any) {
+        let config = Settings.sharedInstance().passwordGenerationConfig
+
+        guard let ret = MacAlerts().input(NSLocalizedString("alert_enter_password_basic_length", comment: "Enter Length"),
+                                          defaultValue: String(config.basicLength),
+                                          allowEmpty: false)
+        else {
+            return
+        }
+
+        guard let integer = Int(ret) else {
+            return
+        }
+
+        characterCountSlider.integerValue = integer
+
+        config.basicLength = characterCountSlider.integerValue
+
+        Settings.sharedInstance().passwordGenerationConfig = config
+
+        bindUI()
+
+        refreshSample()
+    }
+
     @IBAction func onCharacterGroups(_: Any) {
         let upper = characterGroups.isSelected(forSegment: 0)
         let lower = characterGroups.isSelected(forSegment: 1)

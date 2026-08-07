@@ -11,7 +11,14 @@
 #import "AutoFillNewRecordSettings.h"
 #import "FavIconDownloadOptions.h"
 #import "ApplicationPreferences.h"
-#import "NotificationConstants.h"
+#import "MacConstants.h"
+
+typedef enum : NSUInteger {
+    kSystemMenuClickActionQuickSearch,
+    kSystemMenuClickActionShowStrongbox,
+    kSystemMenuClickActionPasswordGenerator,
+    kSystemMenuClickActionShowMenu,
+} SystemMenuClickAction;
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -29,6 +36,10 @@ extern NSString* const kCustomFieldsColumn;
 @interface Settings : NSObject<ApplicationPreferences>
 
 + (instancetype)sharedInstance;
+
+#ifndef IS_APP_EXTENSION
+- (void)factoryReset;
+#endif
 
 @property (readonly) NSString* appGroupName;
 @property (readonly) NSUserDefaults* sharedAppGroupDefaults;
@@ -56,7 +67,6 @@ extern NSString* const kCustomFieldsColumn;
 @property BOOL showDatabasesManagerOnCloseAllWindows;
 
 @property BOOL showAutoFillTotpCopiedMessage;
-@property BOOL autoFillAutoLaunchSingleDatabase;
 
 @property (nonatomic) BOOL autoSave;
 
@@ -65,18 +75,20 @@ extern NSString* const kCustomFieldsColumn;
 @property NSInteger clearClipboardAfterSeconds;
 @property (nonatomic) BOOL revealPasswordsImmediately;
 
-@property (nonatomic) NSInteger autoLockTimeoutSeconds; 
+@property (nonatomic) NSInteger autoLockTimeoutSeconds;
+@property (nonatomic) NSInteger autoLockIfInBackgroundTimeoutSeconds;
 
 @property BOOL closeManagerOnLaunch;
 @property BOOL makeLocalRollingBackups;
 
-@property (nullable) NSDate* lastPromptedToUseNextGenUI;
-
-@property BOOL nextGenUI;
 @property BOOL miniaturizeOnCopy;
+@property BOOL hideOnCopy;
 @property BOOL quickRevealWithOptionKey;
 @property BOOL markdownNotes;
 @property BOOL showPasswordGenInTray;
+
+@property BOOL hasPromptedForThirdPartyAutoFill;
+@property BOOL hasDismissedSettingsProUpsells;
 
 
 
@@ -88,7 +100,7 @@ extern NSString* const kCustomFieldsColumn;
 
 
 
-@property (readonly) BOOL runningAsATrayApp;
+@property (readonly) BOOL configuredAsAMenuBarApp;
 
 @property BOOL checkPinYin;
 
@@ -101,6 +113,8 @@ extern NSString* const kCustomFieldsColumn;
 @property BOOL lockEvenIfEditing;
 
 @property BOOL screenCaptureBlocked;
+@property BOOL disableCustomViews;
+@property BOOL clearQuickSearchOnOpen;
 
 @property BOOL hasShownFirstRunWelcome;
 
@@ -119,6 +133,7 @@ extern NSString* const kCustomFieldsColumn;
 
 @property (nonatomic) NSDate* installDate;
 @property (nonatomic, readonly) NSInteger daysInstalled;
+
 @property (readonly) NSUInteger launchCount;
 - (void)incrementLaunchCount;
 
@@ -126,11 +141,68 @@ extern NSString* const kCustomFieldsColumn;
 @property BOOL useParentGroupIconOnCreate;
 
 @property BOOL stripUnusedIconsOnSave;
+@property BOOL stripUnusedHistoricalIcons;
 
 @property BOOL runBrowserAutoFillProxyServer;
-@property (readonly) BOOL expressUpdateSyncPerfImprovementEnabled;
+@property BOOL browserAutoFillStrictSubdomainMatching;
+
+@property BOOL quitTerminatesProcessEvenInSystemTrayMode;
+@property BOOL lockDatabaseOnWindowClose; 
+@property BOOL lockDatabasesOnScreenLock;
+@property BOOL showDatabasesManagerOnAppLaunch;
+
+@property BOOL hasAskedAboutDatabaseOpenInBackground;
+@property BOOL concealClipboardFromMonitors;
+
+@property BOOL autoCommitScannedTotp;
+@property BOOL runSshAgent;
+
+
+@property (nullable) NSString* businessOrganisationName;
+
+@property (nullable) NSDate* lastQuickTypeMultiDbRegularClear;
+
+@property (nonatomic) NSInteger sshAgentApprovalDefaultExpiryMinutes;
+
+@property BOOL sshAgentRequestDatabaseUnlockAllowed;
+@property BOOL sshAgentPreventRapidRepeatedUnlockRequests;
+
+@property BOOL autoFillWroteCleanly;
+@property BOOL atomicSftpWrite;
+
+@property BOOL runAsWiFiSyncSourceDevice;
+@property (nullable) NSString* wiFiSyncServiceName;
+
+@property (nullable) NSString* lastWiFiSyncPasscodeError;
+@property (nullable) NSString* wiFiSyncPasscode; 
+
+@property BOOL disableWiFiSyncClientMode;
+@property BOOL disableNetworkBasedFeatures;
+
+@property BOOL cloudKitZoneCreated;
+@property BOOL hasWarnedAboutCloudKitUnavailability;
+@property BOOL passwordGeneratorFloatOnTop;
+@property BOOL largeTextViewFloatOnTop;
+
+@property SystemMenuClickAction systemMenuClickAction;
+
+@property (nullable) NSData* lastKnownGoodBiometricsDatabaseState;
+@property (nullable) NSData* autoFillLastKnownGoodBiometricsDatabaseState;
+
+@property BOOL duplicateItemReferencePassword;
+@property BOOL duplicateItemReferenceUsername;
+@property BOOL duplicateItemPreserveTimestamp;
+@property BOOL duplicateItemEditAfterwards;
+
+@property BOOL associatedWebsites;
+@property BOOL twoFactorEasyReadSeparator;
+@property BOOL twoFactorHideCountdownDigits;
+
+@property BOOL showOfflineOptionsOnLocalDeviceDatabases;
+
+@property BOOL showHiddenDatabases;
+@property BOOL deleteDatabaseAfterXFailedUnlockAttempts;
 
 @end
-
 
 NS_ASSUME_NONNULL_END

@@ -17,7 +17,7 @@
 #import "CryptoParameters.h"
 #import "Kdbx4SerializationData.h"
 #import "KeePassConstants.h"
-#import "DatabaseAttachment.h"
+#import "KeePassAttachmentAbstractionLayer.h"
 #import "PwSafeSerialization.h"
 #import "VariantDictionary.h"
 #import "Keys.h"
@@ -48,14 +48,14 @@ static const BOOL kLogVerbose = NO;
 @implementation Kdbx4Serialization
 
 + (NSData *)getYubiKeyChallenge:(KdfParameters *)kdfParameters error:(NSError * _Nullable __autoreleasing *)error {
-
-
     id<KeyDerivationCipher> kdf = getKeyDerivationCipher(kdfParameters, error);
     
     if(!kdf) {
-        NSLog(@"Could not create KDF Cipher with KDFPARAMS: [%@]", kdfParameters);
+        slog(@"Could not create KDF Cipher with KDFPARAMS: [%@]", kdfParameters);
         return nil;
     }
+    
+    
     
     return kdf.transformSeed;
 }
@@ -67,7 +67,7 @@ static const BOOL kLogVerbose = NO;
      outputStream:(NSOutputStream *)outputStream
        completion:(Serialize4CompletionBlock)completion {
     if(kLogVerbose) {
-        NSLog(@"Serializing with [%@] and password [%@]", serializationData, ckf);
+        slog(@"Serializing with [%@] and password [%@]", serializationData, ckf);
     }
     
     
@@ -83,7 +83,7 @@ static const BOOL kLogVerbose = NO;
     id<Cipher> cipher = getCipher(serializationData.cipherUuid);
     
     if(!cipher) {
-        NSLog(@"Could not get Cipher %@", serializationData.cipherUuid.UUIDString);
+        slog(@"Could not get Cipher %@", serializationData.cipherUuid.UUIDString);
         NSError* error = [Utils createNSError:@"Could not get appropriate Cipher." errorCode:-1];
         completion(NO, error);
         return;
@@ -103,8 +103,10 @@ static const BOOL kLogVerbose = NO;
                      completion:^(BOOL userCancelled, Keys * _Nullable keys, NSError * _Nullable error) {
         if(userCancelled || error || keys == nil) {
             if(!keys && !userCancelled) {
-                NSLog(@"Could not get Keys.");
-                error = [Utils createNSError:@"Could not determine appropriate keys." errorCode:-1];
+                slog(@"Could not get Keys. Error = [%@]", error);
+                if ( !error ) {
+                    error = [Utils createNSError:@"Could not determine appropriate keys." errorCode:-1];
+                }
             }
             completion(userCancelled, error);
         }
@@ -131,14 +133,14 @@ static const BOOL kLogVerbose = NO;
              masterSeed:(NSData*)masterSeed
            outputStream:(NSOutputStream *)outputStream
              completion:(Serialize4CompletionBlock)completion {
-
+    
     
     NSData* encryptionIv = [cipher generateIv];
     
     if(kLogVerbose) {
-        NSLog(@"Serialize: masterSeed = [%@]", masterSeed);
-        NSLog(@"Serialize: cipher: [%@]", cipher.description);
-        NSLog(@"Serialize: encryptionIv = [%@]", encryptionIv);
+        slog(@"Serialize: masterSeed = [%@]", masterSeed);
+        slog(@"Serialize: cipher: [%@]", cipher.description);
+        slog(@"Serialize: encryptionIv = [%@]", encryptionIv);
     }
     
     
@@ -157,45 +159,45 @@ static const BOOL kLogVerbose = NO;
     
     NSData* headerEntriesData = getHeadersData(headers);
     [headerData appendData:headerEntriesData];
-
+    
     
     
     NSInteger wrote = [outputStream write:headerData.bytes maxLength:headerData.length];
     if ( wrote <= 0 ) {
-        NSLog(@"Could not serialize headers. KDBX4");
+        slog(@"Could not serialize headers. KDBX4");
         completion(NO, [Utils createNSError:@"Could not serialize headers. KDBX4." errorCode:-1]);
         return;
     }
-
     
-
+    
+    
     wrote = [outputStream write:headerData.sha256.bytes maxLength:headerData.sha256.length];
     if ( wrote <= 0 ) {
-        NSLog(@"Could not serialize Headers Hash (SHA256). KDBX4");
+        slog(@"Could not serialize Headers Hash (SHA256). KDBX4");
         completion(NO, [Utils createNSError:@"Could not serialize Headers Hash (SHA256). KDBX4." errorCode:-1]);
         return;
     }
-
     
-
+    
+    
     NSData* blockKey = getHmacKeyForBlock(keys.hmacKey, 0xFFFFFFFFFFFFFFFF); 
     NSMutableData *hmac = [NSMutableData dataWithLength:CC_SHA256_DIGEST_LENGTH];
     CCHmac(kCCHmacAlgSHA256, blockKey.bytes, blockKey.length, headerData.bytes, (CC_LONG)headerData.length, hmac.mutableBytes);
-
+    
     wrote = [outputStream write:hmac.bytes maxLength:hmac.length];
     if ( wrote <= 0 ) {
-        NSLog(@"Could not serialize HEADER HMAC. KDBX4");
+        slog(@"Could not serialize HEADER HMAC. KDBX4");
         completion(NO, [Utils createNSError:@"Could not serialize HEADER HMAC. KDBX4." errorCode:-1]);
         return;
     }
-
+    
     
     
     
     HmacBlockOutputStream* hmacBlockifyStream = [[HmacBlockOutputStream alloc] initWithStream:outputStream hmacKey:keys.hmacKey];
     NSOutputStream* encryptStream = [cipher getEncryptionOutputStreamForStream:hmacBlockifyStream key:keys.masterKey iv:encryptionIv];
     NSOutputStream* compression = serializationData.compressionFlags == kGzipCompressionFlag ? [[GZIPCompressOutputStream alloc] initToOutputStream:encryptStream] : encryptStream;
-
+    
     [hmacBlockifyStream open];
     [encryptStream open];
     [compression open];
@@ -205,7 +207,7 @@ static const BOOL kLogVerbose = NO;
     NSOutputStream* thePipeline = compression;
     wrote = createInnerHeaders(serializationData.attachments, serializationData.innerRandomStreamId, serializationData.innerRandomStreamKey, thePipeline);
     if ( wrote < 0 ) {
-        NSLog(@"Could not serialize inner headers (probably could not serialize attachments). KDBX4. = [%@]", thePipeline.streamError );
+        slog(@"Could not serialize inner headers (probably could not serialize attachments). KDBX4. = [%@]", thePipeline.streamError );
         completion(NO, thePipeline.streamError );
         return;
     }
@@ -213,20 +215,20 @@ static const BOOL kLogVerbose = NO;
     
     
     id<IXmlSerializer> xmlSerializer = [[XmlSerializer alloc] initWithProtectedStream:innerStream v4Format:YES prettyPrint:NO outputStream:thePipeline];
-
+    
     [xmlSerializer beginDocument];
     BOOL writeXmlOk = [rootXmlDocument writeXml:xmlSerializer];
     [xmlSerializer endDocument];
     
     if( !writeXmlOk ) {
-        NSLog(@"Could not serialize Xml to Document.:\n");
+        slog(@"Could not serialize Xml to Document.:\n");
         NSError* errXmlSerialize = [Utils createNSError:@"Could not serialize Xml to Document." errorCode:-5];
         completion(NO, thePipeline.streamError ? thePipeline.streamError : errXmlSerialize);
         return;
     }
-
+    
     if( xmlSerializer.streamError != nil ) {
-        NSLog(@"Could not serialize Xml to Document.: [%@]", xmlSerializer.streamError );
+        slog(@"Could not serialize Xml to Document.: [%@]", xmlSerializer.streamError );
         completion(NO, xmlSerializer.streamError);
         return;
     }
@@ -234,9 +236,9 @@ static const BOOL kLogVerbose = NO;
     [compression close];
     [encryptStream close];
     [hmacBlockifyStream close];
-
+    
     if ( thePipeline.streamError ) {
-        NSLog(@"Error closing streams [%@]", thePipeline.streamError );
+        slog(@"Error closing streams [%@]", thePipeline.streamError );
     }
     
     completion(NO, thePipeline.streamError);
@@ -263,7 +265,17 @@ static BOOL readFileHeader(NSInputStream* stream, KeepassFileHeader *pFileHeader
     return [[CryptoParameters alloc] initFromHeaders:headerEntries];
 }
 
-
++ (NSData*)getYubiKeyChallenge:(NSInputStream *)stream {
+    CryptoParameters *cryptoParams = [Kdbx4Serialization getCryptoParams:stream];
+    if (!cryptoParams) {
+        return nil;
+    }
+    
+    NSError* error;
+    NSData* yubiKeyChallenge = [Kdbx4Serialization getYubiKeyChallenge:cryptoParams.kdfParameters error:&error];
+    
+    return error == nil ? yubiKeyChallenge : nil;
+}
 
 + (void)deserialize:(NSInputStream *)stream
 compositeKeyFactors:(CompositeKeyFactors *)compositeKeyFactors
@@ -276,7 +288,7 @@ sanityCheckInnerStream:(BOOL)sanityCheckInnerStream
     
     KeepassFileHeader fileHeader = {0};
     if (!readFileHeader(stream, &fileHeader)) {
-        NSLog(@"Error reading KDBX 4 file header");
+        slog(@"Error reading KDBX 4 file header");
         NSError* error = [Utils createNSError:@"Error reading KDBX 4 file header" errorCode:-1];
         completion(NO, nil, nil, error);
         return;
@@ -289,7 +301,7 @@ sanityCheckInnerStream:(BOOL)sanityCheckInnerStream
     NSDictionary<NSNumber*, NSObject*> *headerEntries = readHeaderEntries(stream, headerDataForIntegrityCheck);
     
     if(!headerEntries){
-        NSLog(@"Error getting header entries. Possibly missing header entry.");
+        slog(@"Error getting header entries. Possibly missing header entry.");
         NSError* error = [Utils createNSError:@"Error getting header entries. Possibly missing entry." errorCode:-1];
         completion(NO, nil, nil, error);
         return;
@@ -377,13 +389,13 @@ headerDataForIntegrityCheck:(NSData*)headerDataForIntegrityCheck
     [decompressedStream close];
 
     if(ret == nil) {
-        NSLog(@"Could not read decrypted! [%@]", error);
+        slog(@"Could not read decrypted! [%@]", error);
         completion(NO, nil, innerStreamError, error);
         return;
     }
 
     if(kLogVerbose) {
-        NSLog(@"Got Inner Safe Serialization Data: [%@]", ret);
+        slog(@"Got Inner Safe Serialization Data: [%@]", ret);
     }
 
     
@@ -434,7 +446,7 @@ NSData* getHeadersData(NSDictionary<NSNumber*, NSData*>* headers) {
     return ret;
 }
 
-static NSInteger createInnerHeaders(NSArray<DatabaseAttachment*> *attachments, uint32_t innerStreamId, NSData *innerStreamKey, NSOutputStream *outputStream) {
+static NSInteger createInnerHeaders(NSArray<KeePassAttachmentAbstractionLayer*> *attachments, uint32_t innerStreamId, NSData *innerStreamKey, NSOutputStream *outputStream) {
     NSInteger wrote = appendInnerHeader(kInnerHeaderTypeInnerRandomStreamId, Uint32ToLittleEndianData(innerStreamId), outputStream);
     if ( wrote < 0 ) {
         return wrote;
@@ -445,10 +457,10 @@ static NSInteger createInnerHeaders(NSArray<DatabaseAttachment*> *attachments, u
         return wrote;
     }
     
-    for (DatabaseAttachment *attachment in attachments) {
+    for (KeePassAttachmentAbstractionLayer *attachment in attachments) {
         wrote = appendInnerBinaryHeaderFromStream( attachment, outputStream );
         if ( wrote < 0 ) {
-            NSLog(@"Could not get attachment screen, cannot serialize.");
+            slog(@"Could not get attachment screen, cannot serialize.");
             return wrote;
         }
     }
@@ -461,7 +473,7 @@ static NSInteger createInnerHeaders(NSArray<DatabaseAttachment*> *attachments, u
     return YES;
 }
 
-static NSInteger appendInnerBinaryHeaderFromStream(DatabaseAttachment *attachment, NSOutputStream *outputStream) {
+static NSInteger appendInnerBinaryHeaderFromStream(KeePassAttachmentAbstractionLayer *attachment, NSOutputStream *outputStream) {
     uint8_t typeBytes[] = { kInnerHeaderTypeBinary };
     NSInteger wrote = [outputStream write:typeBytes maxLength:1];
     if ( wrote < 0 ) {
@@ -484,7 +496,7 @@ static NSInteger appendInnerBinaryHeaderFromStream(DatabaseAttachment *attachmen
     
     NSInputStream* inputStream = [attachment getPlainTextInputStream];
     if ( !inputStream ) {
-        NSLog(@"Could not get attachment screen, cannot serialize.");
+        slog(@"Could not get attachment screen, cannot serialize.");
         return NO;
     }
 
@@ -536,7 +548,7 @@ static Kdbx4SerializationData* readDecrypted(NSInputStream* stream, NSOutputStre
         if (ppError) {
             *ppError = stream.streamError ? stream.streamError : [Utils createNSError:@"Error reading inner headers/attachments" errorCode:-3457];
         }
-        NSLog(@"Error reading inner headers/attachments");
+        slog(@"Error reading inner headers/attachments");
         return nil;
     }
     
@@ -544,7 +556,7 @@ static Kdbx4SerializationData* readDecrypted(NSInputStream* stream, NSOutputStre
                                  XmlProcessingContext.standardV4Context, stream, xmlDumpStream, sanityCheckInnerStream, innerStreamError, ppError);
 
     if(ret.rootXmlObject == nil) {
-        NSLog(@"Error parsing xml: %@", *ppError);
+        slog(@"Error parsing xml: %@", *ppError);
         return nil;
     }
     
@@ -559,7 +571,7 @@ static Kdbx4SerializationData* readInnerHeaders(NSInputStream *stream) {
         uint8_t header[SIZE_OF_INNER_HEADER_ENTRY_HEADER];
         NSInteger read = [stream read:header maxLength:SIZE_OF_INNER_HEADER_ENTRY_HEADER];
         if(read < SIZE_OF_INNER_HEADER_ENTRY_HEADER) {
-            NSLog(@"Not enough data to read even initial inner header.");
+            slog(@"Not enough data to read even initial inner header.");
             return nil;
         }
         
@@ -574,7 +586,7 @@ static Kdbx4SerializationData* readInnerHeaders(NSInputStream *stream) {
             NSMutableData *headerBuffer = [NSMutableData dataWithLength:headerLength];
             read = [stream read:headerBuffer.mutableBytes maxLength:headerLength];
             if (read < headerLength) {
-                NSLog(@"Not enough data to read even inner header data.");
+                slog(@"Not enough data to read even inner header data.");
                 return nil;
             }
             
@@ -584,7 +596,7 @@ static Kdbx4SerializationData* readInnerHeaders(NSInputStream *stream) {
             NSMutableData *headerBuffer = [NSMutableData dataWithLength:headerLength];
             read = [stream read:headerBuffer.mutableBytes maxLength:headerLength];
             if (read < headerLength) {
-                NSLog(@"Not enough data to read even inner header data.");
+                slog(@"Not enough data to read even inner header data.");
                 return nil;
             }
             
@@ -594,13 +606,13 @@ static Kdbx4SerializationData* readInnerHeaders(NSInputStream *stream) {
             uint8_t block[1];
             NSInteger bytesRead = [stream read:block maxLength:1];
             if (bytesRead != 1) {
-                NSLog(@"Could not read initial attachment byte!");
+                slog(@"Could not read initial attachment byte!");
                 return nil;
             }
             BOOL protectedInMemory = block[0] == 1;
             
 
-            DatabaseAttachment *attachment = [[DatabaseAttachment alloc] initWithStream:stream length:headerLength - 1 protectedInMemory:protectedInMemory];
+            KeePassAttachmentAbstractionLayer *attachment = [[KeePassAttachmentAbstractionLayer alloc] initWithStream:stream length:headerLength - 1 protectedInMemory:protectedInMemory];
             
             if (attachment == nil) {
                 return nil;
@@ -609,7 +621,7 @@ static Kdbx4SerializationData* readInnerHeaders(NSInputStream *stream) {
             [attachments addObject:attachment];
         }
         else {
-            NSLog(@"Unknown inner header type! [%d]", innerHeader->type);
+            slog(@"Unknown inner header type! [%d]", innerHeader->type);
         }
     }
     
@@ -666,7 +678,7 @@ compositeKeyFactors:(CompositeKeyFactors*)compositeKeyFactors
     id<KeyDerivationCipher> kdf = getKeyDerivationCipher(kdfParameters, &error);
 
     if(!kdf) {
-        NSLog(@"Could not create KDF Cipher with KDFPARAMS: [%@]", kdfParameters);
+        slog(@"Could not create KDF Cipher with KDFPARAMS: [%@]", kdfParameters);
         completion(NO, nil, error);
         return;
     }
@@ -680,8 +692,10 @@ compositeKeyFactors:(CompositeKeyFactors*)compositeKeyFactors
         else {
             Keys *ret = [[Keys alloc] init];
 
-            ret.compositeKey = compositeKey;
-            ret.transformKey = [kdf deriveKey:ret.compositeKey];
+            
+            
+            ret.compositeKey = compositeKey; 
+            ret.transformKey = [kdf deriveKey:ret.compositeKey]; 
             ret.masterKey = getMasterKey(masterSeed, ret.transformKey);
 
             
@@ -699,7 +713,7 @@ static BOOL checkHeaderHash(NSData* headerData, NSInputStream* stream) {
     CC_SHA256(headerData.bytes, (CC_LONG)headerData.length, actualHash);
 
     if(kLogVerbose) {
-        NSLog(@"HEADERHASH (ACTUAL): %@", [[NSData dataWithBytes:actualHash length:CC_SHA256_DIGEST_LENGTH] base64EncodedStringWithOptions:kNilOptions]);
+        slog(@"HEADERHASH (ACTUAL): %@", [[NSData dataWithBytes:actualHash length:CC_SHA256_DIGEST_LENGTH] base64EncodedStringWithOptions:kNilOptions]);
     }
     
     uint8_t expectedHash[CC_SHA256_DIGEST_LENGTH];
@@ -708,12 +722,12 @@ static BOOL checkHeaderHash(NSData* headerData, NSInputStream* stream) {
     
     NSInteger read = [stream read:expectedHash maxLength:CC_SHA256_DIGEST_LENGTH];
     if (read != CC_SHA256_DIGEST_LENGTH) {
-        NSLog(@"Could not read expected Header Hash KDBX4");
+        slog(@"Could not read expected Header Hash KDBX4");
         return NO;
     }
     
     if(memcmp(actualHash, expectedHash, CC_SHA256_DIGEST_LENGTH) != 0) {
-        NSLog(@"Actual Header Hash does not match expected. Header has been corrupted.");
+        slog(@"Actual Header Hash does not match expected. Header has been corrupted.");
         return NO;
     }
 
@@ -724,25 +738,25 @@ static BOOL checkHeaderHmac(NSData* headerData, NSData* hmacKey, NSInputStream* 
     NSData *actualHash = getHeaderHmac(headerData, hmacKey);
     
     if(kLogVerbose) {
-        NSLog(@"HEADER HMAC (ACTUAL): %@", [actualHash base64EncodedStringWithOptions:kNilOptions]);
+        slog(@"HEADER HMAC (ACTUAL): %@", [actualHash base64EncodedStringWithOptions:kNilOptions]);
     }
     
     uint8_t expectedHash[CC_SHA256_DIGEST_LENGTH];
     NSInteger read = [stream read:expectedHash maxLength:CC_SHA256_DIGEST_LENGTH];
     if (read != CC_SHA256_DIGEST_LENGTH) {
-        NSLog(@"Could not read expected Header Hash KDBX4");
+        slog(@"Could not read expected Header Hash KDBX4");
         return NO;
     }
     
     if(memcmp(actualHash.bytes, expectedHash, CC_SHA256_DIGEST_LENGTH) != 0) {
-        NSLog(@"Actual Header HMAC does not match expected. Header has been corrupted or passphrase incorrect.");
+        slog(@"Actual Header HMAC does not match expected. Header has been corrupted or passphrase incorrect.");
         return NO;
     }
 
     return YES;
 }
 
-static id<KeyDerivationCipher> getKeyDerivationCipher(KdfParameters *kdfParameters, NSError** error) {
+id<KeyDerivationCipher> getKeyDerivationCipher(KdfParameters *kdfParameters, NSError** error) {
     if([kdfParameters.uuid isEqual:argon2dCipherUuid()]) {
         id<KeyDerivationCipher> ret = [[Argon2dKdfCipher alloc] initWithParametersDictionary:kdfParameters];
         if(ret == nil) {
@@ -825,7 +839,7 @@ static NSDictionary<NSNumber *,NSObject *>* readHeaderEntries(NSInputStream* str
         
         uint32_t length = littleEndian4BytesToUInt32(headerEntry.lengthBytes);
         if(kLogVerbose) {
-            NSLog(@"Found Header Entry of Type %d and length %d", headerEntry.id, length);
+            slog(@"Found Header Entry of Type %d and length %d", headerEntry.id, length);
         }
 
         if (length > 0) { 
@@ -837,7 +851,7 @@ static NSDictionary<NSNumber *,NSObject *>* readHeaderEntries(NSInputStream* str
             }
             
             if (bytesRead < length) {
-                NSLog(@"This safe appears to be corrupt. Header entry found with length of [%d]", length);
+                slog(@"This safe appears to be corrupt. Header entry found with length of [%d]", length);
                 return nil;
             }
          
@@ -859,7 +873,7 @@ static NSDictionary<NSNumber *,NSObject *>* readHeaderEntries(NSInputStream* str
     } while (YES);
    
     if(kLogVerbose) {
-        NSLog(@"Bytes Read of Headers: %lu", (unsigned long)total);
+        slog(@"Bytes Read of Headers: %lu", (unsigned long)total);
         dumpHeaderEntries(headerEntries);
     }
     
@@ -872,17 +886,17 @@ static NSDictionary<NSNumber *,NSObject *>* readHeaderEntries(NSInputStream* str
 
 + (BOOL)verifyRequiredHeadersPresent:(NSMutableDictionary<NSNumber *,NSObject *> *)headerEntries {
     if(![headerEntries objectForKey:@(KDFPARAMETERS)]) {
-        NSLog(@"Missing required KDFPARAMETERS header entry.");
+        slog(@"Missing required KDFPARAMETERS header entry.");
         return NO;
     }
     
     if(![headerEntries objectForKey:@(MASTERSEED)]) {
-        NSLog(@"Missing required MASTERSEED header entry.");
+        slog(@"Missing required MASTERSEED header entry.");
         return NO;
     }
     
     if(![headerEntries objectForKey:@(ENCRYPTIONIV)]) {
-        NSLog(@"Missing required ENCRYPTIONIV header entry.");
+        slog(@"Missing required ENCRYPTIONIV header entry.");
         return NO;
     }
     
@@ -939,7 +953,7 @@ static NSDictionary<NSNumber *,NSObject *>* readHeaderEntries(NSInputStream* str
     CC_SHA256_Final(compositeKey.mutableBytes, &context);
     
     if(kLogVerbose) {
-        NSLog(@"COMPOSITE KEY: %@", [compositeKey base64EncodedStringWithOptions:kNilOptions]);
+        slog(@"COMPOSITE KEY: %@", [compositeKey base64EncodedStringWithOptions:kNilOptions]);
     }
 
     completion(NO, compositeKey, nil);

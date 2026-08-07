@@ -14,6 +14,7 @@
 #import "ColoredStringHelper.h"
 #import "Strongbox-Swift.h"
 #import "MacAlerts.h"
+#import "SBLog.h"
 
 @interface EditCustomFieldController () <NSTextViewDelegate, NSTextFieldDelegate, NSMenuDelegate>
 
@@ -34,6 +35,7 @@
     NSStoryboard* sb = [NSStoryboard storyboardWithName:@"EditCustomField" bundle:nil];
     return [sb instantiateInitialController];
 }
+
 - (void)viewDidLoad {
     [super viewDidLoad];
     
@@ -70,7 +72,7 @@
 }
 
 - (BOOL)textView:(NSTextView *)aTextView doCommandBySelector:(SEL)aSelector {
-    NSLog(@"doCommandBySelector-%@", NSStringFromSelector(aSelector));
+    slog(@"doCommandBySelector-%@", NSStringFromSelector(aSelector));
     
     if (aSelector == @selector(insertTab:)) {
         [self.view.window makeFirstResponder:self.checkboxConcealable];
@@ -113,17 +115,12 @@
     NSString* key = trim(self.textFieldKey.stringValue);
     NSString* value = [NSString stringWithString:self.textViewValue.textStorage.string];
     BOOL protected = self.checkboxConcealable.state == NSControlStateValueOn;
-
+    
     const NSSet<NSString*> *keePassReserved;
-
-    if ( Settings.sharedInstance.nextGenUI ) {
-        NSMutableSet* set = [Entry reservedCustomFieldKeys].mutableCopy;
-        [set addObject:kCanonicalEmailFieldName];
-        keePassReserved = [set copy];
-    }
-    else {
-        keePassReserved = [Entry reservedCustomFieldKeys];
-    }
+    
+    NSMutableSet* set = Constants.ReservedCustomFieldKeys.mutableCopy;
+    [set addObject:kCanonicalEmailFieldName];
+    keePassReserved = [set copy];
     
     if ( self.field ) { 
         BOOL same = ([key isEqualToString:self.field.key] && [value isEqualToString:self.field.value] && self.field.protected == protected);
@@ -219,7 +216,6 @@
         BOOL colorBlind = Settings.sharedInstance.colorizeUseColorBlindPalette;
         
         for ( NSString* suggestion in altSuggestions ) {
-        
             NSAttributedString* colored = [ColoredStringHelper getColorizedAttributedString:suggestion
                                                                                    colorize:colorize
                                                                                    darkMode:dark

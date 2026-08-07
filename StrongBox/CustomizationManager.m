@@ -23,41 +23,44 @@
 
 + (void)applyCustomizations {
     if ( [self isAProBundle] ) {
-        NSLog(@"Pro Bundle... customizing...");
+        slog(@"Pro Bundle... customizing...");
         [AppPreferences.sharedInstance setPro:YES];
     }
     
     if ( [self isScotusEdition] ) {
-        NSLog(@"SCOTUS Edition... customizing...");
+        slog(@"SCOTUS Edition... customizing...");
         
         AppPreferences.sharedInstance.disableFavIconFeature = YES;
-        AppPreferences.sharedInstance.disableReadOnlyToggles = YES;
+        AppPreferences.sharedInstance.disableWiFiSyncClientMode = YES;
+        
         AppPreferences.sharedInstance.databasesAreAlwaysReadOnly = YES;
         AppPreferences.sharedInstance.disableNetworkBasedFeatures = YES;
         AppPreferences.sharedInstance.disableThirdPartyStorageOptions = YES;
-        
         AppPreferences.sharedInstance.haveAskedAboutBackupSettings = YES;
         AppPreferences.sharedInstance.backupFiles = NO;
         AppPreferences.sharedInstance.backupIncludeImportedKeyFiles = NO;
-        AppPreferences.sharedInstance.hideTipJar = YES;
     }
     else if ( self.isGrapheneEdition ) {
-        NSLog(@"Graphene Edition... customizing...");
-
+        slog(@"Graphene Edition... customizing...");
+        
         AppPreferences.sharedInstance.disableFavIconFeature = YES;
-        AppPreferences.sharedInstance.disableReadOnlyToggles = NO;
+        AppPreferences.sharedInstance.disableWiFiSyncClientMode = YES;
         AppPreferences.sharedInstance.databasesAreAlwaysReadOnly = NO;
         AppPreferences.sharedInstance.disableNetworkBasedFeatures = YES;
         AppPreferences.sharedInstance.disableThirdPartyStorageOptions = YES;
-        AppPreferences.sharedInstance.hideTipJar = YES; 
     }
     else {
         AppPreferences.sharedInstance.disableFavIconFeature = NO;
-        AppPreferences.sharedInstance.disableReadOnlyToggles = NO;
+        AppPreferences.sharedInstance.disableWiFiSyncClientMode = NO;
         AppPreferences.sharedInstance.databasesAreAlwaysReadOnly = NO;
         AppPreferences.sharedInstance.disableNetworkBasedFeatures = NO;
         AppPreferences.sharedInstance.disableThirdPartyStorageOptions = NO;
-        AppPreferences.sharedInstance.hideTipJar = NO;
+    }
+
+    AppPreferences.sharedInstance.hideTipJar = !StrongboxProductBundle.supportsTipJar;
+    
+    if ( self.isBusinessEdition ) {
+        [MDMConfigManager.sharedInstance applyConfigToApp];
     }
 }
 
@@ -75,6 +78,10 @@
 
 + (BOOL)isGrapheneEdition {
     return StrongboxProductBundle.isZeroEdition;
+}
+
++ (BOOL)isBusinessEdition {
+    return StrongboxProductBundle.isBusinessBundle;
 }
 
 @end

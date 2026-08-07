@@ -8,7 +8,7 @@
 
 #import <Foundation/Foundation.h>
 
-#if TARGET_OS_IPHONE
+#if TARGET_OS_IOS || TARGET_OS_WATCH
     #import <UIKit/UIKit.h>
     typedef UIFont* FONT_PTR;
     typedef UIColor* COLOR_PTR;
@@ -21,6 +21,8 @@
 NS_ASSUME_NONNULL_BEGIN
 
 @interface ColoredStringHelper : NSObject
+
++ (COLOR_PTR)getColorForCharacter:(NSString*)character darkMode:(BOOL)darkMode colorBlind:(BOOL)colorBlind;
 
 + (NSAttributedString *)getColorizedAttributedString:(NSString *)password
                                             colorize:(BOOL)colorize

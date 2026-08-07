@@ -11,17 +11,18 @@
 #import "Alerts.h"
 #import "DatabasePreferences.h"
 #import "AutoFillManager.h"
-#import "FileManager.h"
+#import "StrongboxiOSFilesManager.h"
 #import <LocalAuthentication/LocalAuthentication.h>
 #import "BiometricsManager.h"
 #import "AppPreferences.h"
+#import "Utils.h"
 
 @interface AppLockViewController ()
 
 @property (weak, nonatomic) IBOutlet UIButton *buttonUnlock;
 @property (weak, nonatomic) IBOutlet UILabel *labelUnlockAttemptsRemaining;
 @property (weak, nonatomic) IBOutlet UIImageView *imageViewLogo;
-
+@property BOOL firstAppearance;
 @end
 
 @implementation AppLockViewController
@@ -30,18 +31,43 @@
     [super viewDidLoad];
     
     [self setupImageView];
-
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        [self beginUnlockSequence]; 
-
-        
-
-
-
-
-    });
     
     [self updateFailedUnlockAttemptsUI];
+    
+    [NSNotificationCenter.defaultCenter addObserver:self
+                                           selector:@selector(appWillEnterForeground)
+                                               name:UIApplicationWillEnterForegroundNotification
+                                             object:nil];
+    
+    self.firstAppearance = YES;
+}
+
+- (void)viewDidAppear:(BOOL)animated {
+    [super viewDidAppear:animated];
+    
+    if ( self.firstAppearance ) {
+        self.firstAppearance = NO;
+        [self attemptBeginUnlockSequence:0];
+    }
+}
+
+- (void)appWillEnterForeground { 
+    slog(@"AppLockViewController::appWillEnterForeground");
+
+    [self attemptBeginUnlockSequence:0];
+}
+
+- (void)attemptBeginUnlockSequence:(int)attemptCount {
+    slog(@"AppLockViewController::attemptBeginUnlockSequence: %ld", attemptCount);
+    
+    if ( Utils.isAppInForeground ) {
+        [self beginUnlockSequence]; 
+    }
+    else if ( attemptCount < 3 ) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t) (0.25 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            [self attemptBeginUnlockSequence:attemptCount + 1];
+        });
+    }
 }
 
 - (void)setupImageView {
@@ -52,12 +78,11 @@
 }
 
 - (IBAction)onUnlock:(id)sender {
-    
     [self beginUnlockSequence];
 }
 
 - (void)beginUnlockSequence {
-    NSLog(@"beginUnlockSequence....");
+    slog(@"beginUnlockSequence....");
     
     if(AppPreferences.sharedInstance.appLockMode == kBiometric || AppPreferences.sharedInstance.appLockMode == kBoth) {
         if(BiometricsManager.isBiometricIdAvailable) {
@@ -95,13 +120,13 @@
         }
         else {
             if (error.code == LAErrorUserCancel) {
-                NSLog(@"User Cancelled - Not Incrementing Fail Count...");
+                slog(@"User Cancelled - Not Incrementing Fail Count...");
             }
             else  if ( error.code == LAErrorUserFallback ) {
-                NSLog(@"LAErrorUserFallback");
+                slog(@"LAErrorUserFallback");
             }
             else {
-                NSLog(@"Biometric Fail: [%@]", error);
+                slog(@"Biometric Fail: [%@]", error);
 
             }
         }}];
@@ -171,7 +196,7 @@
 - (void)incrementFailedUnlockCount {
     dispatch_async(dispatch_get_main_queue(), ^{
         AppPreferences.sharedInstance.failedUnlockAttempts = AppPreferences.sharedInstance.failedUnlockAttempts + 1;
-        NSLog(@"Failed Unlocks: %lu", (unsigned long)AppPreferences.sharedInstance.failedUnlockAttempts);
+        slog(@"Failed Unlocks: %lu", (unsigned long)AppPreferences.sharedInstance.failedUnlockAttempts);
         [self updateFailedUnlockAttemptsUI];
 
         if(AppPreferences.sharedInstance.deleteDataAfterFailedUnlockCount > 0) {
@@ -185,9 +210,9 @@
 - (void)deleteAllData {
     [AutoFillManager.sharedInstance clearAutoFillQuickTypeDatabase];
     
-    [FileManager.sharedInstance deleteAllLocalAndAppGroupFiles]; 
+    [StrongboxFilesManager.sharedInstance deleteAllLocalAndAppGroupFiles]; 
 
-    [DatabasePreferences deleteAll]; 
+    [DatabasePreferences nukeAllDeleteUnderlyingIfPossible]; 
 }
 
 - (void)onDone:(BOOL)userJustCompletedBiometricAuthentication {

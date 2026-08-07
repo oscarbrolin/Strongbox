@@ -16,11 +16,16 @@
 #import "PwSafeDatabase.h"
 #import "Argon2dKdfCipher.h"
 #import "Argon2idKdfCipher.h"
+#import "Utils.h"
 
 @interface EncryptionSettingsViewModel ()
 
 @property DatabaseFormat _format;
 @property KdfAlgorithm _kdfAlgorithm;
+
+@property (nullable) NSString* subVersion;
+
+@property (nullable) NSString* generator;
 
 @end
 
@@ -42,6 +47,39 @@
     return self;
 }
 
++ (instancetype)defaultsForFormat:(DatabaseFormat)format {
+    EncryptionSettingsViewModel* ret = [[EncryptionSettingsViewModel alloc] init];
+    
+    UnifiedDatabaseMetadata* meta = [UnifiedDatabaseMetadata withDefaultsForFormat:format];
+    
+    ret.format = format;
+    
+    ret.subVersion = meta.version;
+    ret.iterations = meta.kdfIterations;
+    ret.kdfAlgorithm = kKdfAlgorithmAes256;
+
+    if ( format == kPasswordSafe ) {
+        ret.encryptionAlgorithm = kEncryptionAlgorithmTwoFish256;
+    }
+    else if( format == kKeePass ) {
+        ret.encryptionAlgorithm = [EncryptionSettingsViewModel getEncryptionAlgorithm:meta.cipherUuid];
+        ret.compression = meta.compressionFlags == kGzipCompressionFlag;
+        ret.innerStreamAlgorithm = [EncryptionSettingsViewModel getInnerStreamAlgorithm:meta.innerRandomStreamId];
+    }
+    else if( format == kKeePass4 ) {
+        [EncryptionSettingsViewModel fillKeePass4FromMeta:ret meta:meta];
+    }
+    else if( format == kKeePass1 ) {
+        ret.subVersion = nil;
+        ret.encryptionAlgorithm = kEncryptionAlgorithmTwoFish256;
+    }
+    else {
+        slog(@"🔴 EERROR Unknown Format in defaultsForFormat");
+    }
+    
+    return ret;
+}
+
 + (instancetype)fromDatabaseModel:(DatabaseModel*)databaseModel {
     switch ( databaseModel.originalFormat ) {
         case kPasswordSafe:
@@ -58,10 +96,10 @@
             return [EncryptionSettingsViewModel processKP1:databaseModel];
             break;
         case kFormatUnknown:
-            NSLog(@"WARNWARN - Unknown Datavase format");
+            slog(@"WARNWARN - Unknown Datavase format");
             break;
     }
-
+    
     return nil;
 }
 
@@ -99,22 +137,19 @@
     ret.encryptionAlgorithm = [EncryptionSettingsViewModel getEncryptionAlgorithm:databaseModel.meta.cipherUuid];
     ret.compression = databaseModel.meta.compressionFlags == kGzipCompressionFlag;
     ret.innerStreamAlgorithm = [EncryptionSettingsViewModel getInnerStreamAlgorithm:databaseModel.meta.innerRandomStreamId];
+
+    ret.generator = databaseModel.meta.generator;
     
     return ret;
 }
 
-+ (EncryptionSettingsViewModel*)processKP4:(DatabaseModel*)databaseModel {
-    EncryptionSettingsViewModel* ret = [[EncryptionSettingsViewModel alloc] init];
++ (void)fillKeePass4FromMeta:(EncryptionSettingsViewModel*)ret meta:(UnifiedDatabaseMetadata*)meta {
+    ret.subVersion = meta.version;
+    ret.encryptionAlgorithm = [EncryptionSettingsViewModel getEncryptionAlgorithm:meta.cipherUuid];
+    ret.compression = meta.compressionFlags == kGzipCompressionFlag;
+    ret.innerStreamAlgorithm = [EncryptionSettingsViewModel getInnerStreamAlgorithm:meta.innerRandomStreamId];
     
-    ret.format = kKeePass4;
-    ret.subVersion = databaseModel.meta.version;
-    
-    ret.encryptionAlgorithm = [EncryptionSettingsViewModel getEncryptionAlgorithm:databaseModel.meta.cipherUuid];
-
-    ret.compression = databaseModel.meta.compressionFlags == kGzipCompressionFlag;
-    ret.innerStreamAlgorithm = [EncryptionSettingsViewModel getInnerStreamAlgorithm:databaseModel.meta.innerRandomStreamId];
-
-    KdfParameters* kdfParameters = databaseModel.meta.kdfParameters;
+    KdfParameters* kdfParameters = meta.kdfParameters;
     KdfAlgorithm kdfAlgorithm = kKdfAlgorithmUnknown;
     
     if ( [kdfParameters.uuid isEqual:argon2dCipherUuid()] ) {
@@ -128,19 +163,28 @@
     }
     
     ret.kdfAlgorithm = kdfAlgorithm;
-
+    
     if ( kdfAlgorithm == kKdfAlgorithmArgon2d || kdfAlgorithm == kKdfAlgorithmArgon2id ) {
         Argon2KdfCipher* cip = [[Argon2KdfCipher alloc] initWithParametersDictionary:kdfParameters];
         ret.iterations = cip.iterations;
         ret.argonMemory = cip.memory;
         ret.argonParallelism = cip.parallelism;
-
+        
     }
     else if (kdfAlgorithm == kKdfAlgorithmAes256 ) {
         AesKdfCipher* cip = [[AesKdfCipher alloc] initWithParametersDictionary:kdfParameters];
         ret.iterations = cip.iterations;
     }
+}
+
++ (EncryptionSettingsViewModel*)processKP4:(DatabaseModel*)databaseModel {
+    EncryptionSettingsViewModel* ret = [[EncryptionSettingsViewModel alloc] init];
     
+    ret.format = kKeePass4;
+    ret.generator = databaseModel.meta.generator;
+    
+    [EncryptionSettingsViewModel fillKeePass4FromMeta:ret meta:databaseModel.meta];
+        
     return ret;
 }
 
@@ -383,6 +427,11 @@
     if ( self.subVersion != nil && other.subVersion != nil && ![self.subVersion isEqualToString:other.subVersion] ) {
         return YES;
     }
+    
+    return [self isEncryptionParamsDifferentFrom:other];
+}
+
+- (BOOL)isEncryptionParamsDifferentFrom:(EncryptionSettingsViewModel*)other {
     if ( self.kdfAlgorithm != other.kdfAlgorithm ) {
         return YES;
     }
@@ -425,7 +474,7 @@
             break;
     }
 
-    NSLog(@"WARNWARN: Unknown Inner Stream Algo");
+    slog(@"WARNWARN: Unknown Inner Stream Algo");
 
     return -1;
 }
@@ -445,7 +494,7 @@
             break;
     }
     
-    NSLog(@"WARNWARN: Unknown Inner Stream ID");
+    slog(@"WARNWARN: Unknown Inner Stream ID");
     
     return kInnerStreamAlgorithmUnknown;
 }
@@ -503,7 +552,7 @@
             newKdfParams = foo.kdfParameters;
         }
         else {
-            NSLog(@"WARNWARN: Unknown KDF");
+            slog(@"WARNWARN: Unknown KDF");
             return;
         }
         
@@ -516,6 +565,21 @@
     model.meta.cipherUuid = [EncryptionSettingsViewModel getEncryptionCipherUuid:self.encryptionAlgorithm];
     model.meta.innerRandomStreamId = [EncryptionSettingsViewModel getInnerStreamId:self.innerStreamAlgorithm];
     model.meta.compressionFlags = self.compression ? kGzipCompressionFlag : kNoCompressionFlag;
+}
+
+- (BOOL)isStrongboxDefaultEncryptionSettings {
+    EncryptionSettingsViewModel *defaults = [EncryptionSettingsViewModel defaultsForFormat:self.format];
+    
+    return ![self isEncryptionParamsDifferentFrom:defaults];
+}
+
+- (NSString *)debugString {
+    if ( self.kdfAlgorithm == kKdfAlgorithmArgon2d || self.kdfAlgorithm == kKdfAlgorithmArgon2d ) {
+        return [NSString stringWithFormat:@"%@/%@ %@ (I%llu/P%u)/%@/%@/%@/%@", [self formatAndVersion], self.kdf, friendlyMemorySizeString(self.argonMemory), self.iterations, self.argonParallelism, self.encryption, self.innerStreamCipher, self.compressionString, self.generator];
+    }
+    else {
+        return [NSString stringWithFormat:@"%@/%@ (I%llu)/%@/%@/%@/%@", [self formatAndVersion], self.kdf, self.iterations, self.encryption, self.innerStreamCipher, self.compressionString, self.generator];
+    }
 }
 
 @end

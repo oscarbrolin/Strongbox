@@ -21,7 +21,12 @@ static NSString* const kParameterSecretKey = @"K";
 static NSString* const kParameterAssocData = @"A";
 static NSString* const kParameterMemory = @"M";
 
-static const uint64_t kDefaultIterations = 6; 
+#ifdef DEBUG
+static const uint64_t kDefaultIterations = 2;  
+#else
+static const uint64_t kDefaultIterations = 12; 
+#endif
+
 static const uint64_t kDefaultMemory = 16 * 1024 * 1024;
 static const uint32_t kDefaultParallelism = 2;
 static const uint32_t kDefaultVersion = 19;
@@ -158,10 +163,16 @@ static const BOOL kLogVerbose = NO;
     NSData *transformKey = [NSData dataWithBytes:ctx.out length:ctx.outlen];
 
     if(kLogVerbose) {
-        NSLog(@"ARGON2: TRANSFORM KEY: %@", [transformKey base64EncodedStringWithOptions:kNilOptions]);
+        slog(@"ARGON2: TRANSFORM KEY: %@", [transformKey base64EncodedStringWithOptions:kNilOptions]);
     }
 
     return transformKey;
+}
+
+- (void)rotateHardwareKeyChallenge {
+    slog(@"✅ Rotating Argon2 Yubi Challenge");
+    
+    _salt = getRandomData(kDefaultSaltLength);
 }
 
 - (KdfParameters *)kdfParameters {

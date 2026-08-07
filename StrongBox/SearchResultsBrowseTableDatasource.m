@@ -40,7 +40,7 @@
 }
 
 - (nonnull UITableViewCell *)cellForRowAtIndexPath:(nonnull NSIndexPath *)indexPath {
-    Node* node = [self getNodeFromIndexPath:indexPath];
+    Node* node = [self getParamFromIndexPath:indexPath];
     
     return [self.cellHelper getBrowseCellForNode:node indexPath:indexPath showLargeTotpCell:NO showGroupLocation:YES];
 }
@@ -53,24 +53,26 @@
     return nil;
 }
 
-- (Node*)getNodeFromIndexPath:(NSIndexPath*)indexPath {
+- (id)getParamFromIndexPath:(NSIndexPath *)indexPath {
     NSArray<Node*>* dataSource = self.searchResults;
     
     if(!dataSource || indexPath.row >= dataSource.count) {
-        NSLog(@"EEEEEK: WARNWARN - Should never happen but unknown node for indexpath: [%@]", indexPath);
+        slog(@"EEEEEK: WARNWARN - Should never happen but unknown node for indexpath: [%@]", indexPath);
         return nil;
     }
     
     return dataSource[indexPath.row];
 }
 
-- (void)updateSearchResults:(UISearchController*)searchController {
-    BrowseSortField sortField = self.viewModel.metadata.browseSortField;
-    BOOL descending = self.viewModel.metadata.browseSortOrderDescending;
-    BOOL foldersSeparately = self.viewModel.metadata.browseSortFoldersSeparately;
+- (void)updateSearchResults:(NSString*)searchText scope:(SearchScope)scope {
+    BrowseSortConfiguration* sortConfig = [self.viewModel getDefaultSortConfiguration];
+    
+    BrowseSortField sortField = sortConfig.field;
+    BOOL descending = sortConfig.descending;
+    BOOL foldersSeparately = sortConfig.foldersOnTop;
 
-    self.searchResults = [self.viewModel search:searchController.searchBar.text
-                                          scope:(SearchScope)searchController.searchBar.selectedScopeButtonIndex
+    self.searchResults = [self.viewModel search:searchText
+                                          scope:scope
                                     dereference:self.viewModel.metadata.searchDereferencedFields
                           includeKeePass1Backup:self.viewModel.metadata.showKeePass1BackupGroup
                               includeRecycleBin:self.viewModel.metadata.showRecycleBinInSearchResults
@@ -84,6 +86,14 @@
 
 - (BOOL)canMoveRowAtIndexPath:(NSIndexPath *)indexPath {
     return NO;
+}
+
+- (NSArray<NSString *> *)sectionIndexTitles {
+    return @[];
+}
+
+- (NSInteger)sectionForSectionIndexTitle:(NSString *)title atIndex:(NSInteger)index {
+    return index;
 }
 
 @end

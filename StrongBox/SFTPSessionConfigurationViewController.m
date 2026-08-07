@@ -10,8 +10,9 @@
 #import <MobileCoreServices/MobileCoreServices.h>
 #import "Alerts.h"
 #import "Utils.h"
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
-#ifndef NO_SFTP_WEBDAV_SP
+#ifndef NO_NETWORKING
 #import "SFTPStorageProvider.h"
 #endif
 
@@ -98,7 +99,7 @@
     configuration.privateKey = self.privateKey;
     configuration.initialDirectory = self.textFieldPath.text;
     
-#ifndef NO_SFTP_WEBDAV_SP
+#ifndef NO_NETWORKING
     [SFTPStorageProvider.sharedInstance testConnection:configuration viewController:self completion:^(NSError * _Nonnull error) {
         dispatch_async(dispatch_get_main_queue(), ^{
             if ( error ) {
@@ -157,30 +158,39 @@
 }
 
 - (IBAction)onLocateKey:(id)sender {
-    UIDocumentPickerViewController *vc = [[UIDocumentPickerViewController alloc] initWithDocumentTypes:@[(NSString*)kUTTypeItem] inMode:UIDocumentPickerModeImport];
+    UTType* type = [UTType typeWithIdentifier:(NSString*)kUTTypeItem];
+    UIDocumentPickerViewController *vc = [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[type]];
+    
+
     vc.delegate = self;
     
     [self presentViewController:vc animated:YES completion:nil];
 }
 
 - (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
-    NSLog(@"didPickDocumentsAtURLs: %@", urls);
+    slog(@"didPickDocumentsAtURLs: %@", urls);
     
     NSURL* url = [urls objectAtIndex:0];
+    
+    
+    
+    if (! [url startAccessingSecurityScopedResource] ) {
+        slog(@"🔴 Could not securely access URL!");
+    }
+    
+    NSError* error;
+    __block NSData *data;
+    __block NSError *err;
+    NSFileCoordinator *coordinator = [[NSFileCoordinator alloc] init];
+    [coordinator coordinateReadingItemAtURL:url options:0 error:&error byAccessor:^(NSURL *newURL) {
+        data = [NSData dataWithContentsOfURL:newURL options:NSDataReadingUncached error:&err];
+    }];
+    
+    [url stopAccessingSecurityScopedResource];
+    
+    NSString* privateKey = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
 
-    #pragma GCC diagnostic push
-    #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-    [self documentPicker:controller didPickDocumentAtURL:url];
-    #pragma GCC diagnostic pop
-}
-
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-implementations"
-- (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentAtURL:(NSURL *)url { 
-    NSData* key = [NSData dataWithContentsOfURL:url];
-    NSString* privateKey = [[NSString alloc] initWithData:key encoding:NSUTF8StringEncoding];
-
-    if(privateKey != nil) {
+    if ( data != nil && privateKey != nil ) {
         self.privateKey = privateKey;
         [self.buttonLocateKey setTitle:[url lastPathComponent] forState:UIControlStateNormal];
     }
@@ -192,6 +202,5 @@
     
     [self bindUi];
 }
-#pragma GCC diagnostic pop
 
 @end

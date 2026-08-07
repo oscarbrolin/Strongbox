@@ -1,5 +1,5 @@
 //
-//  AttributedStringBrowseViewCell.swift
+//  SingleLinePillTableCellView.swift
 //  MacBox
 //
 //  Created by Strongbox on 07/02/2022.
@@ -37,12 +37,14 @@ class SingleLinePillTableCellView: NSTableCellView {
 
         for item in items {
             guard let view = createPill(item, color: color, backgroundColor: backgroundColor, icon: icon) else {
-                NSLog("🔴Couldn't load nib view")
+                swlog("🔴Couldn't load nib view")
                 return
             }
 
             stackView.addView(view, in: .leading)
         }
+
+        stackView.clipsToBounds = true
     }
 
     func createPill(_ string: String, color: NSColor, backgroundColor: NSColor, icon: NSImage) -> NSView? {

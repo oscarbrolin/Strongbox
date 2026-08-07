@@ -17,6 +17,12 @@
 #import "WorkingCopyManager.h"
 #import "LocalDeviceStorageProvider.h"
 
+#ifndef IS_APP_EXTENSION
+#import "Strongbox-Swift.h"
+#else
+#import "Strongbox_Auto_Fill-Swift.h"
+#endif
+
 NSString* const kDatabaseCell = @"DatabaseCell";
 
 @interface DatabaseCell ()
@@ -80,6 +86,14 @@ NSString* const kDatabaseCell = @"DatabaseCell";
     self.status4.userInteractionEnabled = enabled;
     self.status5.userInteractionEnabled = enabled;
     self.status6.userInteractionEnabled = enabled;
+}
+
+- (void)setContent:(NSString*)name
+       topSubtitle:(NSString*)topSubtitle
+         subtitle1:(NSString*)subtitle1
+         subtitle2:(NSString*)subtitle2
+      providerIcon:(UIImage*)providerIcon {
+    [self set:name topSubtitle:topSubtitle subtitle1:subtitle1 subtitle2:subtitle2 providerIcon:providerIcon statusImages:@[] rotateLastImage:NO tints:@[] disabled:NO];
 }
 
 - (void)set:(NSString*)name
@@ -154,6 +168,12 @@ rotateLastImage:(BOOL)rotateLastImage
 - (void)populateCell:(DatabasePreferences *)database disabled:(BOOL)disabled autoFill:(BOOL)autoFill {
     SyncOperationState syncState = autoFill ? kSyncOperationStateInitial : [SyncManager.sharedInstance getSyncStatus:database].state;
     
+    if ( AppPreferences.sharedInstance.disableNetworkBasedFeatures ) {
+        if ( database.storageProvider != kLocalDevice && database.storageProvider != kFilesAppUrlBookmark ) {
+            disabled = YES;
+        }
+    }
+    
     NSArray* tints;
     NSArray<UIImage*>* statusImages =  [self getStatusImages:database syncState:syncState tints:&tints];
         
@@ -161,10 +181,9 @@ rotateLastImage:(BOOL)rotateLastImage
     NSString* subtitle1 = [self getDatabaseCellSubtitleField:database field:AppPreferences.sharedInstance.databaseCellSubtitle1];
     NSString* subtitle2 = [self getDatabaseCellSubtitleField:database field:AppPreferences.sharedInstance.databaseCellSubtitle2];
     
-    NSString* databaseIconName = [SafeStorageProviderFactory getIcon:database];
-    UIImage* databaseIcon = AppPreferences.sharedInstance.showDatabaseIcon ? [UIImage imageNamed:databaseIconName] : nil;
+    UIImage* databaseIcon = AppPreferences.sharedInstance.showDatabaseIcon ? [SafeStorageProviderFactory getImageForProvider:database.storageProvider database:database] : nil;
 
-    if (disabled) {
+    if ( disabled ) {
         databaseIcon = AppPreferences.sharedInstance.showDatabaseIcon ? [UIImage imageNamed:@"cancel"] : nil;
         
         if (autoFill) {
@@ -191,9 +210,31 @@ rotateLastImage:(BOOL)rotateLastImage
     NSMutableArray<UIImage*> *ret = NSMutableArray.array;
     NSMutableArray *tnts = NSMutableArray.array;
 
+    
+    
     if(database.hasUnresolvedConflicts) {
         [ret addObject:[UIImage imageNamed:@"error"]];
         [tnts addObject:NSNull.null];
+    }
+    
+    
+    
+    if ( database.storageProvider == kCloudKit ) {
+        BOOL shared = database.isSharedInCloudKit;
+
+        if ( shared ) {
+            UIImage* cloudkitSharedIndicator = [UIImage systemImageNamed:@"person.2.fill"];
+            
+            BOOL iOwn = database.isOwnedByMeCloudKit;
+            
+            NSArray<UIColor*>* colors = iOwn ?  @[UIColor.systemGreenColor, UIColor.systemBlueColor] : @[UIColor.systemBlueColor, UIColor.systemGreenColor];
+            
+            UIImageSymbolConfiguration* config = [UIImageSymbolConfiguration configurationWithPaletteColors:colors];
+            UIImage* coloured = [cloudkitSharedIndicator imageByApplyingSymbolConfiguration:config];
+            
+            [ret addObject:coloured];
+            [tnts addObject:NSNull.null];
+        }
     }
     
     if (AppPreferences.sharedInstance.showDatabaseStatusIcon) {
@@ -202,11 +243,15 @@ rotateLastImage:(BOOL)rotateLastImage
 
         BOOL isQuickLaunch = [quickLaunchUuid isEqualToString:database.uuid];
         BOOL isAFQuickLaunch = [afQuickLaunchUuid isEqualToString:database.uuid];
-                
+    
+        
+        
         if ( isQuickLaunch ) {
             [ret addObject:[UIImage imageNamed:@"rocket"]];
             [tnts addObject:NSNull.null];
         }
+        
+        
         
         if ( isAFQuickLaunch && !isQuickLaunch ) {
             if ( database.autoFillEnabled ) {
@@ -215,34 +260,28 @@ rotateLastImage:(BOOL)rotateLastImage
             }
         }
         
+        
+        
         if(database.readOnly) {
-            if (@available(iOS 13.0, *)) {
-                [ret addObject:[UIImage systemImageNamed:@"eyeglasses"]];
-            } else {
-                [ret addObject:[UIImage imageNamed:@"glasses"]];
-            }
-
+            [ret addObject:[UIImage systemImageNamed:@"eyeglasses"]];
             [tnts addObject:UIColor.systemGrayColor];
         }
     }
+        
+    
     
     if (database.outstandingUpdateId) {
         [ret addObject:[UIImage imageNamed:@"upload"]];
         [tnts addObject:UIColor.orangeColor];
     }
     
+    
+    
     if (syncState == kSyncOperationStateInProgress ||
         syncState == kSyncOperationStateError ||
         syncState == kSyncOperationStateBackgroundButUserInteractionRequired ||
         syncState == kSyncOperationStateUserCancelled) {
-        
-        UIImage* syncImage;
-        if (@available(iOS 14.0, *)) { 
-            syncImage = [UIImage systemImageNamed:@"arrow.triangle.2.circlepath"];
-        }
-        else {
-            syncImage = [UIImage imageNamed:@"syncronize"];
-        }
+        UIImage* syncImage = [UIImage systemImageNamed:@"arrow.triangle.2.circlepath"];
         
         [ret addObject:syncImage];
         [tnts addObject:syncState == kSyncOperationStateError ? UIColor.redColor : (syncState == kSyncOperationStateInProgress ? NSNull.null : UIColor.orangeColor)];
@@ -293,7 +332,7 @@ rotateLastImage:(BOOL)rotateLastImage
     NSDictionary* attributes = [NSFileManager.defaultManager attributesOfItemAtPath:url.path error:&error];
     
     if (error) {
-        NSLog(@"Could not get local working cache at [%@]-[%@]", url, error);
+        slog(@"Could not get local working cache at [%@]-[%@]", url, error);
         return @"";
     }
 
@@ -307,7 +346,7 @@ rotateLastImage:(BOOL)rotateLastImage
     NSDictionary* attributes = [NSFileManager.defaultManager attributesOfItemAtPath:url.path error:&error];
     
     if (error) {
-        NSLog(@"Could not get local working cache at [%@]-[%@]", url, error);
+        slog(@"Could not get local working cache at [%@]-[%@]", url, error);
         return @"";
     }
 

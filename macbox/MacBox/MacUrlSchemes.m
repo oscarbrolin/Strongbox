@@ -7,19 +7,21 @@
 //
 
 #import "MacUrlSchemes.h"
-#import "FileManager.h"
+#import "StrongboxMacFilesManager.h"
 
 NSString* const kStrongboxSFTPUrlScheme = @"sftp";
+NSString* const kStrongboxWebDAVUrlScheme = @"webdav";
 NSString* const kStrongboxOneDriveUrlScheme = @"onedrive";
 NSString* const kStrongboxGoogleDriveUrlScheme = @"googledrive";
 NSString* const kStrongboxDropboxUrlScheme = @"dropbox";
-
-NSString* const kStrongboxWebDAVUrlScheme = @"webdav";
 NSString* const kStrongboxFileUrlScheme = @"file";
 NSString* const kStrongboxSyncManagedFileUrlScheme = @"sb-sync-managed-file";
 
+NSString* const kStrongboxWiFiSyncUrlScheme = @"wifi";
+NSString* const kStrongboxCloudUrlScheme = @"strongbox-cloud";
+
 StorageProvider storageProviderFromUrl(NSURL* url) {
-    return url ? storageProviderFromUrlScheme(url.scheme) : kMacFile;
+    return url ? storageProviderFromUrlScheme(url.scheme) : kLocalDevice;
 }
 
 StorageProvider storageProviderFromUrlScheme(NSString* scheme) {
@@ -30,7 +32,7 @@ StorageProvider storageProviderFromUrlScheme(NSString* scheme) {
         return kWebDAV;
     }
     else if ( [scheme isEqualToString:kStrongboxOneDriveUrlScheme] ) {
-        return kTwoDrive;
+        return kOneDrive;
     }
     else if ( [scheme isEqualToString:kStrongboxGoogleDriveUrlScheme ] ) {
         return kGoogleDrive;
@@ -38,10 +40,15 @@ StorageProvider storageProviderFromUrlScheme(NSString* scheme) {
     else if ( [scheme isEqualToString:kStrongboxDropboxUrlScheme ] ) {
         return kDropbox;
     }
-
-    return kMacFile;
+    else if ( [scheme isEqualToString:kStrongboxWiFiSyncUrlScheme ] ) {
+        return kWiFiSync;
+    }
+    else if ( [scheme isEqualToString:kStrongboxCloudUrlScheme ] ) {
+        return kCloudKit;
+    }
+    
+    return kLocalDevice;
 }
-
 
 NSURL* fileUrlFromManagedUrl(NSURL* managedUrl) {
     if ( [managedUrl.scheme isEqualToString:kStrongboxSyncManagedFileUrlScheme] ) {
@@ -49,7 +56,7 @@ NSURL* fileUrlFromManagedUrl(NSURL* managedUrl) {
         components.scheme = kStrongboxFileUrlScheme;
         return components.URL;
     }
-    
+
     return managedUrl;
 }
 
@@ -64,7 +71,7 @@ NSURL* managedUrlFromFileUrl(NSURL* fileUrl) {
 }
 
 NSString* getPathRelativeToUserHome(NSString* path) {
-    NSString* userHome = FileManager.sharedInstance.userHomePath;
+    NSString* userHome = StrongboxFilesManager.sharedInstance.userHomePath;
     
     if ( userHome && path.length > userHome.length ) {
         path = [path stringByReplacingOccurrencesOfString:userHome withString:@"~" options:kNilOptions range:NSMakeRange(0, userHome.length)];
@@ -74,8 +81,8 @@ NSString* getPathRelativeToUserHome(NSString* path) {
 }
 
 NSString* getFriendlyICloudPath(NSString* path) {
-    NSURL* iCloudRoot = FileManager.sharedInstance.iCloudRootURL;
-    NSURL* iCloudDriveRoot = FileManager.sharedInstance.iCloudDriveRootURL;
+    NSURL* iCloudRoot = StrongboxFilesManager.sharedInstance.iCloudRootURL;
+    NSURL* iCloudDriveRoot = StrongboxFilesManager.sharedInstance.iCloudDriveRootURL;
 
     
     
@@ -103,15 +110,3 @@ NSString* getFriendlyICloudPath(NSString* path) {
 
     return getPathRelativeToUserHome(path);
 }
-
-
-
-
-
-
-
-
-
-
-
-

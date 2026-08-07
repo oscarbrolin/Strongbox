@@ -82,7 +82,7 @@
 
 - (BOOL)beginElement:(NSString*)elementName {
     if(!elementName.length) {
-        NSLog(@"Null/Empty Element name found at [%@]. Error.", elementName);
+        slog(@"Null/Empty Element name found at [%@]. Error.", elementName);
         return NO;
     }
 
@@ -125,7 +125,7 @@
 }
 
 - (BOOL)writeElement:(NSString *)elementName boolean:(BOOL)boolean {
-    return [self writeElement:elementName text:boolean ? @"True" : @"False"];
+    return [self writeElement:elementName text:boolean ? kAttributeValueTrue : kAttributeValueFalse];
 }
 
 - (BOOL)writeElement:(NSString *)elementName uuid:(NSUUID *)uuid {
@@ -227,7 +227,7 @@
     @autoreleasepool {
         NSData *ptData = [pt dataUsingEncoding:NSUTF8StringEncoding];
 
-        NSData* ciphertext = [self.innerRandomStream xor:ptData];
+        NSData* ciphertext = [self.innerRandomStream doTheXor:ptData];
         
         return [ciphertext base64EncodedStringWithOptions:kNilOptions];
     }

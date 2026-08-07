@@ -21,8 +21,11 @@
 #import "QuickTypeAutoFillDisplayFormat.h"
 #import "OfflineDetectedBehaviour.h"
 #import "CouldNotConnectBehaviour.h"
+#import "BrowseSortConfiguration.h"
 
 NS_ASSUME_NONNULL_BEGIN
+
+extern const NSInteger kDefaultConvenienceExpiryPeriodHours;
 
 @interface SafeMetaData : NSObject
 
@@ -41,6 +44,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, strong) NSString *fileName;
 @property (nonatomic, strong) NSString *fileIdentifier;
 @property (nonatomic) StorageProvider storageProvider;
+@property (nonatomic) BOOL hidden;
 
 @property BOOL hasBeenPromptedForQuickLaunch;
 
@@ -71,26 +75,22 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)setKeyFile:(NSString*)keyFileBookmark keyFileFileName:(NSString*)keyFileFileName;
 
 @property DatabaseFormat likelyFormat;
+@property NSString* lastKnownEncryptionSettings;
+@property NSString* serializationPerf;
 
 @property (nonatomic) BOOL readOnly;
 @property BrowseViewType browseViewType;
 
 @property BrowseTapAction tapAction;
-@property BrowseTapAction doubleTapAction;
-@property BrowseTapAction tripleTapAction;
-@property BrowseTapAction longPressTapAction;
 
 
 
-@property BrowseSortField browseSortField;
-@property BOOL browseSortOrderDescending;
-@property BOOL browseSortFoldersSeparately;
 @property BrowseItemSubtitleField browseItemSubtitleField;
 @property BOOL immediateSearchOnBrowse;
-@property BOOL hideTotpInBrowse;
+
 @property BOOL showKeePass1BackupGroup;
 @property BOOL showChildCountOnFolderInBrowse;
-@property BOOL showFlagsInBrowse;
+
 @property BOOL doNotShowRecycleBinInBrowse;
 @property BOOL showRecycleBinInSearchResults;
 
@@ -103,10 +103,10 @@ NS_ASSUME_NONNULL_BEGIN
 @property BOOL hideIconInBrowse;
 
 
-@property BOOL showEmptyFieldsInDetailsView;
+
 @property NSArray<NSNumber*>* detailsViewCollapsedSections;
 @property BOOL easyReadFontForAll;
-@property BOOL hideTotp;
+
 @property BOOL tryDownloadFavIconForNewRecord;
 @property BOOL showPasswordByDefaultOnEditScreen;
 
@@ -118,26 +118,27 @@ NS_ASSUME_NONNULL_BEGIN
 @property BOOL showQuickViewNearlyExpired;
 @property BOOL showQuickViewExpired;
 
-@property (nullable) NSArray<NSString*>* favourites;
+@property (nullable) NSArray<NSString*>* legacyFavouritesStore;
+@property (nullable) NSArray<NSString*>* legacyWatchEntries;
 @property (nullable) NSArray<NSString*>* auditExcludedItems;
-
+@property (nullable) NSArray<NSString*>* autoFillExcludedItems;
+ 
 @property (readonly) NSURL* backupsDirectory;
 @property NSUInteger maxBackupKeepCount;
 @property BOOL makeBackups;
 
-@property BOOL hideTotpCustomFieldsInViewMode;
 
 
+@property (nullable) YubiKeyHardwareConfiguration* contextAwareYubiKeyConfig; 
+@property (nullable) YubiKeyHardwareConfiguration* nextGenPrimaryYubiKeyConfig; 
 
-@property (nullable) YubiKeyHardwareConfiguration* contextAwareYubiKeyConfig;
 @property (readonly) BOOL mainAppAndAutoFillYubiKeyConfigsIncoherent;
-@property (nullable) YubiKeyHardwareConfiguration* yubiKeyConfig;
-@property (nullable) YubiKeyHardwareConfiguration* autoFillYubiKeyConfig;
+
+
 
 @property DatabaseAuditorConfiguration* auditConfig;
 
 @property BOOL colorizePasswords;
-@property BOOL colorizeProtectedCustomFields;
 
 @property KeePassIconSet keePassIconSet;
 
@@ -200,8 +201,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nullable) NSDate* databaseCreated;
 @property NSUInteger unlockCount;
 
-
-@property BOOL autoFillScanAltUrls;
+@property BOOL includeAssociatedDomains;
 @property BOOL autoFillScanCustomFields;
 @property BOOL autoFillScanNotes;
 
@@ -229,6 +229,41 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nullable) NSDate* lastAskedAboutKdbx4Upgrade;
 
 @property BOOL customSortOrderForFields;
+
+@property BOOL lazySyncMode; 
+@property BOOL persistLazyEvenLastSyncErrors; 
+
+@property (nullable) NSUUID* asyncUpdateId; 
+
+@property (nullable) NSUUID* lastViewedEntry;
+@property BOOL showLastViewedEntryOnUnlock;
+
+@property NSDictionary<NSString*, BrowseSortConfiguration*>* sortConfigurations;
+
+@property (readonly) NSString* exportFilename;
+
+@property BOOL allowPulldownRefreshSyncInOfflineMode;
+
+@property BOOL isSharedInCloudKit; 
+@property BOOL isOwnedByMeCloudKit; 
+
+@property BOOL hasInitializedHomeTab;
+
+@property NSArray<NSNumber*>* visibleHomeSections;
+
+@property NSArray<NSNumber*>* visibleTabs;
+@property BOOL hideTabBarIfOnlySingleTab;
+
+@property (nullable) NSDictionary<NSData*, NSData*> *cachedYubiKeyChallengeResponses;
+@property BOOL hardwareKeyCRCaching;
+@property BOOL doNotRefreshChallengeInAF;
+@property BOOL hasOnboardedHardwareKeyCaching;
+
+@property (nullable) NSDate* lastChallengeRefreshAt;
+@property NSInteger challengeRefreshIntervalSecs;
+@property NSInteger cacheChallengeDurationSecs;
+
+@property BOOL appleWatchEnabled;
 
 @end
 

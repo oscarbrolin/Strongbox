@@ -10,8 +10,7 @@
 #import "OnboardingModule.h"
 
 #import "AppPreferences.h"
-#import "iCloudSafesCoordinator.h"
-#import "FileManager.h"
+#import "StrongboxiOSFilesManager.h"
 #import "FirstUnlockWelcomeModule.h"
 #import "ConvenienceUnlockOnboardingModule.h"
 #import "QuickLaunchOnboardingModule.h"
@@ -19,7 +18,6 @@
 #import "AutoFillOnboardingModule.h"
 #import "GenericOnboardingModule.h"
 #import "FreeTrialOnboardingModule.h"
-#import "iCloudMigrationOnboardingModule.h"
 #import "AppAutoFillOnboardingModule.h"
 #import "LastCrashReportModule.h"
 #import "UpgradeToProOnboardingModule.h"
@@ -27,10 +25,16 @@
 #import "BiometricsManager.h"
 #import "WorkingCopyManager.h"
 #import "NSDate+Extensions.h"
-#import "ExportOptionsTableViewController.h"
 #import "DatabasePreferences.h"
 #import "EncryptionSettingsViewModel.h"
 #import "BackupsManager.h"
+#import "ProUpgradeIAPManager.h"
+#import "BusinessActivationOnboardingModule.h"
+#import "Strongbox-Swift.h"
+#import "SaleScheduleManager.h"
+#import "GenericOnboardingViewController.h"
+#import "ExportHelper.h"
+#import <UserNotifications/UserNotifications.h>
 
 @interface OnboardingManager ()
 
@@ -56,7 +60,7 @@
 
 - (void)startAppOnboarding:(VIEW_CONTROLLER_PTR)presentingViewController completion:(void (^ _Nullable)(void))completion {
     if ( self.appOnboardingInProcess ) {
-        NSLog(@"Onboarding Already in Progress, ignoring repeated call");
+        slog(@"Onboarding Already in Progress, ignoring repeated call");
         return;
     }
     
@@ -65,21 +69,22 @@
 
     self.appOnboardingInProcess = YES;
 
+    id<OnboardingModule> businessActivation = [self getBusinessActivationModule];
     id<OnboardingModule> welcomeToStrongbox = [self getFirstRunWelcomeToStrongboxModule];
+
     id<OnboardingModule> freeTrial = [self getFreeTrialOnboardingModule];
-    id<OnboardingModule> iCloud = [self getICloudOnboardingModule];
-    id<OnboardingModule> iCloudMigration = [self getICloudMigrationOnboardingModule];
+    
     id<OnboardingModule> autoFill = [self getAutoFillOnboardingModule];
     id<OnboardingModule> backupSettings = [self getBackupSettingsModule];
     id<OnboardingModule> crashReportModule = [self getLastCrashReportModule];
     id<OnboardingModule> freeTrialEndingSoon = [self getFreeTrialEndingSoonModule];
     id<OnboardingModule> downgraded = [self getHasBeenDowngradedModule];
     id<OnboardingModule> upgradeToPro = [self getUpgradeToProModule];
+    id<OnboardingModule> saleNowOn = [self getSaleNowOnModule];
     id<OnboardingModule> finalAllSetWelcomeToStrongbox = [self getFirstRunFinalWelcomeToStrongboxModule];
     
-    NSArray<id<OnboardingModule>> *onboardingItems = @[welcomeToStrongbox,
-                                                       iCloud,
-                                                       iCloudMigration,
+    NSArray<id<OnboardingModule>> *onboardingItems = @[businessActivation,
+                                                       welcomeToStrongbox,
                                                        autoFill,
                                                        freeTrial,
                                                        backupSettings,
@@ -87,6 +92,7 @@
                                                        freeTrialEndingSoon,
                                                        downgraded,
                                                        upgradeToPro,
+                                                       saleNowOn,
                                                        finalAllSetWelcomeToStrongbox];
 
 
@@ -99,10 +105,7 @@
     
     
     nav.modalPresentationStyle = UIModalPresentationFormSheet;
-
-    if (@available(iOS 13.0, *)) {
-        nav.modalInPresentation = YES; 
-    }
+    nav.modalInPresentation = YES; 
     
     OnboardingManager *weakSelf = self;
     [self showNextOnboardingModule:presentingViewController model:nil onboardingItems:onboardingItems index:0 stopOnboarding:NO nav:nav completion:^{
@@ -125,30 +128,43 @@
     FirstUnlockWelcomeModule* firstUnlock = [[FirstUnlockWelcomeModule alloc] initWithModel:model];
     ConvenienceUnlockOnboardingModule* convenienceUnlock = [[ConvenienceUnlockOnboardingModule alloc] initWithModel:model];
     ConvenienceExpiryOnboardingModule* expiry = [[ConvenienceExpiryOnboardingModule alloc] initWithModel:model];
-    QuickLaunchOnboardingModule *quickLaunch = [[QuickLaunchOnboardingModule alloc] initWithModel:model];
+    
+
     AutoFillOnboardingModule* autoFill = [[AutoFillOnboardingModule alloc] initWithModel:model];
     
     id<OnboardingModule> scheduledExportOnboardingModule = [self getScheduledExportOnboardingModule:model];
     id<OnboardingModule> scheduledExportModule = [self getScheduledExportModule:model];
     id<OnboardingModule> quickLaunchAppLockWarning = [self getQuickLaunchAppLockWarningModule:model];
+
+#ifndef NO_NETWORKING
+    id<OnboardingModule> notifications = [self getRequestNotificationPermissionModule:model];
+    id<OnboardingModule> oneDrivePro = [self getWarnBusinessOneDriveNoneProModule:model];
+#endif
     
     id<OnboardingModule> argon2MemReduction = [self getArgon2ReductionOnboardingModule:model];
     id<OnboardingModule> kdbxUpgrade = [self getKdbxUpgradeOnboardingModule:model];
     
+    id<OnboardingModule> hardwareKeyCaching = [self getHardwareKeyCachingModule:model];
+    
     id<OnboardingModule> allDoneWelcomeModule = [self getAllDoneWelcomeModule:model];
     
+
     NSArray<id<OnboardingModule>> *onboardingItems = @[firstUnlock,
                                                        convenienceUnlock,
+#ifndef NO_NETWORKING
+                                                       notifications,
+                                                       oneDrivePro,
+#endif
                                                        expiry,
                                                        autoFill,
-                                                       quickLaunch,
                                                        scheduledExportOnboardingModule,
                                                        scheduledExportModule,
                                                        quickLaunchAppLockWarning,
                                                        argon2MemReduction,
                                                        kdbxUpgrade,
+                                                       hardwareKeyCaching,
                                                        allDoneWelcomeModule];
-
+    
     
     
     if ( model.isDuressDummyDatabase ) {
@@ -163,9 +179,7 @@
     
     nav.navigationBarHidden = YES;
     nav.modalPresentationStyle = UIModalPresentationFormSheet;
-    if (@available(iOS 13.0, *)) {
-        nav.modalInPresentation = YES; 
-    }
+    nav.modalInPresentation = YES; 
     
     [self showNextOnboardingModule:presentingViewController model:model onboardingItems:onboardingItems index:0 stopOnboarding:NO nav:nav completion:completion];
 }
@@ -213,7 +227,7 @@
                 }
             }
             else {
-                NSLog(@"WARNWARN: Could not instantiate view controller for onboarding module");
+                slog(@"WARNWARN: Could not instantiate view controller for onboarding module");
                 [self showNextOnboardingModule:presentingViewController model:model onboardingItems:onboardingItems index:(index + 1) stopOnboarding:stopOnboarding nav:nav completion:completion];
             }
         }
@@ -225,10 +239,14 @@
 
 
 
+- (id<OnboardingModule>)getBusinessActivationModule {
+    return [[BusinessActivationOnboardingModule alloc] initWithModel:nil];
+}
+
 - (id<OnboardingModule>)getFirstRunWelcomeToStrongboxModule {
     GenericOnboardingModule* module = [[GenericOnboardingModule alloc] initWithModel:nil];
     module.onShouldDisplay = ^BOOL(Model * _Nonnull model) {
-        return !AppPreferences.sharedInstance.hasShownFirstRunWelcome;
+        return !AppPreferences.sharedInstance.hasShownFirstRunWelcome && !StrongboxProductBundle.isBusinessBundle;
     };
 
     module.image = [UIImage imageNamed:@"welcome-business"];
@@ -250,6 +268,11 @@
     return module;
 }
 
+- (id<OnboardingModule>)getSaleNowOnModule {
+    SaleNowOnOnboardingModule *module = [[SaleNowOnOnboardingModule alloc] initWithModel:nil];
+    return module;    
+}
+
 - (id<OnboardingModule>)getAutoFillOnboardingModule {
     return [[AppAutoFillOnboardingModule alloc] initWithModel:nil];
 }
@@ -258,78 +281,12 @@
     return [[FreeTrialOnboardingModule alloc] initWithModel:nil];
 }
 
-- (id<OnboardingModule>)getICloudOnboardingModule {
-    GenericOnboardingModule* module = [[GenericOnboardingModule alloc] initWithModel:nil];
-    module.onShouldDisplay = ^BOOL(Model * _Nonnull model) {
-        if ( AppPreferences.sharedInstance.iCloudPrompted ) {
-            return NO;
-        }
-        if ( AppPreferences.sharedInstance.disableNetworkBasedFeatures ) {
-            return NO;
-        }
-        
-        if ( iCloudSafesCoordinator.sharedInstance.fastAvailabilityTest ) {
-            NSLog(@"iCloudOnboardingModule::shouldDisplay - iCloud Available...");
-
-            return !AppPreferences.sharedInstance.iCloudOn;
-        }
-        else {
-            NSLog(@"iCloudOnboardingModule::shouldDisplay - iCloud Not Available...");
-
-            return NO;
-        }
-    };
-    
-    NSString* strA = NSLocalizedString(@"safesvc_migrate_local_existing", @"You can now use iCloud with Strongbox. Should your current local databases be migrated to iCloud and available on all your devices? (NB: Your existing cloud databases will not be affected)");
-    NSString* strB = NSLocalizedString(@"safesvc_migrate_local_no_existing", @"You can now use iCloud with Strongbox. Should your current local databases be migrated to iCloud and available on all your devices?");
-    NSString* str1 = NSLocalizedString(@"safesvc_use_icloud_question_existing", @"Would you like the option to use iCloud with Strongbox? (NB: Your existing cloud databases will not be affected)");
-    NSString* str2 = NSLocalizedString(@"safesvc_use_icloud_question_no_existing", @"You can now use iCloud with Strongbox. Would you like to have your databases available on all your devices?");
-    
-    BOOL existingLocalDeviceSafes = [self getLocalDeviceSafes].count > 0;
-    BOOL hasOtherCloudSafes = [self hasSafesOtherThanLocalAndiCloud];
-    NSString *message = existingLocalDeviceSafes ? (hasOtherCloudSafes ? strA : strB) : (hasOtherCloudSafes ? str1 : str2);
-
-    
-    module.image = [UIImage imageNamed:@"iCloud-lock"];
-    module.header = NSLocalizedString(@"safesvc_icloud_available_title", @"iCloud Available");
-    module.message = message;
-
-    module.button1 = NSLocalizedString(@"safesvc_option_use_icloud", @"Use iCloud");
-    module.button2 = NSLocalizedString(@"prefs_vc_dont_use_icloud_action", @"Don't Use iCloud");
-
-    module.onButtonClicked = ^(NSInteger buttonIdCancelIsZero, UIViewController * _Nonnull viewController, OnboardingModuleDoneBlock  _Nonnull onDone) {
-        if ( buttonIdCancelIsZero == 0) { 
-            onDone(NO, YES);
-        }
-        else if ( buttonIdCancelIsZero == 1 ) { 
-            AppPreferences.sharedInstance.iCloudOn = YES;
-            AppPreferences.sharedInstance.iCloudPrompted = YES;
-        
-            [iCloudSafesCoordinator.sharedInstance startQuery]; 
-
-            onDone(NO, NO);
-        }
-        else { 
-            AppPreferences.sharedInstance.iCloudOn = NO;
-            AppPreferences.sharedInstance.iCloudPrompted = YES;
-
-            onDone(NO, NO);
-        }
-    };
-
-    return module;
-}
-
-- (id<OnboardingModule>)getICloudMigrationOnboardingModule {
-    return [[iCloudMigrationOnboardingModule alloc] initWithModel:nil];
-}
-
 - (id<OnboardingModule>)getBackupSettingsModule {
     GenericOnboardingModule* module = [[GenericOnboardingModule alloc] initWithModel:nil];
     module.onShouldDisplay = ^BOOL(Model * _Nonnull model) {
         BOOL userHasAnyBackupFiles = [BackupsManager.sharedInstance getAvailableBackups:nil all:NO].count;
         BOOL userHasLocalDatabases = [self getLocalDeviceSafes].firstObject != nil;
-        BOOL hasImportedKeyFiles = FileManager.sharedInstance.importedKeyFiles.firstObject != nil;
+        BOOL hasImportedKeyFiles = StrongboxFilesManager.sharedInstance.importedKeyFiles.firstObject != nil;
     
         return !AppPreferences.sharedInstance.haveAskedAboutBackupSettings && (userHasLocalDatabases || hasImportedKeyFiles || userHasAnyBackupFiles);
     };
@@ -337,7 +294,7 @@
     module.image = [UIImage imageNamed:@"backup"];
 
     module.header = NSLocalizedString(@"backup_settings_prompt_title", @"Backup Settings");
-    module.message = NSLocalizedString(@"backup_settings_prompt_message", @"By Default Strongbox includes all local files (including database backups) and local device databases in Apple backups of this device. However imported Key Files are explicitly not included for security reasons.\n\nYou can change these settings at any time in Preferences > Advanced Preferences.\n\nDoes this sound ok?");
+    module.message = NSLocalizedString(@"backup_settings_prompt_message", @"By Default Strongbox includes all local files (including database backups) and local device databases in Apple backups of this device. However imported Key Files are explicitly not included for security reasons.\n\nYou can change these settings at any time in Settings > Advanced.\n\nDoes this sound ok?");
 
     module.button1 = NSLocalizedString(@"backup_settings_prompt_option_yes_looks_good", @"Yes, the defaults sound good");
     module.button2 = NSLocalizedString(@"backup_settings_prompt_yes_but_include_key_files", @"Yes, but also backup imported Key Files");
@@ -362,7 +319,7 @@
         }
 
         if ( buttonIdCancelIsZero != 0 ) {
-            [FileManager.sharedInstance setDirectoryInclusionFromBackup:AppPreferences.sharedInstance.backupFiles
+            [StrongboxFilesManager.sharedInstance setDirectoryInclusionFromBackup:AppPreferences.sharedInstance.backupFiles
                                                        importedKeyFiles:AppPreferences.sharedInstance.backupIncludeImportedKeyFiles];
 
             AppPreferences.sharedInstance.haveAskedAboutBackupSettings = YES;
@@ -414,6 +371,7 @@
         if ( AppPreferences.sharedInstance.isPro ) {
             return NO;
         }
+        
         
         
 
@@ -524,7 +482,7 @@
 - (id<OnboardingModule>)getScheduledExportOnboardingModule:(Model*)model {
     GenericOnboardingModule* module = [[GenericOnboardingModule alloc] initWithModel:model];
     module.onShouldDisplay = ^BOOL(Model * _Nonnull model) {
-        if ( model.metadata.scheduledExportOnboardingDone ) {
+        if ( model.metadata.scheduledExportOnboardingDone || AppPreferences.sharedInstance.disableExport ) {
             return NO;
         }
         
@@ -575,6 +533,89 @@
     return module;
 }
 
+#ifndef NO_NETWORKING
+- (id<OnboardingModule>)getRequestNotificationPermissionModule:(Model*)model {
+    GenericOnboardingModule* module = [[GenericOnboardingModule alloc] initWithModel:model];
+    module.onShouldDisplay = ^BOOL(Model * _Nonnull model) {
+        if ( AppPreferences.sharedInstance.disableNetworkBasedFeatures ) {
+            return NO;
+        }
+        if ( model.metadata.storageProvider != kCloudKit ) {
+            return NO;
+        }
+        if ( AppPreferences.sharedInstance.hasGotUserNotificationsPermissions ) {
+            return NO;
+        }
+        if ( AppPreferences.sharedInstance.lastAskToEnableNotifications != nil &&
+            ![AppPreferences.sharedInstance.lastAskToEnableNotifications isMoreThanXDaysAgo:7] ) {
+            return NO;
+        }
+        
+        return [self isUserNotificationsNotDetermined];
+    };
+    
+    if (@available(iOS 17.0, *)) {
+        module.symbolEffect = [[[[NSSymbolVariableColorEffect effect] effectWithIterative] effectWithDimInactiveLayers] effectWithNonReversing];
+    }
+
+    module.image = [UIImage systemImageNamed:@"iphone.radiowaves.left.and.right"];
+    
+    module.imageSize = 120;
+    
+    module.header = NSLocalizedString(@"enable_notifications_onboarding_title", @"Stay In Sync");
+    
+    NSString* msg = NSLocalizedString(@"enable_notifications_onboarding_message", @"To stay current and keep your databases up to date, please allow Strongbox to receive notifications.");
+    module.message = msg;
+
+    module.button1 = NSLocalizedString(@"enable_notifications_onboarding_sounds_good_allow", @"Sounds Good, Allow");
+    module.button2 = NSLocalizedString(@"generic_not_right_now", @"Not Right Now");
+    
+    module.onButtonClicked = ^(NSInteger buttonIdCancelIsZero, UIViewController * _Nonnull viewController, OnboardingModuleDoneBlock  _Nonnull onDone) {
+        AppPreferences.sharedInstance.lastAskToEnableNotifications = NSDate.date;
+        
+        if ( buttonIdCancelIsZero == 0 ) {
+            onDone(NO, YES); 
+            return;
+        }
+        else if ( buttonIdCancelIsZero == 1 ) {
+            [CloudKitDatabasesInteractor.shared requestUserNotificationPermissionsWithCompletionHandler:^(BOOL granted, NSError * _Nullable error) {
+                if ( error ) {
+                    slog(@"🔴 Error request permissions [%@]", error);
+
+                    [Alerts error:viewController error:error];
+                }
+                else {
+                    AppPreferences.sharedInstance.hasGotUserNotificationsPermissions = granted;
+                    onDone(NO, NO);
+                }
+            }];
+        }
+        else {
+            onDone(NO, NO);
+        }
+    };
+
+    return module;
+}
+#endif
+
+- (BOOL)isUserNotificationsNotDetermined {
+    __block BOOL ret = NO;
+    
+    dispatch_group_t g = dispatch_group_create();
+    dispatch_group_enter(g);
+    
+    [UNUserNotificationCenter.currentNotificationCenter getNotificationSettingsWithCompletionHandler:^(UNNotificationSettings * _Nonnull settings) {
+        ret = settings.authorizationStatus == UNAuthorizationStatusNotDetermined;
+        dispatch_group_leave(g);
+    }];
+    
+    dispatch_group_wait(g, DISPATCH_TIME_FOREVER);
+    
+    return ret;
+}
+
+
 - (id<OnboardingModule>)getScheduledExportModule:(Model*)model {
     GenericOnboardingModule* module = [[GenericOnboardingModule alloc] initWithModel:model];
     
@@ -585,7 +626,7 @@
         BOOL modified = modDate ? ![modDate isEqualToDateWithinEpsilon:model.metadata.lastScheduledExportModDate] : YES;
         BOOL due = [model.metadata.nextScheduledExport isEarlierThan:NSDate.date];
         
-        return model.metadata.scheduledExport && modified && due;
+        return model.metadata.scheduledExport && modified && due && !AppPreferences.sharedInstance.disableExport;
     };
     
     module.image = [UIImage imageNamed:@"delivery"];
@@ -606,22 +647,11 @@
             onDone(NO, YES); 
         }
         else if ( buttonIdCancelIsZero == 1 ) { 
-            UIStoryboard* sb = [UIStoryboard storyboardWithName:@"Export" bundle:nil];
-            UINavigationController* nav = [sb instantiateInitialViewController];
-            ExportOptionsTableViewController* evc = (ExportOptionsTableViewController*)nav.topViewController;
+            [self onShare:(GenericOnboardingViewController*)viewController database:model.metadata onDone:onDone];
             
-            evc.hidePlaintextOptions = YES;
-            evc.viewModel = model;
-            evc.onDone = ^{
-                NSUInteger days = model.metadata.scheduleExportIntervalDays;
-                model.metadata.nextScheduledExport = [NSDate.date dateByAddingTimeInterval:days * 24 * 60 * 60];
-                
-                model.metadata.lastScheduledExportModDate = modDate;
-                
-                onDone(NO, NO);
-            };
-            
-            [viewController presentViewController:nav animated:YES completion:nil];
+            NSUInteger days = model.metadata.scheduleExportIntervalDays;
+            model.metadata.nextScheduledExport = [NSDate.date dateByAddingTimeInterval:days * 24 * 60 * 60];
+            model.metadata.lastScheduledExportModDate = modDate;
         }
         else if ( buttonIdCancelIsZero == 2) { 
             NSUInteger days = model.metadata.scheduleExportIntervalDays;
@@ -664,7 +694,7 @@
     quickLaunchAppLockWarning.button2 = NSLocalizedString(@"generic_dont_tell_again", @"Don't Tell me Again");
     quickLaunchAppLockWarning.header = NSLocalizedString(@"onboarding_configuration_issue_title", @"Configuration Issue");
     
-    NSString *fmt = NSLocalizedString(@"app_lock_coalescing_with_quick_launch_warning", @"There is a configuration issue you should be aware of. You are using %@ for both App Lock and Quick Launch. In addition you allow device passcode fallback for App Lock.\n\nThis leads to a situation where you can unlock your database using only your device passcode.\n\nIf you do not want this you can do any of the following: Disable App Lock passcode fallback, or Quick Launch, or %@ Database Unlock, or coalescing of unlocks (Advanced Preferences).");
+    NSString *fmt = NSLocalizedString(@"app_lock_coalescing_with_quick_launch_warning", @"There is a configuration issue you should be aware of. You are using %@ for both App Lock and Quick Launch. In addition you allow device passcode fallback for App Lock.\n\nThis leads to a situation where you can unlock your database using only your device passcode.\n\nIf you do not want this you can do any of the following: Disable App Lock passcode fallback, or Quick Launch, or %@ Database Unlock, or coalescing of unlocks.");
 
     NSString* msg = [NSString stringWithFormat:fmt, BiometricsManager.sharedInstance.biometricIdName, BiometricsManager.sharedInstance.biometricIdName, BiometricsManager.sharedInstance.biometricIdName];
     quickLaunchAppLockWarning.message = msg;
@@ -684,6 +714,58 @@
 
     return quickLaunchAppLockWarning;
 }
+
+#ifndef NO_NETWORKING
+- (id<OnboardingModule>)getWarnBusinessOneDriveNoneProModule:(Model*)model {
+    GenericOnboardingModule* module = [[GenericOnboardingModule alloc] initWithModel:model];
+    
+    module.onShouldDisplay = ^BOOL(Model * _Nonnull model) {
+        if ( AppPreferences.sharedInstance.isPro ) { 
+            return NO;
+        }
+        
+        if ( model.metadata.storageProvider != kOneDrive ) {
+            return NO;
+        }
+        
+        if (! [OneDriveStorageProvider.sharedInstance isBusinessDriveWithMetadata:model.metadata] ) {
+            return NO;
+        }
+        
+        BOOL showRandomly = arc4random_uniform(100) < 10; 
+        
+        return model.metadata.unlockCount < 2 || showRandomly || [model.metadata.databaseCreated isMoreThanXDaysAgo:90]; 
+    };
+    
+    
+    module.header = NSLocalizedString(@"unlicensed_commercial_use_title", @"Unlicensed Commercial Use");
+    NSString* msg = NSLocalizedString(@"unlicensed_commercial_use_message", @"Well, this is awkward. It looks like you're using Strongbox for commercial purposes without a license.\n\nWe're a small business and we need to ask you to license Strongbox. This is so that we can keep making it great and get out of your way. Continued unlicensed use may lead to loss of functionality.\n\nGet in touch\nbusiness@phoebecode.com");
+    
+    module.message = msg;
+
+    if (@available(iOS 17.0, *)) {
+        module.symbolEffect = [[NSSymbolPulseEffect effect] effectWithByLayer];
+    }
+    
+    UIImage* image = [UIImage systemImageNamed:@"briefcase.circle"];
+    
+    UIImageSymbolConfiguration *config = [UIImageSymbolConfiguration configurationWithPaletteColors:@[UIColor.systemBlueColor, UIColor.systemRedColor]];
+    UIImage* coloured = [image imageByApplyingSymbolConfiguration:config];
+    
+    module.image = coloured;
+
+    module.button1 = NSLocalizedString(@"generic_lets_go", @"Let's Go");
+    
+    module.hideDismiss = YES;
+    
+    module.onButtonClicked = ^(NSInteger buttonIdCancelIsZero, UIViewController * _Nonnull viewController, OnboardingModuleDoneBlock  _Nonnull onDone) {
+        model.metadata.onboardingDoneHasBeenShown = YES;
+        onDone(NO, YES); 
+    };
+
+    return module;
+}
+#endif
 
 - (id<OnboardingModule>)getAllDoneWelcomeModule:(Model*)model {
     GenericOnboardingModule* module = [[GenericOnboardingModule alloc] initWithModel:model];
@@ -707,6 +789,51 @@
     return module;
 }
 
+- (id<OnboardingModule>)getHardwareKeyCachingModule:(Model*)model {
+    GenericOnboardingModule* module = [[GenericOnboardingModule alloc] initWithModel:model];
+    module.onShouldDisplay = ^BOOL(Model * _Nonnull model) {
+        return !model.metadata.hasOnboardedHardwareKeyCaching &&
+        model.originalFormat == kKeePass4 &&
+        model.ckfs.yubiKeyCR != nil &&
+        model.metadata.nextGenPrimaryYubiKeyConfig &&
+        model.metadata.nextGenPrimaryYubiKeyConfig.mode != kVirtual &&
+        !model.metadata.hardwareKeyCRCaching;
+    };
+    
+    module.header = NSLocalizedString(@"feature_hardware_key_caching", @"Hardware Key Caching");
+    NSString* msg = NSLocalizedString(@"hardware_key_caching_onboarding_msg", @"Using a hardware key is a great security choice but it can be a little inconvenient.\n\nWould you like to enable our caching feature?\n\nWith this enabled Strongbox will do things like remember the last challenge response for a period of time. This means you don't need to use your key so often.\n\nFull configuration is available in settings. For more details see online.");
+    
+    module.message = msg;
+    module.image = [UIImage imageNamed:@"yubikey"];
+    module.imageSize = 70;
+    module.hideDismiss = YES;
+    
+    module.button1 = NSLocalizedString(@"backup_settings_prompt_option_yes_looks_good", @"Yes, Sounds Great!");
+    module.button2 = NSLocalizedString(@"generic_no_thanks", @"No Thanks");
+    
+    module.onButtonClicked = ^(NSInteger buttonIdCancelIsZero, UIViewController * _Nonnull viewController, OnboardingModuleDoneBlock  _Nonnull onDone) {
+        if ( buttonIdCancelIsZero == 1 ){ 
+            model.metadata.hardwareKeyCRCaching = YES;
+            model.metadata.challengeRefreshIntervalSecs = 1800; 
+            model.metadata.cacheChallengeDurationSecs = 8 * 3600; 
+            model.metadata.doNotRefreshChallengeInAF = YES;
+            
+            if ( model.ckfs.lastChallengeResponse ) {
+                [model.metadata addCachedChallengeResponse:model.ckfs.lastChallengeResponse];
+                model.metadata.lastChallengeRefreshAt = NSDate.now;
+            }
+        }
+        else {
+            model.metadata.hardwareKeyCRCaching = NO;
+        }
+        
+        model.metadata.hasOnboardedHardwareKeyCaching = YES;
+        onDone(NO, NO); 
+    };
+
+    return module;
+}
+
 - (id<OnboardingModule>)getArgon2ReductionOnboardingModule:(Model*)model {
     GenericOnboardingModule* module = [[GenericOnboardingModule alloc] initWithModel:model];
     
@@ -725,7 +852,7 @@
 
         if ( model.metadata.lastAskedAboutArgon2MemReduction != nil ) {
             if ( ![model.metadata.lastAskedAboutArgon2MemReduction isMoreThanXDaysAgo:1] ) {
-                NSLog(@"Not asking about Argon2 as last asked less than 1 day ago.");
+                slog(@"Not asking about Argon2 as last asked less than 1 day ago.");
                 return NO;
             }
         }
@@ -733,10 +860,7 @@
         return YES;
     };
 
-    module.image = [UIImage imageNamed:@"unlock"];
-    if (@available(iOS 13.0, *)) {
-        module.image = [UIImage systemImageNamed:@"function"];
-    }
+    module.image = [UIImage systemImageNamed:@"function"];
     module.imageSize = 64;
     
     module.header = NSLocalizedString(@"autofill_argon2_onboarding_issue_title", @"AutoFill Issue");
@@ -780,7 +904,8 @@
     
     module.onShouldDisplay = ^BOOL(Model * _Nonnull model) {
         if ( model.metadata.kdbx4UpgradeDontAskAgain ||
-            model.metadata.unlockCount < 20 ||
+            model.metadata.lazySyncMode ||
+            model.metadata.unlockCount < 10 ||
             model.isReadOnly ) {
             return NO;
         }
@@ -791,28 +916,15 @@
 
         if ( model.metadata.lastAskedAboutKdbx4Upgrade != nil ) {
             if ( ![model.metadata.lastAskedAboutKdbx4Upgrade isMoreThanXDaysAgo:7] ) {
-                NSLog(@"Not asking about KDBX4 as last asked less than 7 days ago.");
+                slog(@"Not asking about KDBX4 as last asked less than 7 days ago.");
                 return NO;
             }
-        }
-
-        unsigned long long fileSize = 0;
-        NSURL* workingCopy = [WorkingCopyManager.sharedInstance getLocalWorkingCache:model.metadata.uuid
-                                                                            modified:nil
-                                                                            fileSize:&fileSize];
-        
-        const unsigned long long kMinFileSize = 0.8f * 1024 * 1024;
-        if ( !workingCopy || fileSize < kMinFileSize ) {
-            return NO;
         }
         
         return YES;
     };
 
-    module.image = [UIImage imageNamed:@"unlock"];
-    if (@available(iOS 13.0, *)) {
-        module.image = [UIImage systemImageNamed:@"wand.and.stars"];
-    }
+    module.image = [UIImage systemImageNamed:@"wand.and.stars"];
     module.imageSize = 64;
     
     module.header = NSLocalizedString(@"kdbx4_upgrade_onboarding_issue_title", @"Database Upgrade");
@@ -821,10 +933,14 @@
         
     module.message = msg;
 
-   module.button1 = NSLocalizedString(@"generic_yes_great_idea_bang", @"Yes, Great Idea!");
-   module.button2 = NSLocalizedString(@"generic_not_right_now", @"Not Right Now");
-   module.button3 = NSLocalizedString(@"generic_dont_ask_again", @"Dont't Ask Again");
-   
+    module.button1 = NSLocalizedString(@"generic_yes_great_idea_bang", @"Yes, Great Idea!");
+    
+    module.button2 = NSLocalizedString(@"generic_not_right_now", @"Not Right Now");
+    module.button2Color = UIColor.systemGrayColor;
+    
+    module.button3 = NSLocalizedString(@"generic_dont_ask_again", @"Dont't Ask Again");
+    module.button3Color = UIColor.systemGrayColor;
+    
     module.onButtonClicked = ^(NSInteger buttonIdCancelIsZero, UIViewController * _Nonnull viewController, OnboardingModuleDoneBlock  _Nonnull onDone) {
         model.metadata.lastAskedAboutKdbx4Upgrade = NSDate.date;
         
@@ -861,17 +977,44 @@
     return [DatabasePreferences forAllDatabasesOfProvider:kiCloud];
 }
 
+- (void)onShare:(GenericOnboardingViewController*)viewController
+       database:(DatabasePreferences*)database
+         onDone:(OnboardingModuleDoneBlock)onDone {
+    
+    [ExportHelper getExportFile:viewController database:database completion:^(NSURL * _Nullable url, NSError * _Nullable error) {
+        if ( url == nil && error == nil ) {
+            onDone(NO, NO);
+            return; 
+        }
 
+        if ( !url || error ) {
+            [Alerts error:viewController error:error completion:^{
+                onDone(NO, NO);
+            }];
+        }
+        else {
+            [self onGotExportFile:viewController url:url onDone:onDone];
+        }
+    }];
+}
 
+- (void)onGotExportFile:(GenericOnboardingViewController*)viewController url:(NSURL*)url onDone:(OnboardingModuleDoneBlock)onDone {
+    NSArray *activityItems = @[url];
+    UIActivityViewController *activityViewController = [[UIActivityViewController alloc] initWithActivityItems:activityItems applicationActivities:nil];
+    
+    
+    
+    activityViewController.popoverPresentationController.sourceView = viewController.labelButton1;
+    activityViewController.popoverPresentationController.sourceRect = viewController.labelButton1.bounds;
+    activityViewController.popoverPresentationController.permittedArrowDirections = UIPopoverArrowDirectionAny;
+    
+    [activityViewController setCompletionWithItemsHandler:^(NSString *activityType, BOOL completed, NSArray *returnedItems, NSError *activityError) {
+        [ExportHelper cleanupExportFiles:url];
 
-
-
-
-
-
-
-
-
-
+        onDone(NO, NO);
+    }];
+    
+    [viewController presentViewController:activityViewController animated:YES completion:nil];
+}
 
 @end

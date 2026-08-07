@@ -81,7 +81,7 @@
 
     if([self hasCustomIcons] && indexPath.section == 0) {
         NodeIcon* icon = self.customIcons[indexPath.row];
-        UIImage* image = [NodeIconHelper getNodeIcon:icon];
+        UIImage* image = [NodeIconHelper getNodeIcon:icon predefinedIconSet:self.predefinedKeePassIconSet];
         
         if(image) {
             cell.imageView.image = image;
@@ -117,7 +117,7 @@
 }
 
 - (void)collectionView:(UICollectionView *)collectionView didSelectItemAtIndexPath:(NSIndexPath *)indexPath {
-    NSLog(@"collectionView::didSelectItemAtIndexPath - [%@]", indexPath);
+    slog(@"collectionView::didSelectItemAtIndexPath - [%@]", indexPath);
     
     if([self hasCustomIcons] && indexPath.section == 0) {
         NodeIcon* icon = self.customIcons[indexPath.row];

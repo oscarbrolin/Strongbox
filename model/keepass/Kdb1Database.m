@@ -45,20 +45,20 @@ static const BOOL kLogVerbose = NO;
                                                                     ppError:&error];
     
     if(serializationData == nil) {
-        NSLog(@"Error getting Decrypting KDB binary: [%@]", error);
+        slog(@"Error getting Decrypting KDB binary: [%@]", error);
         completion(NO, nil, nil, error);
         return;
     }
 
     if(kLogVerbose) {
-        NSLog(@"KdbSerializationData = [%@]", serializationData);
+        slog(@"KdbSerializationData = [%@]", serializationData);
     }
 
-    NSArray<DatabaseAttachment*>* attachments;
+    NSArray<KeePassAttachmentAbstractionLayer*>* attachments;
     Node* rootGroup = [Kdb1Database buildStrongboxModel:serializationData attachments:&attachments];
 
     if(kLogVerbose) {
-        NSLog(@"Attachments: %@", attachments);
+        slog(@"Attachments: %@", attachments);
     }
 
     
@@ -105,7 +105,7 @@ static const BOOL kLogVerbose = NO;
     [self open:mutableData ckf:ckf completion:completion];
 }
 
-+ (void)save:(DatabaseModel *)database outputStream:(NSOutputStream *)outputStream completion:(SaveCompletionBlock)completion {
++ (void)save:(DatabaseModel *)database outputStream:(NSOutputStream *)outputStream params:(id _Nullable)params completion:(SaveCompletionBlock)completion {
     if(!database.ckfs.password.length && !database.ckfs.keyFileDigest) {
         
         NSError* error = [Utils createNSError:@"Master Password or Key File not set." errorCode:-3];
@@ -124,7 +124,7 @@ static const BOOL kLogVerbose = NO;
                                                group:database.rootNode
                                    serializationData:serializationData
                                     existingGroupIds:[NSMutableSet<NSNumber*> set]] ) {
-        NSLog(@"WARNWARN: Could not convert to KDB.");
+        slog(@"WARNWARN: Could not convert to KDB.");
         NSError* error = [Utils createNSError:@"Could not convert to KDB." errorCode:-3];
         completion(NO, nil, error);
         return;
@@ -146,7 +146,7 @@ static const BOOL kLogVerbose = NO;
                                ppError:&error];
     
     if(!ret) {
-        NSLog(@"Could not serialize Document to KDB");
+        slog(@"Could not serialize Document to KDB");
         completion(NO, nil, error);
         return;
     }
@@ -162,10 +162,6 @@ static const BOOL kLogVerbose = NO;
     else {
         completion(NO, nil, nil);
     }
-}
-
-+ (NSData *_Nullable)getYubiKeyChallenge:(nonnull NSData *)candidate error:(NSError * _Nullable __autoreleasing * _Nullable)error {
-    return nil;
 }
 
 + (void)addKeePassDefaultRootGroup:(Node*)rootGroup {
@@ -191,7 +187,7 @@ static const BOOL kLogVerbose = NO;
         for ( Node* obj in subGroup.childRecords ) {
             KdbEntry* entry = [Kdb1Database recordToKdbEntry:obj kdbGroup:kdbGroup];
             if ( !entry ) {
-                NSLog(@"WARNWARN: Could not get KDBEntry for Node.");
+                slog(@"WARNWARN: Could not get KDBEntry for Node.");
                 return NO;
             }
             [entries addObject:entry];
@@ -253,7 +249,7 @@ KdbGroup* groupToKdbGroup(Node* group, int level,NSMutableSet<NSNumber*> *existi
     
     if(record.fields.attachments.count) {
         NSString* filename = record.fields.attachments.allKeys.firstObject;
-        DatabaseAttachment *theAttachment = record.fields.attachments[filename];
+        KeePassAttachmentAbstractionLayer *theAttachment = record.fields.attachments[filename];
         
         ret.binaryFileName = filename;
         
@@ -298,9 +294,9 @@ void normalizeLevels(NSArray<KdbGroup*> *groups) {
     }
 }
 
-+ (Node*)buildStrongboxModel:(KdbSerializationData *)serializationData attachments:(NSArray<DatabaseAttachment*>**)attachments {
++ (Node*)buildStrongboxModel:(KdbSerializationData *)serializationData attachments:(NSArray<KeePassAttachmentAbstractionLayer*>**)attachments {
     Node* ret = [[Node alloc] initAsRoot:nil childRecordsAllowed:NO];
-    NSMutableArray<DatabaseAttachment*> *mutableAttachments = [NSMutableArray array];
+    NSMutableArray<KeePassAttachmentAbstractionLayer*> *mutableAttachments = [NSMutableArray array];
     
     normalizeLevels(serializationData.groups);
     
@@ -351,7 +347,7 @@ void normalizeLevels(NSArray<KdbGroup*> *groups) {
     return ret;
 }
 
-+ (Node*)kdbEntryToRecordNode:(KdbEntry*)entry parent:(Node*)parent attachments:(NSMutableArray<DatabaseAttachment*>*)attachments {
++ (Node*)kdbEntryToRecordNode:(KdbEntry*)entry parent:(Node*)parent attachments:(NSMutableArray<KeePassAttachmentAbstractionLayer*>*)attachments {
     NodeFields* fields = [[NodeFields alloc] initWithUsername:entry.username
                                                           url:entry.url
                                                      password:entry.password
@@ -364,7 +360,11 @@ void normalizeLevels(NSArray<KdbGroup*> *groups) {
     
     if(entry.binaryFileName.length) {
         NSInputStream* str = [NSInputStream inputStreamWithData:entry.binaryData];
-        DatabaseAttachment *dbAttachment = [[DatabaseAttachment alloc] initWithStream:str protectedInMemory:NO compressed:NO];
+        
+        KeePassAttachmentAbstractionLayer *dbAttachment = [[KeePassAttachmentAbstractionLayer alloc] initWithStream:str
+                                                                               length:entry.binaryData.length
+                                                                    protectedInMemory:NO
+                                                                           compressed:NO];
         [attachments addObject:dbAttachment];
         fields.attachments[entry.binaryFileName] = dbAttachment;
     }

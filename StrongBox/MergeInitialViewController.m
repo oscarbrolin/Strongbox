@@ -16,42 +16,37 @@
 @implementation MergeInitialViewController
 
 - (BOOL)shouldAutorotate {
-    if ( UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad ) {
-        return YES; /* Device is iPad */
-    }
-    else {
-        return NO;
-    }
+    return UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad;
 }
 
 - (UIInterfaceOrientationMask)supportedInterfaceOrientations {
-    if ( UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad ) {
-        return UIInterfaceOrientationMaskAll; /* Device is iPad */
-    }
-    else {
-        return UIInterfaceOrientationMaskPortrait;
-    }
+    return UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad ? UIInterfaceOrientationMaskAll : UIInterfaceOrientationMaskPortrait;
 }
 
 - (IBAction)onUnlock:(id)sender {
-    IOSCompositeKeyDeterminer* determiner = [IOSCompositeKeyDeterminer determinerWithViewController:self database:self.firstMetadata isAutoFillOpen:NO isAutoFillQuickTypeOpen:NO biometricPreCleared:NO noConvenienceUnlock:NO];
+    IOSCompositeKeyDeterminer* determiner = [IOSCompositeKeyDeterminer determinerWithViewController:self 
+                                                                                           database:self.firstMetadata
+                                                                                     isAutoFillOpen:NO
+                                                         transparentAutoFillBackgroundForBiometrics:NO
+                                                                                biometricPreCleared:NO
+                                                                                noConvenienceUnlock:NO];
     [determiner getCredentials:^(GetCompositeKeyResult result, CompositeKeyFactors * _Nullable factors, BOOL fromConvenience, NSError * _Nullable error) {
         if (result == kGetCompositeKeyResultSuccess) {
-            DatabaseUnlocker* unlocker = [DatabaseUnlocker unlockerForDatabase:self.firstMetadata viewController:self forceReadOnly:NO isAutoFillOpen:NO offlineMode:YES];
-            [unlocker unlockLocalWithKey:factors keyFromConvenience:fromConvenience completion:^(UnlockDatabaseResult result, Model * _Nullable model, NSError * _Nullable innerStreamError, NSError * _Nullable error) {
-                if ( innerStreamError ) {
-                    [self displayError:error];
-                }
-                else {
+            DatabaseUnlocker* unlocker = [DatabaseUnlocker unlockerForDatabase:self.firstMetadata viewController:self forceReadOnly:NO isNativeAutoFillAppExtensionOpen:NO offlineMode:YES];
+            [unlocker unlockLocalWithKey:factors keyFromConvenience:fromConvenience completion:^(UnlockDatabaseResult result, Model * _Nullable model, NSError * _Nullable error) {
+
+
+
+
                     [self onUnlockDone:result model:model error:error];
-                }
+
             }];
         }
         else if (result == kGetCompositeKeyResultError) {
             [self displayError:error];
         }
         else if (result == kGetCompositeKeyResultDuressIndicated) {
-            [DuressActionHelper performDuressAction:self database:self.firstMetadata isAutoFillOpen:NO completion:^(UnlockDatabaseResult result, Model * _Nullable model, NSError * _Nullable innerStreamError, NSError * _Nullable error) {
+            [DuressActionHelper performDuressAction:self database:self.firstMetadata isAutoFillOpen:NO completion:^(UnlockDatabaseResult result, Model * _Nullable model, NSError * _Nullable error) {
                 [self onUnlockDone:result model:model error:error];
             }];
         }
@@ -72,7 +67,7 @@
     }
     else if (result == kUnlockDatabaseResultIncorrectCredentials) {
         
-        NSLog(@"INCORRECT CREDENTIALS - kUnlockDatabaseResultIncorrectCredentials");
+        slog(@"INCORRECT CREDENTIALS - kUnlockDatabaseResultIncorrectCredentials");
     }
     else if (result == kUnlockDatabaseResultError) {
         [self displayError:error];

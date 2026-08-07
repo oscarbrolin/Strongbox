@@ -37,6 +37,9 @@
 @property (weak, nonatomic) IBOutlet UISwitch *switchReadOnly;
 @property (weak, nonatomic) IBOutlet UITableViewCell *cellYubiKey;
 
+@property (weak, nonatomic) IBOutlet UITableViewCell *cellRenameLocalFile;
+@property (weak, nonatomic) IBOutlet UISwitch *switchRenameLocalFile;
+
 @property (weak, nonatomic) IBOutlet UITableViewCell *cellAllowEmpty;
 @property (weak, nonatomic) IBOutlet UISwitch *switchAllowEmpty;
 
@@ -53,6 +56,8 @@
 @property (weak, nonatomic) IBOutlet UIProgressView *progressStrength;
 @property (weak, nonatomic) IBOutlet UILabel *labelStrength;
 
+@property (readonly) BOOL showStrength;
+@property BOOL allowEmptyOrNoPasswordEntry; 
 @end
 
 @implementation CASGTableViewController
@@ -70,9 +75,12 @@
 - (void)viewDidLoad {
     [super viewDidLoad];
   
+    self.allowEmptyOrNoPasswordEntry = AppPreferences.sharedInstance.allowEmptyOrNoPasswordEntry;
+    
     self.navigationController.presentationController.delegate = self;
     [self setupUi];
     
+    self.switchRenameLocalFile.on = YES;
     self.selectedName = self.initialName;
     self.selectedFormat = self.initialFormat;
     
@@ -84,8 +92,10 @@
     
     self.switchReadOnly.on = self.initialReadOnly;
     
-    self.textFieldName.text = self.selectedName.length ? self.selectedName : DatabasePreferences.suggestedDatabaseNameUsingDeviceName;
-  
+    if ( self.mode != kCASGModeSetCredentials && self.mode != kCASGModeGetCredentials) {
+        self.textFieldName.text = self.selectedName.length ? self.selectedName : DatabasePreferences.suggestedNewDatabaseName;
+    }
+    
     self.textFieldPassword.font = FontManager.sharedInstance.easyReadFont;
     self.textFieldConfirmPassword.font = FontManager.sharedInstance.easyReadFont;
     
@@ -93,6 +103,8 @@
 }
 
 - (void)setupUi {
+    self.navigationItem.prompt = self.initialName ? self.initialName : nil;
+
     if(self.mode == kCASGModeCreate || self.mode == kCASGModeCreateExpress) {
         [self setTitle:NSLocalizedString(@"casg_create_database_action", @"Create Database")];
         [self.buttonDone setAccessibilityLabel:NSLocalizedString(@"casg_create_action", @"Create")];
@@ -132,7 +144,9 @@
                             forControlEvents:UIControlEventEditingChanged];
     
     self.textFieldPassword.delegate = self;
-    self.textFieldPassword.enablesReturnKeyAutomatically = !AppPreferences.sharedInstance.allowEmptyOrNoPasswordEntry;
+    self.textFieldPassword.enablesReturnKeyAutomatically = !self.allowEmptyOrNoPasswordEntry;
+    
+
     
     self.textFieldConfirmPassword.delegate = self;
     
@@ -156,7 +170,7 @@
     [self addShowHideToTextField:self.textFieldConfirmPassword tag:2];
     
     self.textFieldPassword.placeholder =
-        (self.mode == kCASGModeGetCredentials || AppPreferences.sharedInstance.allowEmptyOrNoPasswordEntry) ?
+        (self.mode == kCASGModeGetCredentials || self.allowEmptyOrNoPasswordEntry) ?
             NSLocalizedString(@"casg_text_field_placeholder_password", @"Password") :
             NSLocalizedString(@"casg_text_field_placeholder_password_required", @"Password (Required)");
 }
@@ -165,12 +179,8 @@
     [super viewDidAppear:animated];
     
     if(self.mode == kCASGModeCreate || self.mode == kCASGModeCreateExpress) {
-        if([self nameIsValid]) {
-            [self.textFieldPassword becomeFirstResponder];
-        }
-        else {
-            [self.textFieldName becomeFirstResponder];
-        }
+        [self.textFieldName becomeFirstResponder];
+        [self.textFieldName selectAll:nil];
     }
     else if (self.mode == kCASGModeAddExisting || self.mode == kCASGModeRenameDatabase) {
         [self.textFieldName becomeFirstResponder];
@@ -194,7 +204,10 @@
 }
 
 - (IBAction)onDone:(id)sender {
-    self.selectedName = [DatabasePreferences trimDatabaseNickName:self.textFieldName.text];
+    if ( self.mode != kCASGModeSetCredentials && self.mode != kCASGModeGetCredentials) {
+        self.selectedName = [DatabasePreferences trimDatabaseNickName:self.textFieldName.text];
+    }
+    
     self.selectedPassword = self.textFieldPassword.text;
     
     if(self.selectedPassword.length != 0 || self.mode == kCASGModeAddExisting || self.mode == kCASGModeRenameDatabase) {
@@ -222,7 +235,7 @@
                          message:NSLocalizedString(@"casg_question_message_empty_password", @"You have left the password field empty. This can be interpreted in two ways. Select the interpretation you want.")
                defaultButtonText:NSLocalizedString(@"casg_question_option_empty", @"Empty Password")
                 secondButtonText:NSLocalizedString(@"casg_question_option_none", @"No Password")
-                          action:^(int response) {
+                      completion:^(int response) {
                               if(response == 0) {
                                   self.selectedPassword = @"";
                                   [self checkKeyFileForCommonMistake];
@@ -248,8 +261,8 @@
             NSString* option1 = NSLocalizedString(@"casg_key_file_correct_yes_key_file_correct", @"Yes, the key file is correct");
             NSString* option2 = NSLocalizedString(@"casg_key_file_correct_no_no_key_file", @"No, I don't use a key file");
                                 
-            [Alerts twoOptionsWithCancel:self title:title message:message defaultButtonText:option1 secondButtonText:option2 action:^(int response) {
-                NSLog(@"%d", response);
+            [Alerts twoOptionsWithCancel:self title:title message:message defaultButtonText:option1 secondButtonText:option2 completion:^(int response) {
+                slog(@"%d", response);
                 
                 if (response == 0) {
                     [self moveToDoneOrNext];
@@ -279,7 +292,7 @@
         NSError* error;
         NSString* bookmark = [BookmarksHelper getBookmarkFromUrl:self.selectedKeyFileUrl readOnly:YES error:&error];
         if (error) {
-            NSLog(@"Error: Getting bookmark for Key File = [%@]", error);
+            slog(@"Error: Getting bookmark for Key File = [%@]", error);
             self.onDone(NO, nil);
             return;
         }
@@ -292,6 +305,7 @@
     creds.oneTimeKeyFileData = self.selectedOneTimeKeyFileData;
     creds.format = self.selectedFormat;
     creds.readOnly = self.switchReadOnly.on;
+    creds.renameFileToMatch = self.switchRenameLocalFile.on && self.showFileRenameOption;
     creds.yubiKeyConfig = self.selectedYubiKeyConfig;
     
     self.onDone(YES, creds);
@@ -303,6 +317,8 @@
                                                                 self.selectedFormat == kKeePass ||
                                                                 self.selectedFormat == kFormatUnknown;
 
+    [self cell:self.cellStrength setHidden:!self.showStrength];
+    
     if(self.mode == kCASGModeAddExisting || self.mode == kCASGModeRenameDatabase) {
         [self cell:self.cellKeyFile setHidden:YES];
         [self cell:self.cellYubiKey setHidden:YES];
@@ -311,7 +327,8 @@
         [self cell:self.cellConfirmPassword setHidden:YES];
         [self cell:self.cellReadOnly setHidden:YES];
         [self cell:self.cellAllowEmpty setHidden:YES];
-        [self cell:self.cellStrength setHidden:YES];
+        
+        [self cell:self.cellRenameLocalFile setHidden:self.mode != kCASGModeRenameDatabase || !self.showFileRenameOption];
     }
     else if(self.mode == kCASGModeCreate || self.mode == kCASGModeCreateExpress) {
         [self cell:self.cellDatabaseName setHidden:!(self.mode == kCASGModeCreate || self.mode == kCASGModeCreateExpress)];
@@ -322,6 +339,7 @@
         
         [self cell:self.cellFormat setHidden:self.mode == kCASGModeCreateExpress];
         [self cell:self.cellReadOnly setHidden:YES];
+        [self cell:self.cellRenameLocalFile setHidden:YES];
         
         [self cell:self.cellAllowEmpty setHidden:self.mode == kCASGModeCreateExpress || !showAllowEmpty];
     }
@@ -331,6 +349,7 @@
         [self cell:self.cellKeyFile setHidden:self.initialFormat == kPasswordSafe];
         [self cell:self.cellYubiKey setHidden:![self yubiKeyAvailable:self.initialFormat]];
         [self cell:self.cellReadOnly setHidden:YES];
+        [self cell:self.cellRenameLocalFile setHidden:YES];
         
         [self cell:self.cellAllowEmpty setHidden:!showAllowEmpty];
     }
@@ -341,10 +360,10 @@
         [self cell:self.cellConfirmPassword setHidden:YES];
         [self cell:self.cellKeyFile setHidden:self.initialFormat == kPasswordSafe];
         [self cell:self.cellYubiKey setHidden:![self yubiKeyAvailable:self.initialFormat]];
-        [self cell:self.cellStrength setHidden:YES];
+        [self cell:self.cellRenameLocalFile setHidden:YES];
     }
     
-    if ( AppPreferences.sharedInstance.disableReadOnlyToggles ) {
+    if ( AppPreferences.sharedInstance.databasesAreAlwaysReadOnly ) {
         [self cell:self.cellReadOnly setHidden:YES];
     }
     
@@ -502,9 +521,16 @@
     [self validateUi];
 }
 
+- (BOOL)showStrength {
+    return self.mode != kCASGModeAddExisting && self.mode != kCASGModeRenameDatabase && self.mode != kCASGModeGetCredentials;
+}
+
 - (void)textFieldPasswordDidChange:(id)sender {
     [self validateUi];
-    [self bindStrength];
+
+    if ( self.showStrength ) {
+        [self bindStrength];
+    }
 }
 
 - (void)textFieldConfirmPasswordDidChange:(id)sender {
@@ -556,21 +582,9 @@
     UIImage *concealed;
     UIImage *revealed;
     
-    if (@available(iOS 13.0, *)) {
-        concealed = [UIImage systemImageNamed:@"eye"];
-        revealed = [UIImage systemImageNamed:@"eye.slash"];
-    }
-    else {
-        concealed = [UIImage imageNamed:@"visible"];
-        revealed = [UIImage imageNamed:@"invisible"];
+    concealed = [UIImage systemImageNamed:@"eye"];
+    revealed = [UIImage systemImageNamed:@"eye.slash"];
 
-        [checkbox setAdjustsImageWhenHighlighted:TRUE];
-        checkbox.imageEdgeInsets = UIEdgeInsetsMake(0, -8, 0, 0); 
-                                                                  
-                                                                  
-
-    }
-    
     [checkbox setImage:concealed forState:UIControlStateNormal];
     [checkbox setImage:revealed forState:UIControlStateSelected];
     [checkbox setImage:revealed forState:UIControlStateHighlighted];
@@ -587,9 +601,9 @@
 
 - (void)toggleShowHidePasswordText:(UIButton*)sender {
     if ( sender.selected ){
-        [sender setSelected:FALSE];
+        [sender setSelected:NO];
     } else {
-        [sender setSelected:TRUE];
+        [sender setSelected:YES];
     }
     
     if(sender.tag == 1) {
@@ -631,7 +645,7 @@
                                     self.initialFormat == kFormatUnknown ||
                                     (self.initialFormat == kKeePass1 && [self keyFileIsSet]);
     
-    return self.textFieldPassword.text.length || (formatAllowsEmptyOrNone && AppPreferences.sharedInstance.allowEmptyOrNoPasswordEntry);
+    return (formatAllowsEmptyOrNone && self.allowEmptyOrNoPasswordEntry) || self.textFieldPassword.text.length;
 }
 
 - (BOOL)canSet {
@@ -649,7 +663,7 @@
 
 - (BOOL)passwordIsValid {
     BOOL formatAllowsEmptyOrNone = self.selectedFormat != kPasswordSafe;
-    BOOL preferenceAllowsEmpty = AppPreferences.sharedInstance.allowEmptyOrNoPasswordEntry;
+    BOOL preferenceAllowsEmpty = self.allowEmptyOrNoPasswordEntry;
     
     return (preferenceAllowsEmpty && formatAllowsEmptyOrNone) ? YES : self.textFieldPassword.text.length > 0;
 }
@@ -665,12 +679,13 @@
 
 - (IBAction)onAdvancedChanged:(id)sender {
     AppPreferences.sharedInstance.allowEmptyOrNoPasswordEntry = self.switchAllowEmpty.on;
+    self.allowEmptyOrNoPasswordEntry = AppPreferences.sharedInstance.allowEmptyOrNoPasswordEntry;
     
     [self bindUi];
 }
 
 - (void)bindAdvanced {
-    self.switchAllowEmpty.on = AppPreferences.sharedInstance.allowEmptyOrNoPasswordEntry;
+    self.switchAllowEmpty.on = self.allowEmptyOrNoPasswordEntry;
 }
 
 - (void)bindYubiKey {

@@ -11,8 +11,9 @@
 #import "Utils.h"
 #import "ConcurrentMutableDictionary.h"
 
-#if TARGET_OS_IPHONE
-#else
+#if TARGET_OS_IOS || TARGET_OS_WATCH
+
+#elif TARGET_OS_OSX
 #import "Settings.h"
 #endif
 
@@ -26,114 +27,126 @@ static IMAGE_TYPE_PTR kSmallLockImage;
 static NSArray<IMAGE_TYPE_PTR> *kKeePassIconSet;
 static NSArray<IMAGE_TYPE_PTR> *kKeePassiOS13SFIconSet;
 static NSArray<IMAGE_TYPE_PTR> *kKeePassXCIconSet;
+static NSArray<NSString*> *kSfSymbolNames;
 
 @implementation NodeIconHelper
 
 + (void)initialize {
     if(self == [NodeIconHelper class]) {
-#if TARGET_OS_IPHONE
+#if TARGET_OS_IOS || TARGET_OS_WATCH
         kPwSafeFolderImage = [UIImage imageNamed:@"folder"];
         kPwSafeRecordImage = [UIImage imageNamed:@"document"];
-#else
+#elif TARGET_OS_OSX
         kFolderImage = [NSImage imageNamed:@"blue-folder-cropped-256"];
         kSmallYellowFolderImage = [NSImage imageNamed:@"Places-folder-yellow-icon-32"];
         kSmallLockImage = [NSImage imageNamed:@"lock-48"];
 #endif
-    }
-}
-
-static NSArray<IMAGE_TYPE_PTR>* loadKeePassiOS13SFIconSet() {
-    if (@available(iOS 13.0, *)) {
-        NSArray<NSString*>* names = @[@"lock",
-                                      @"globe",
-                                      @"exclamationmark.triangle",
-                                      @"hifispeaker",
-                                      @"pin.circle",
-                                      @"message.circle",
-                                      @"cube.box",
-                                      @"square.and.pencil",
-                                      @"exclamationmark.bubble",
-                                      @"creditcard",
-                                      @"person.crop.square",
-                                      @"camera",
-                                      @"antenna.radiowaves.left.and.right",
-                                      @"square.stack.3d.up",
-                                      @"power",
-                                      @"doc.text.viewfinder",
-                                      @"star.circle",
-                                      @"smallcircle.circle",
-                                      @"tv",
-                                      @"envelope.open",
-                                      @"gear",
-                                      @"doc.on.clipboard",
-                                      @"doc.plaintext",
-                                      @"doc.richtext",
-                                      @"bolt.circle",
-                                      @"envelope.badge",
-                                      @"desktopcomputer",
-                                      @"phone.circle",
-                                      @"at",
-                                      @"terminal.fill", 
-                                      @"terminal",      
-                                      @"printer",
-                                      @"perspective",
-                                      @"square",
-                                      @"wrench",
-                                      @"slider.horizontal.below.rectangle",
-                                      @"selection.pin.in.out",
-                                      @"percent",
-                                      @"uiwindow.split.2x1",
-                                      @"clock",
-                                      @"magnifyingglass.circle",
-                                      @"hexagon",
-                                      @"memories",
-                                      @"trash",
-                                      @"mappin.circle",
-                                      @"clear",
-                                      @"questionmark.circle",
-                                      @"archivebox",
-                                      @"folder",
-                                      @"folder.badge.person.crop",
-                                      @"folder.circle",
-                                      @"lock.open",
-                                      @"lock",
-                                      @"checkmark.circle",
-                                      @"pencil",
-                                      @"book.circle",
-                                      @"airplane",
-                                      @"text.justify",
-                                      @"person.badge.plus",
-                                      @"hammer",
-                                      @"house",
-                                      @"star",
-                                      @"tortoise",
-                                      @"flame",
-                                      @"burn",
-                                      @"w.square",
-                                      @"dollarsign.circle",
-                                      @"signature",
-                                      @"equal.square"];
         
-        return [names map:^id _Nonnull(NSString * _Nonnull obj, NSUInteger idx) {
-#if TARGET_OS_IPHONE
-            IMAGE_TYPE_PTR img = [UIImage systemImageNamed:obj];
-            return img ? img : [UIImage systemImageNamed:@"lock"];
-#else
-            if (@available(macOS 11.0, *)) {
-                IMAGE_TYPE_PTR img = [NSImage imageWithSystemSymbolName:obj accessibilityDescription:nil];
-                return img ? img : kSmallLockImage;
-            } else {
-                return kSmallLockImage; 
-            };
-#endif
-        }];
-    }
-    else {
-        return loadKeePassIconSet();
+        kSfSymbolNames = loadSfSymbolNames();
     }
 }
 
-static NSArray<IMAGE_TYPE_PTR>* loadKeePassXCIconSet() {
+static NSArray<NSString*>* loadSfSymbolNames(void) {
+    NSArray<NSString*>* names = @[@"lock.fill",
+                                  @"globe",
+                                  @"exclamationmark.triangle",
+                                  @"hifispeaker",
+                                  @"pin.circle",
+                                  @"message.circle",
+                                  @"cube.box",
+                                  @"square.and.pencil",
+                                  @"exclamationmark.bubble",
+                                  @"creditcard",
+                                  @"person.crop.square",
+                                  @"camera",
+                                  @"antenna.radiowaves.left.and.right",
+                                  @"square.stack.3d.up",
+                                  @"power",
+                                  @"doc.text.viewfinder",
+                                  @"star.circle",
+                                  @"smallcircle.circle",
+                                  @"tv",
+                                  @"envelope.open",
+                                  @"gear",
+                                  @"doc.on.clipboard",
+                                  @"doc.plaintext",
+                                  @"doc.richtext",
+                                  @"bolt.circle",
+                                  @"envelope.badge",
+                                  @"desktopcomputer",
+                                  @"phone.circle",
+                                  @"at",
+                                  @"terminal.fill", 
+                                  @"terminal",      
+                                  @"printer",
+                                  @"perspective",
+                                  @"square",
+                                  @"wrench",
+                                  @"slider.horizontal.below.rectangle",
+                                  @"selection.pin.in.out",
+                                  @"percent",
+                                  @"uiwindow.split.2x1",
+                                  @"clock",
+                                  @"magnifyingglass.circle",
+                                  @"hexagon",
+                                  @"memories",
+                                  @"trash.circle.fill",
+                                  @"mappin.circle",
+                                  @"clear",
+                                  @"questionmark.circle",
+                                  @"archivebox",
+                                  @"folder.fill",
+                                  @"folder.badge.person.crop",
+                                  @"folder.circle",
+                                  @"lock.open",
+                                  @"lock",
+                                  @"checkmark.circle",
+                                  @"pencil",
+                                  @"book.circle",
+                                  @"airplane",
+                                  @"text.justify",
+                                  @"person.badge.plus",
+                                  @"hammer",
+                                  @"house",
+                                  @"star",
+                                  @"tortoise",
+                                  @"flame",
+                                  @"burn",
+                                  @"w.square",
+                                  @"dollarsign.circle",
+                                  @"signature",
+                                  @"equal.square"];
+    
+    NSMutableArray *mut = names.mutableCopy;
+    
+    if (@available(iOS 15.4, macOS 12.3, *)) {
+        mut[58] = @"person.badge.key.fill";
+    }
+    
+    return mut.copy;
+}
+
+static NSArray<IMAGE_TYPE_PTR>* loadKeePassiOS13SFIconSet(void) {
+    return [kSfSymbolNames map:^id _Nonnull(NSString * _Nonnull obj, NSUInteger idx) {
+#if TARGET_OS_IOS || TARGET_OS_WATCH
+        IMAGE_TYPE_PTR img;
+        if (@available(iOS 16.0, *)) {
+            img = [[UIImage systemImageNamed:obj] imageWithConfiguration:[UIImageSymbolConfiguration configurationPreferringMonochrome]];
+        } else {
+            img = [UIImage systemImageNamed:obj];
+        }
+        
+        return img ? [img imageWithTintColor:UIColor.blueColor renderingMode:UIImageRenderingModeAlwaysTemplate] : [[UIImage systemImageNamed:@"lock.fill"] imageWithTintColor:UIColor.blueColor renderingMode:UIImageRenderingModeAlwaysTemplate];
+#elif TARGET_OS_OSX
+        IMAGE_TYPE_PTR img = [NSImage imageWithSystemSymbolName:obj accessibilityDescription:nil];
+        
+        return img ? img : kSmallLockImage;
+#endif
+    }];
+}
+
+
+static NSArray<IMAGE_TYPE_PTR>* loadKeePassXCIconSet(void) {
     NSArray<NSString*>* names = @[@"KPXC_C00_Password",
                                   @"KPXC_C01_Package_Network",
                                   @"KPXC_C02_MessageBox_Warning",
@@ -205,15 +218,15 @@ static NSArray<IMAGE_TYPE_PTR>* loadKeePassXCIconSet() {
                                   @"KPXC_C68_Smartphone"];
     
     return [names map:^id _Nonnull(NSString * _Nonnull obj, NSUInteger idx) {
-#if TARGET_OS_IPHONE
+#if TARGET_OS_IOS || TARGET_OS_WATCH
         return [UIImage imageNamed:obj];
-#else
+#elif TARGET_OS_OSX
         return [NSImage imageNamed:obj];
 #endif
     }];
 }
 
-static NSArray<IMAGE_TYPE_PTR>* loadKeePassIconSet() {
+static NSArray<IMAGE_TYPE_PTR>* loadKeePassIconSet(void) {
     NSArray<NSString*>* names = @[@"C00_Password",
                                   @"C01_Package_Network",
                                   @"C02_MessageBox_Warning",
@@ -285,17 +298,24 @@ static NSArray<IMAGE_TYPE_PTR>* loadKeePassIconSet() {
                                   @"C68_Smartphone"];
     
     return [names map:^id _Nonnull(NSString * _Nonnull obj, NSUInteger idx) {
-#if TARGET_OS_IPHONE
+#if TARGET_OS_IOS || TARGET_OS_WATCH
         return [UIImage imageNamed:obj];
-#else
+#elif TARGET_OS_OSX
         return [NSImage imageNamed:obj];
 #endif
     }];
 }
 
++ (IMAGE_TYPE_PTR)defaultIcon {
+    return [NodeIconHelper getNodeIcon:NodeIcon.defaultNodeIcon];
+}
+
++ (NSString *)getSfSymbolName:(NodeIcon *)icon {
+    return icon.preset >= 0 && icon.preset < kSfSymbolNames.count ? kSfSymbolNames[icon.preset] : kSfSymbolNames[0];
+}
+
 + (IMAGE_TYPE_PTR)getIconForNode:(Node*)vm predefinedIconSet:(KeePassIconSet)predefinedIconSet format:(DatabaseFormat)format {
     return [self getIconForNode:vm predefinedIconSet:predefinedIconSet format:format large:NO];
-    
 }
 
 + (IMAGE_TYPE_PTR)getIconForNode:(Node*)vm predefinedIconSet:(KeePassIconSet)predefinedIconSet format:(DatabaseFormat)format large:(BOOL)large {
@@ -303,7 +323,7 @@ static NSArray<IMAGE_TYPE_PTR>* loadKeePassIconSet() {
 }
 
 + (IMAGE_TYPE_PTR)getNodeIcon:(NodeIcon *)icon {
-    return [self getNodeIcon:icon predefinedIconSet:kKeePassIconSetKeePassXC format:kKeePass4 isGroup:NO];
+    return [self getNodeIcon:icon predefinedIconSet:kKeePassIconSetSfSymbols format:kKeePass4 isGroup:NO];
 }
 
 + (IMAGE_TYPE_PTR)getNodeIcon:(NodeIcon *)icon predefinedIconSet:(KeePassIconSet)predefinedIconSet {
@@ -320,17 +340,12 @@ static NSArray<IMAGE_TYPE_PTR>* loadKeePassIconSet() {
 
 + (IMAGE_TYPE_PTR)getNodeIcon:(NodeIcon *)icon predefinedIconSet:(KeePassIconSet)predefinedIconSet format:(DatabaseFormat)format isGroup:(BOOL)isGroup large:(BOOL)large {
     if(format == kPasswordSafe) {
-#if TARGET_OS_IPHONE
+#if TARGET_OS_IOS || TARGET_OS_WATCH
         return isGroup ? kPwSafeFolderImage : kPwSafeRecordImage;
 #else
         if ( !large ) {
-            if ( Settings.sharedInstance.nextGenUI ) {
-                NSArray<IMAGE_TYPE_PTR>* iconSet = [NodeIconHelper getIconSet:kKeePassIconSetSfSymbols];
-                return isGroup ? iconSet[48] : iconSet[0];
-            }
-            else {
-                return isGroup ? kSmallYellowFolderImage : kSmallLockImage;
-            }
+            NSArray<IMAGE_TYPE_PTR>* iconSet = [NodeIconHelper getIconSet:kKeePassIconSetSfSymbols];
+            return isGroup ? iconSet[48] : iconSet[0];
         }
         else {
             return isGroup ? kFolderImage : kSmallLockImage;
@@ -345,7 +360,13 @@ static NSArray<IMAGE_TYPE_PTR>* loadKeePassIconSet() {
         }
 
         if(icon.isCustom) {
-            return [NodeIconHelper getCustomIcon:icon];
+            if( icon.customIconWidth != icon.customIconHeight && MIN(icon.customIconWidth, icon.customIconHeight) > 512 ) {
+                slog(@"🔴 Down Sampling icon...");
+                return scaleImage(icon.customIcon, CGSizeMake(192, 192));
+            }
+            else {
+                return icon.customIcon;
+            }
         }
         else if(icon.preset >= 0 && icon.preset < iconSet.count) {
             return iconSet[icon.preset];
@@ -354,51 +375,6 @@ static NSArray<IMAGE_TYPE_PTR>* loadKeePassIconSet() {
             return isGroup ? iconSet[48] : iconSet[0];
         }
     }
-}
-
-+ (IMAGE_TYPE_PTR)getCustomIcon:(NodeIcon *)icon {
-    if ( icon.cachedImage ) {
-        
-        return icon.cachedImage;
-    }
-
-    @try {
-        if ( !icon.isCustom || icon.custom == nil ) {
-            return nil;
-        }
-            
-        
-        
-    #if TARGET_OS_IPHONE
-        IMAGE_TYPE_PTR img = [UIImage imageWithData:icon.custom];
-    #else
-        IMAGE_TYPE_PTR img = [[NSImage alloc] initWithData:icon.custom];
-    #endif
-
-        if(!img) {
-            return nil;
-        }
-        
-        IMAGE_TYPE_PTR image;    
-        if( image.size.height != image.size.width && MIN(image.size.width, image.size.height) > 512 ) {
-            NSLog(@"🔴 Down Sampling icon...");
-            image = scaleImage(image, CGSizeMake(192, 192));
-        }
-        
-        image = image ? image : img;
-        
-        if ( image ) {
-            icon.cachedImage = image;
-        }
-        else {
-            NSLog(@"WARNWARN: Couldn't Load Image!");
-        }
-        
-        return image;
-    } @catch (NSException *exception) {
-        NSLog(@"Exception in getCustomIcon: [%@]", exception);
-        return nil;
-    } @finally { }
 }
 
 + (NSArray<IMAGE_TYPE_PTR>*)getKeePassIconSet {

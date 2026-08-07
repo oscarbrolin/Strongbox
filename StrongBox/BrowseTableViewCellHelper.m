@@ -12,9 +12,17 @@
 #import "BrowseItemTotpCell.h"
 #import "NSDate+Extensions.h"
 #import "Utils.h"
+#import "Constants.h"
+
+#ifndef IS_APP_EXTENSION
+#import "Strongbox-Swift.h"
+#else
+#import "Strongbox_Auto_Fill-Swift.h"
+#endif
 
 static NSString* const kBrowseItemCell = @"BrowseItemCell";
 static NSString* const kBrowseItemTotpCell = @"BrowseItemTotpCell";
+static NSString* const kBrowseQuickViewItemCell = @"BrowseQuickViewItemCell";
 
 @interface BrowseTableViewCellHelper ()
 
@@ -33,8 +41,35 @@ static NSString* const kBrowseItemTotpCell = @"BrowseItemTotpCell";
         
         [self.tableView registerNib:[UINib nibWithNibName:kBrowseItemCell bundle:nil] forCellReuseIdentifier:kBrowseItemCell];
         [self.tableView registerNib:[UINib nibWithNibName:kBrowseItemTotpCell bundle:nil] forCellReuseIdentifier:kBrowseItemTotpCell];
+        [self.tableView registerNib:[UINib nibWithNibName:kBrowseQuickViewItemCell bundle:nil] forCellReuseIdentifier:kBrowseQuickViewItemCell];
+        
+        if (@available(iOS 16.0, *)) {
+            [self.tableView registerClass:TwoFactorCodeTableViewCell.class forCellReuseIdentifier:TwoFactorCodeTableViewCell.CellIdentifier];
+        }
     }
+    
     return self;
+}
+
+- (UITableViewCell*)getTagCell:(NSIndexPath*)indexPath tag:(NSString*)tag {
+    UITableViewCell* cell = [self.tableView dequeueReusableCellWithIdentifier:kBrowseQuickViewItemCell forIndexPath:indexPath];
+    
+    cell.textLabel.text = tag;
+    
+    NSArray<Node*>* items = [self.viewModel entriesWithTag:tag];
+    
+    if ( items.count == 1 ) {
+        cell.detailTextLabel.text = [NSString stringWithFormat:NSLocalizedString(@"generic_single_item_singular_fmt", @"%@ Item"), @(items.count).stringValue];
+    }
+    else {
+        cell.detailTextLabel.text = [NSString stringWithFormat:NSLocalizedString(@"generic_number_of_items_plural_fmt", @"%@ Items"), @(items.count).stringValue];
+    }
+    
+    cell.imageView.image = [UIImage systemImageNamed:@"tag.fill"];
+    cell.imageView.tintColor = nil;
+    cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+    
+    return cell;
 }
 
 - (UITableViewCell *)getBrowseCellForNode:(Node*)node
@@ -94,12 +129,32 @@ static NSString* const kBrowseItemTotpCell = @"BrowseItemTotpCell";
 
 
     if(showLargeTotpCell) {
-        BrowseItemTotpCell* cell = [self.tableView dequeueReusableCellWithIdentifier:kBrowseItemTotpCell forIndexPath:indexPath];
         NSString* subtitle = [self getBrowseItemSubtitle:node subtitleOverride:subtitleOverride];
 
-        [cell setItem:title subtitle:subtitle icon:icon expired:node.expired otpToken:node.fields.otpToken];
-        
-        return cell;
+        if (@available(iOS 16.0, *)) {
+            TwoFactorCodeTableViewCell* cell = [self.tableView dequeueReusableCellWithIdentifier:TwoFactorCodeTableViewCell.CellIdentifier forIndexPath:indexPath];
+            
+            [cell setContentWithTotp:node.fields.otpToken
+                   easyReadSeparator:AppPreferences.sharedInstance.twoFactorEasyReadSeparator
+                   hideCountdownDigits:AppPreferences.sharedInstance.twoFactorHideCountdownDigits
+                          updateMode:TwoFactorUpdateModeCentralTimerNotification
+                               title:title
+                            subtitle:subtitle
+                                icon:self.viewModel.metadata.hideIconInBrowse ? nil : icon
+                            onQrCode:nil];
+            
+            cell.contentView.alpha = node.expired ? 0.35 : 1.0f;
+            cell.accessoryType = UITableViewCellAccessoryNone;
+            
+            return cell;
+        }
+        else {
+            BrowseItemTotpCell* cell = [self.tableView dequeueReusableCellWithIdentifier:kBrowseItemTotpCell forIndexPath:indexPath];
+            
+            [cell setItem:title subtitle:subtitle icon:icon expired:node.expired otpToken:node.fields.otpToken hideIcon:self.viewModel.metadata.hideIconInBrowse];
+            
+            return cell;
+        }
     }
     else {
         BrowseItemCell* cell = [self.tableView dequeueReusableCellWithIdentifier:kBrowseItemCell forIndexPath:indexPath];
@@ -108,29 +163,24 @@ static NSString* const kBrowseItemTotpCell = @"BrowseItemTotpCell";
         
         NSDictionary<NSNumber*, UIColor*> *flagTintColors = @{};
         
-        NSString* briefAudit = self.viewModel.metadata.showFlagsInBrowse && !noFlags ? [self.viewModel getQuickAuditVeryBriefSummaryForNode:node.uuid] : @"";
-        NSArray* flags = self.viewModel.metadata.showFlagsInBrowse && !noFlags ? [self getFlags:node isFlaggedByAudit:briefAudit.length tintColors:&flagTintColors] : @[];
+        NSString* briefAudit = !noFlags ? [self.viewModel getQuickAuditVeryBriefSummaryForNode:node.uuid] : @"";
+        NSArray* flags = !noFlags ? [self getFlags:node isFlaggedByAudit:briefAudit.length tintColors:&flagTintColors] : @[];
         
         if(node.isGroup) {
             BOOL isRecycleBin = (self.viewModel.database.recycleBinEnabled && node == self.viewModel.database.recycleBinNode);
 
             NSString* childCount = self.viewModel.metadata.showChildCountOnFolderInBrowse && showGroupChildCount ? [NSString stringWithFormat:@"(%lu)", (unsigned long)node.children.count] : @"";
-                
-            UIColor *textColor = nil;
-
-
-
-            
+                            
             [cell setGroup:title
                       icon:icon
                 childCount:childCount
                     italic:isRecycleBin
              groupLocation:groupLocation
-                 tintColor:isRecycleBin ? ColorFromRGB(0x25be35) : nil 
+                 tintColor:isRecycleBin ? Constants.recycleBinTintColor : nil
                      flags:flags
             flagTintColors:flagTintColors
                   hideIcon:self.viewModel.metadata.hideIconInBrowse
-                 textColor:textColor];
+                 textColor:isRecycleBin ? Constants.recycleBinTintColor : nil];
         }
         else {
             NSString* subtitle = [self getBrowseItemSubtitle:node subtitleOverride:subtitleOverride];
@@ -142,7 +192,7 @@ static NSString* const kBrowseItemTotpCell = @"BrowseItemTotpCell";
                       flags:flags
              flagTintColors:flagTintColors
                     expired:node.expired
-                   otpToken:self.viewModel.metadata.hideTotpInBrowse ? nil : node.fields.otpToken
+                   otpToken:node.fields.otpToken
                    hideIcon:self.viewModel.metadata.hideIconInBrowse
                       audit:briefAudit];
             
@@ -154,48 +204,23 @@ static NSString* const kBrowseItemTotpCell = @"BrowseItemTotpCell";
 }
 
 - (NSArray<UIImage*>*)getFlags:(Node*)node isFlaggedByAudit:(BOOL)isFlaggedByAudit tintColors:(NSDictionary<NSNumber*, UIColor*>**)tintColors {
-    if ( !self.viewModel.metadata.showFlagsInBrowse ) {
-        if(*tintColors) {
-            *tintColors = @{};
-        }
-        return @[];
-    }
-
     NSMutableArray<UIImage*> *flags = NSMutableArray.array;
     NSMutableDictionary<NSNumber*, UIColor*> *tintsMap = NSMutableDictionary.dictionary;
     
     if([self.viewModel isFavourite:node.uuid]) {
-        UIImage* image;
-        if (@available(iOS 13.0, *)) {
-           image = [UIImage systemImageNamed:@"star.fill"];
-        }
-        else {
-           image = [UIImage imageNamed:@"pin"];
-        }
+        UIImage* image = [UIImage systemImageNamed:@"star.fill"];
 
         tintsMap[@(flags.count)] = UIColor.systemYellowColor;
         [flags addObject:image];
     }
 
     if(!node.isGroup && node.fields.attachments.count) {
-        UIImage* image;
-        if (@available(iOS 13.0, *)) {
-            image = [UIImage systemImageNamed:@"paperclip"];
-        }
-        else {
-            image = [UIImage imageNamed:@"attach"];
-        }
+        UIImage* image = [UIImage systemImageNamed:@"paperclip"];
         [flags addObject:image];
     }
     
     if(!node.isGroup && isFlaggedByAudit) {
-        UIImage* auditImage;
-        if (@available(iOS 13.0, *)) {
-            auditImage = [UIImage systemImageNamed:@"checkmark.shield"];
-        }
-        else {
-            auditImage = [UIImage imageNamed:@"security_checked"];
-        }
+        UIImage* auditImage = [UIImage systemImageNamed:@"checkmark.shield"];
         
         if(tintColors) {
             tintsMap[@(flags.count)] = UIColor.systemOrangeColor;
@@ -241,7 +266,7 @@ static NSString* const kBrowseItemTotpCell = @"BrowseItemTotpCell";
             return self.viewModel.metadata.viewDereferencedFields ? [self dereference:node.fields.url node:node] : node.fields.url;
             break;
         case kBrowseItemSubtitleEmail:
-            return node.fields.email;
+            return self.viewModel.metadata.viewDereferencedFields ? [self dereference:node.fields.email node:node] : node.fields.email;
             break;
         case kBrowseItemSubtitleModified:
             return node.fields.modified ? node.fields.modified.friendlyDateTimeString : @"";

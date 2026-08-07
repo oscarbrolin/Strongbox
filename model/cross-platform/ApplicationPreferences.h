@@ -11,16 +11,23 @@
 
 #import "PasswordGenerationConfig.h"
 #import "PasswordStrengthConfig.h"
+#import "SBLog.h"
 
 NS_ASSUME_NONNULL_BEGIN
+
+typedef enum : NSUInteger {
+    kAppAppearanceSystem,
+    kAppAppearanceLight,
+    kAppAppearanceDark,
+} AppAppearance;
 
 @protocol ApplicationPreferences <NSObject>
 
 @property (nullable) NSData* duressDummyData;
-@property BOOL databasesAreAlwaysReadOnly;
 @property (nonatomic, strong) PasswordGenerationConfig* passwordGenerationConfig;
 @property PasswordStrengthConfig* passwordStrengthConfig;
 @property BOOL checkPinYin;
+@property BOOL atomicSftpWrite;
 
 @property (nullable) NSDate* lastEntitlementCheckAttempt;
 @property NSUInteger numberOfEntitlementCheckFails;
@@ -31,8 +38,45 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)setPro:(BOOL)value;
 
 @property BOOL stripUnusedIconsOnSave;
+@property BOOL stripUnusedHistoricalIcons;
 @property BOOL useIsolatedDropbox;
-@property (readonly) BOOL expressUpdateSyncPerfImprovementEnabled;
+
+@property BOOL addLegacySupplementaryTotpCustomFields;
+@property BOOL addOtpAuthUrl;
+
+@property (nullable) NSDate* lastQuickTypeMultiDbRegularClear;
+
+@property BOOL databasesAreAlwaysReadOnly;
+@property BOOL disableExport;
+@property BOOL disableCopyTo;
+@property BOOL disableMakeVisibleInFiles;
+@property BOOL disablePrinting;
+
+@property (nullable) NSString* businessOrganisationName;
+
+@property BOOL autoFillWroteCleanly;
+
+@property BOOL runAsWiFiSyncSourceDevice;
+@property (nullable) NSString* wiFiSyncServiceName;
+
+@property (nullable) NSString* lastWiFiSyncPasscodeError;
+@property (nullable) NSString* wiFiSyncPasscode;
+
+@property BOOL disableWiFiSyncClientMode;
+@property BOOL disableNetworkBasedFeatures;
+
+@property BOOL cloudKitZoneCreated;
+@property BOOL changeNotificationsSubscriptionCreated;
+@property (nullable) NSDate* lastCloudKitRefresh;
+
+@property AppAppearance appAppearance; 
+
+@property BOOL useOneDriveUSGovCloudInstance;
+@property BOOL associatedWebsites;
+@property BOOL twoFactorEasyReadSeparator; 
+@property BOOL twoFactorHideCountdownDigits; 
+
+@property BOOL disableCustomViews; 
 
 @end
 

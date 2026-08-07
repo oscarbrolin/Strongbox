@@ -11,10 +11,17 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+typedef enum : NSUInteger {
+    kAsyncJobTypeSerializeOnly,
+    kAsyncJobTypeSyncOnly,
+    kAsyncJobTypeBoth,
+} AsyncJobType;
+
 @interface AsyncUpdateJob : NSObject
 
 @property DatabaseModel* snapshot;
 @property (nonatomic, copy, nullable) AsyncUpdateCompletion completion;
+@property AsyncJobType jobType;
 
 @end
 

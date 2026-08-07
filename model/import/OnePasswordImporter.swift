@@ -1,5 +1,5 @@
 //
-//  File.swift
+//  OnePasswordImporter.swift
 //  MacBox
 //
 //  Created by Strongbox on 19/10/2021.
@@ -12,55 +12,21 @@ import Foundation
 
 enum OnePasswordImporterError: Error {
     case CouldNotConvertStringToData
+    case CouldNotDecodeSshKey
     case UnknownRecordType(typeString: String)
 }
 
-class OnePasswordImporter: NSObject {
+class OnePasswordImporter: NSObject, Importer {
+    var allowedFileTypes: [String] = ["1pif"]
+
     static let magicSplitter: String = "***5642bee8-a5ff-11dc-8314-0800200c9a66***"
 
-    fileprivate static func extractAttachment(_ attachment: Dictionary<String, FileWrapper>.Element) -> [String: Data] {
-        let valWrapperDirectory = attachment.value
-
-        var ret: [String: Data] = [:]
-
-        guard valWrapperDirectory.isDirectory, let attachmentFileWrappers = valWrapperDirectory.fileWrappers else {
-            return ret
-        }
-
-        for attachmentFileWrapper in attachmentFileWrappers {
-            if attachmentFileWrapper.value.isRegularFile {
-                if let data = attachmentFileWrapper.value.regularFileContents {
-                    let filename = attachmentFileWrapper.key
-                    ret[filename] = data
-
-                    NSLog("Found: [%@] => %@", filename, String(describing: data))
-                }
-            }
-        }
-
-        return ret
-    }
-
-    fileprivate static func findAttachments(_ fileWrappers: [String: FileWrapper]) -> [String: [String: Data]] {
-        guard let attachmentsIdx = fileWrappers.keys.firstIndex(where: { key in
-            key == "attachments"
-        }), let attachments = fileWrappers[attachmentsIdx].value.fileWrappers else {
-            return [:]
-        }
-
-        var ret: [String: [String: Data]] = [:]
-
-        for attachment in attachments {
-            let key = attachment.key
-            let attachments = extractAttachment(attachment)
-            ret[key] = attachments
-        }
-
-        return ret
+    func convert(url: URL) throws -> DatabaseModel {
+        try OnePasswordImporter.convertToStrongboxNodes(url: url)
     }
 
     @objc
-    class func convertToStrongboxNodes(url: URL) throws -> Node { 
+    class func convertToStrongboxNodes(url: URL) throws -> DatabaseModel { 
         let wrapper = try FileWrapper(url: url, options: .immediate)
 
         let data: Data?
@@ -88,7 +54,7 @@ class OnePasswordImporter: NSObject {
             data = wrapper.regularFileContents
         }
 
-        if let data = data {
+        if let data {
             if let string = String(data: data, encoding: .utf8) {
                 return try convertToStrongboxNodes(text: string, attachments: attachments)
             } else {
@@ -100,20 +66,24 @@ class OnePasswordImporter: NSObject {
     }
 
     @objc
-    class func convertToStrongboxNodes(text: String, attachments: [String: [String: Data]] = [:]) throws -> Node {
-        let jsonRecords = text.components(separatedBy: magicSplitter)
+    class func convertToStrongboxNodes(text: String, attachments: [String: [String: Data]] = [:]) throws -> DatabaseModel {
+        let database = DatabaseModel(format: .keePass4,
+                                     compositeKeyFactors: .password("a"),
+                                     metadata: .withDefaultsFor(.keePass4),
+                                     root: Node.rootWithDefaultKeePassEffectiveRootGroup())
+
+        let effectiveRootGroup = database.effectiveRootGroup
+
+        let jsonRecords = text.components(separatedBy: OnePasswordImporter.magicSplitter)
 
         let records = try getRecords(jsonRecords)
 
-
+        
 
         
 
         let uniqueRecordTypes = Array(Set(records.compactMap { recordTypeByTypeName[$0.typeName ?? ""] }))
         let uniqueCategories = uniqueRecordTypes.compactMap { $0.category() }
-
-        let rot = Node.rootWithDefaultKeePassEffectiveRootGroup()
-        let effectiveRootGroup: Node = rot.childGroups.first!
 
         var categoryToNodeMap: [ItemCategory: Node] = [:]
         for category in uniqueCategories {
@@ -133,15 +103,10 @@ class OnePasswordImporter: NSObject {
         
 
         for record in records {
-            let trashed = record.trashed ?? false
-            if trashed {
-                continue
-            }
-
             let recordType = record.type
 
             if !recordTypeIsProcessable(recordType) {
-                print("Unprocessable Record Type, Ignoring: \(String(describing: record.typeName))")
+                swlog("Unprocessable Record Type, Ignoring: \(String(describing: record.typeName))")
                 continue
             }
 
@@ -155,15 +120,60 @@ class OnePasswordImporter: NSObject {
 
             if let uuid = record.uuid, let attachments = attachments[uuid] {
                 for attachment in attachments {
-                    let dbA = DatabaseAttachment(nonPerformantWith: attachment.value, compressed: true, protectedInMemory: true)
+                    let dbA = KeePassAttachmentAbstractionLayer(nonPerformantWith: attachment.value, compressed: true, protectedInMemory: true)
                     entry.fields.attachments[attachment.key] = dbA
                 }
             }
 
             parentNode.addChild(entry, keePassGroupTitleRules: true)
+
+            if let trashed = record.trashed, trashed {
+                database.recycleItems([entry])
+            }
         }
 
-        return rot
+        return database
+    }
+
+    fileprivate class func extractAttachment(_ attachment: Dictionary<String, FileWrapper>.Element) -> [String: Data] {
+        let valWrapperDirectory = attachment.value
+
+        var ret: [String: Data] = [:]
+
+        guard valWrapperDirectory.isDirectory, let attachmentFileWrappers = valWrapperDirectory.fileWrappers else {
+            return ret
+        }
+
+        for attachmentFileWrapper in attachmentFileWrappers {
+            if attachmentFileWrapper.value.isRegularFile {
+                if let data = attachmentFileWrapper.value.regularFileContents {
+                    let filename = attachmentFileWrapper.key
+                    ret[filename] = data
+
+                    swlog("Found: [%@] => %@", filename, String(describing: data))
+                }
+            }
+        }
+
+        return ret
+    }
+
+    fileprivate class func findAttachments(_ fileWrappers: [String: FileWrapper]) -> [String: [String: Data]] {
+        guard let attachmentsIdx = fileWrappers.keys.firstIndex(where: { key in
+            key == "attachments"
+        }), let attachments = fileWrappers[attachmentsIdx].value.fileWrappers else {
+            return [:]
+        }
+
+        var ret: [String: [String: Data]] = [:]
+
+        for attachment in attachments {
+            let key = attachment.key
+            let attachments = extractAttachment(attachment)
+            ret[key] = attachments
+        }
+
+        return ret
     }
 
     class func recordTypeIsProcessable(_ recordType: RecordType) -> Bool {
@@ -176,7 +186,7 @@ class OnePasswordImporter: NSObject {
         return true
     }
 
-    fileprivate static func getRecords(_ jsonRecords: [String]) throws -> [UnifiedRecord] {
+    fileprivate class func getRecords(_ jsonRecords: [String]) throws -> [UnifiedRecord] {
         var records: [UnifiedRecord] = []
 
         for jsonRecord in jsonRecords {

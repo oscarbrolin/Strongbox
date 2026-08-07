@@ -9,8 +9,13 @@
 #import "BrowseItemCell.h"
 #import "FontManager.h"
 #import "OTPToken+Generation.h"
-//#import "Settings.h"
-#import "Model.h"
+#import "Constants.h"
+
+#ifndef IS_APP_EXTENSION
+#import "Strongbox-Swift.h"
+#else
+#import "Strongbox_Auto_Fill-Swift.h"
+#endif
 
 @interface BrowseItemCell ()
 
@@ -23,8 +28,12 @@
 @property (weak, nonatomic) IBOutlet UIImageView *imageFlag2;
 @property (weak, nonatomic) IBOutlet UIImageView *imageFlag3;
 @property (weak, nonatomic) IBOutlet UILabel *labelAudit;
-@property (weak, nonatomic) IBOutlet UILabel *otpLabel;
 @property (weak, nonatomic) IBOutlet UIImageView *iconImageView;
+
+@property (weak, nonatomic) IBOutlet UILabel *otpLabel1;
+@property (weak, nonatomic) IBOutlet UIImageView *otpSeparator;
+@property (weak, nonatomic) IBOutlet UILabel *otpLabel2;
+@property (weak, nonatomic) IBOutlet UIStackView *otpStack;
 
 @property OTPToken* otpToken;
 
@@ -36,6 +45,13 @@
     [self stopObservingOtpUpdateTimer];
 }
 
+- (void)awakeFromNib {
+    [super awakeFromNib];
+ 
+    self.iconImageView.layer.cornerRadius = 3.0;
+    self.iconImageView.clipsToBounds = YES;
+}
+
 -(void)prepareForReuse {
     [super prepareForReuse];
 
@@ -43,7 +59,7 @@
     
     self.iconImageView.hidden = YES;
     self.iconImageView.image = nil;
-        
+    
     [self setFlags:@[] flagTintColors:nil];
     
     [self stopObservingOtpUpdateTimer];
@@ -101,7 +117,7 @@
        textColor:(UIColor *)textColor {
     self.titleLabel.text = title;
     self.titleLabel.font = italic ? FontManager.sharedInstance.italicFont : FontManager.sharedInstance.regularFont;
-    self.titleLabel.textColor = textColor;
+    self.titleLabel.textColor = textColor ? textColor : UIColor.labelColor;
     
     self.iconImageView.image = hideIcon ? nil : icon;
     self.iconImageView.tintColor = tintColor;
@@ -112,8 +128,11 @@
     
     [self setFlags:flags flagTintColors:flagTintColors];
 
-    self.otpLabel.text = @"";
-    self.otpLabel.hidden = YES;
+    self.otpLabel1.text = @"";
+    self.otpLabel2.text = @"";
+    self.otpLabel1.hidden = YES;
+    self.otpLabel2.hidden = YES;
+    self.otpSeparator.hidden = YES;
     
     self.childCount.hidden = childCount.length == 0;
     self.childCount.text = childCount;
@@ -155,11 +174,36 @@
          otpToken:(OTPToken *)otpToken
          hideIcon:(BOOL)hideIcon
             audit:(NSString*_Nullable)audit {
+    [self setRecord:title
+           subtitle:subtitle
+               icon:icon
+      groupLocation:groupLocation
+              flags:flags
+     flagTintColors:flagTintColors
+            expired:expired
+           otpToken:otpToken
+           hideIcon:hideIcon
+              audit:nil
+     imageTintColor:nil];
+}
+
+- (void)setRecord:(NSString *)title
+         subtitle:(NSString *)subtitle
+             icon:(UIImage *)icon
+    groupLocation:(NSString *)groupLocation
+            flags:(NSArray<UIImage *> *)flags
+   flagTintColors:(NSDictionary<NSNumber *,UIColor *> *)flagTintColors
+          expired:(BOOL)expired
+         otpToken:(OTPToken *)otpToken
+         hideIcon:(BOOL)hideIcon
+            audit:(NSString *)audit
+   imageTintColor:(UIColor *)imageTintColor {
     self.titleLabel.text = title.length ? title : @" ";
-    self.titleLabel.font = FontManager.sharedInstance.regularFont;
+    self.titleLabel.font = FontManager.sharedInstance.headlineFont;
+    self.titleLabel.textColor = UIColor.labelColor;
     
     self.iconImageView.image = hideIcon ? nil :icon;
-    self.iconImageView.tintColor = nil;
+    self.iconImageView.tintColor = imageTintColor;
     self.iconImageView.hidden = hideIcon;
     
     self.usernameLabel.text = subtitle;
@@ -177,7 +221,9 @@
     
     self.bottomRow.hidden = subtitle.length == 0 && groupLocation.length == 0;
 
-    self.otpLabel.hidden = NO;
+    self.otpLabel1.font = FontManager.sharedInstance.easyReadBoldFont;
+    self.otpLabel2.font = FontManager.sharedInstance.easyReadBoldFont;
+    
     self.otpToken = otpToken;
     
     self.contentView.alpha = expired ? 0.35 : 1.0f;
@@ -231,23 +277,56 @@
 
 - (IBAction)updateOtpCode {
 
-    if(self.otpToken) {
-        uint64_t remainingSeconds = self.otpToken.period - ((uint64_t)([NSDate date].timeIntervalSince1970) % (uint64_t)self.otpToken.period);
-        self.otpLabel.text = [NSString stringWithFormat:@"%@", self.otpToken.password];
-        
-        self.otpLabel.textColor = (remainingSeconds < 5) ? UIColor.systemRedColor : (remainingSeconds < 9) ? UIColor.systemOrangeColor : UIColor.systemBlueColor;
     
-        self.otpLabel.alpha = 1;
-        
-        if(remainingSeconds < 16) {
-            [UIView animateWithDuration:0.45 delay:0.0 options:UIViewAnimationOptionRepeat | UIViewAnimationOptionAutoreverse animations:^{
-                self.otpLabel.alpha = 0.5;
-            } completion:nil];
+    if(self.otpToken) {
+        NSArray<NSString*>* codes = self.otpToken.codeSeparated;
+        if ( codes && codes.count == 2 && AppPreferences.sharedInstance.twoFactorEasyReadSeparator ) {
+            [self updateOtpNewStyle:codes];
+        }
+        else {
+            [self updateOtpLegacyStyle];
         }
     }
     else {
-        self.otpLabel.text = @"";
+        self.otpLabel1.hidden = YES;
+        self.otpLabel2.hidden = YES;
+        self.otpSeparator.hidden = YES;
+
     }
+}
+
+- (void)updateOtpNewStyle:(NSArray<NSString*>*)codes {
+    self.otpLabel1.text = codes[0];
+    self.otpLabel2.text = codes[1];
+
+    uint64_t remainingSeconds = self.otpToken.period - ((uint64_t)([NSDate date].timeIntervalSince1970) % (uint64_t)self.otpToken.period);
+    self.otpLabel1.textColor = (remainingSeconds < 5) ? UIColor.systemRedColor : (remainingSeconds < 9) ? UIColor.systemOrangeColor : UIColor.labelColor;
+    self.otpLabel2.textColor = (remainingSeconds < 5) ? UIColor.systemRedColor : (remainingSeconds < 9) ? UIColor.systemOrangeColor : UIColor.labelColor;
+    
+    self.otpLabel2.alpha = 1;
+    self.otpLabel1.alpha = 1;
+
+    self.otpLabel1.hidden = NO;
+    self.otpLabel2.hidden = NO;
+    self.otpSeparator.hidden = NO;
+}
+
+- (void)updateOtpLegacyStyle {
+    uint64_t remainingSeconds = self.otpToken.period - ((uint64_t)([NSDate date].timeIntervalSince1970) % (uint64_t)self.otpToken.period);
+    
+    self.otpLabel1.text = [NSString stringWithFormat:@"%@", self.otpToken.password];
+    self.otpLabel1.textColor = (remainingSeconds < 5) ? UIColor.systemRedColor : (remainingSeconds < 9) ? UIColor.systemOrangeColor : UIColor.systemBlueColor;
+    self.otpLabel1.alpha = 1;
+
+
+
+
+
+
+    
+    self.otpLabel1.hidden = NO;
+    self.otpLabel2.hidden = YES;
+    self.otpSeparator.hidden = YES;
 }
 
 @end

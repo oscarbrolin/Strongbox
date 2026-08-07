@@ -19,7 +19,6 @@
 
 @interface AutoFillProxyServer ()
 
-@property BOOL running;
 @property int server_sock;
 
 @end
@@ -40,7 +39,7 @@
 - (void)stop {
 
 
-    if ( !self.running ) {
+    if ( !self.isRunning ) {
         return;
     }
     
@@ -52,22 +51,24 @@
         self.server_sock = -1;
     }
     
-    NSLog(@"Proxy Server shutdown done...");
+
     
 
     
-    self.running = NO;
+    _isRunning = NO;
 }
 
 - (BOOL)start {
 
 
-    [self stop];
+    if ( self.isRunning ) {
+        return YES;
+    }
     
-    NSString* path = getSocketPath(NO); 
+    NSString* path = getSocketPath(NO);
     if ( !path ) {
-        NSLog(@"🔴 Path too long for getSocketPath - Check users home dir");
-        return FALSE;
+        slog(@"🔴 Path too long for getSocketPath - Check users home dir");
+        return NO;
     }
 
     struct sockaddr_un sun;
@@ -77,23 +78,23 @@
     
     if (unlink(sun.sun_path) == -1) {
         if ( errno != ENOENT ) {
-            printf("🔴 unlink: %s\n,%d", strerror(errno), errno);
+            slog(@"⚠️ unlink: %s\n,%d", strerror(errno), errno);
         }
     }
 
     self.server_sock = socket (AF_UNIX, SOCK_STREAM, 0);
     if ( self.server_sock == -1 ) {
-        NSLog(@"🔴 Error creating socket: %s\n", strerror(errno));
+        slog(@"🔴 Error creating socket: %s\n", strerror(errno));
         return NO;
     }
     
     const int kBufferSize = 2 * 1024 * 1024; 
     if (setsockopt(self.server_sock, SOL_SOCKET, SO_RCVBUF, &kBufferSize, sizeof(int)) == -1) {
-        NSLog(@"🔴 Error setting socket SO_RCVBUF opts: %s\n", strerror(errno));
+        slog(@"🔴 Error setting socket SO_RCVBUF opts: %s\n", strerror(errno));
         return NO;
     }
     if (setsockopt(self.server_sock, SOL_SOCKET, SO_SNDBUF, &kBufferSize, sizeof(int)) == -1) {
-        NSLog(@"🔴 Error setting socket SO_SNDBUF opts: %s\n", strerror(errno));
+        slog(@"🔴 Error setting socket SO_SNDBUF opts: %s\n", strerror(errno));
         return NO;
     }
 
@@ -102,19 +103,19 @@
     
     if (unlink(sun.sun_path) == -1) {
         if ( errno != ENOENT) {
-            printf("🔴 unlink: %s\n,%d", strerror(errno), errno);
+            slog(@"⚠️ unlink: %s\n,%d", strerror(errno), errno);
         }
     }
 
     int ret = bind (self.server_sock, (struct sockaddr *)&sun, sun.sun_len);
     if ( ret < 0 ) {
-        NSLog(@"🔴 bind failed. %s", strerror(errno));
+        slog(@"🔴 bind failed. %s", strerror(errno));
         return NO;
     }
     
-    int listenResult = listen (self.server_sock, 48);
+    int listenResult = listen (self.server_sock, SOMAXCONN);
     if ( listenResult == -1 ) {
-        NSLog(@"🔴 Error listening on socket: %s\n", strerror(errno));
+        slog(@"🔴 Error listening on socket: %s\n", strerror(errno));
         return NO;
     }
 
@@ -124,7 +125,7 @@
 
 
 
-    self.running = YES;
+    _isRunning = YES;
     return YES; 
 }
 
@@ -132,18 +133,20 @@
     while ( 1 ) {
 
 
-        int socket = accept (self.server_sock, NULL, NULL);  
+        int socket = accept (self.server_sock, NULL, NULL);
 
         if ( socket == -1 ) {
-            NSLog(@"⚠️ AutoFillProxyServer failed to accept new connection (possibly due to shutdown...)");
+            slog(@"⚠️ AutoFillProxyServer failed to accept new connection (possibly due to shutdown...) - %s", strerror(errno));
             break;
         }
         
 
 
-        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0L), ^{
+        
+        
+
             [self handleNewConnection:socket];
-        });
+
     }
     
 
@@ -151,7 +154,11 @@
 
 - (void)handleNewConnection:(int)socket {
     
-    
+
+#ifdef DEBUG
+    NSTimeInterval startTime = NSDate.timeIntervalSinceReferenceDate;
+#endif
+
     CFReadStreamRef readStream;
     CFWriteStreamRef writeStream;
     CFStreamCreatePairWithSocket (kCFAllocatorDefault, socket, &readStream, &writeStream);
@@ -166,13 +173,15 @@
     
     if ( !jsonRequest ) {
         
-        NSLog(@"🔴 Could not read valid JSON object! Connection done.");
+        slog(@"🔴 Could not read valid JSON object! Connection done.");
+        shutdown(socket, SHUT_RDWR);
+        close(socket);
         return;
     }
     
     
         
-    NSString* jsonResponse = [self handleRequest:jsonRequest];
+    NSString* jsonResponse = [AutoFillRequestHandler.shared handleJsonRequestWithJson:jsonRequest];
     
     
     
@@ -187,27 +196,18 @@
     
     NSUInteger len = msg.length;
     
-    if ( len > 5 * 1024 ) {
-        NSLog(@"Writing JSON Response of length [%lu]", len);
-    }
-    
     [outputStream write:msg.bytes maxLength:len];
     [outputStream close];
     
     shutdown(socket, SHUT_RDWR);
     close(socket);
     
+#ifdef DEBUG
+    if ( len > 10 * 1024 ) {
+        slog(@"🐞 Writing LARGE JSON Response of length [%lu] in %f seconds", len, NSDate.timeIntervalSinceReferenceDate - startTime);
+    }
+#endif
     
-}
-
-- (NSString*)handleRequest:(NSString*)jsonRequest {
-    AutoFillEncryptedResponse* response = [AutoFillRequestHandler.shared handleJsonRequestWithJson:jsonRequest];
-
-    NSString* json = [response toJson];
-    
-    
-
-    return json;
 }
 
 @end

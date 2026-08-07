@@ -7,8 +7,16 @@
 //
 
 #import "AppPreferences.h"
-#import "Model.h"
+#import "Constants.h"
 #import "NSArray+Extensions.h"
+#import "SecretStore.h"
+#import "PasswordMaker.h"
+
+#ifndef IS_APP_EXTENSION
+#import "Strongbox-Swift.h"
+#else
+#import "Strongbox_Auto_Fill-Swift.h"
+#endif
 
 static NSString* const kDefaultAppGroupName = @"group.strongbox.mcguill";
 static NSString* cachedAppGroupName;
@@ -30,7 +38,8 @@ static NSString* const kHideKeyFileOnUnlock = @"hideKeyFileOnUnlock";
 static NSString* const kShowAllFilesInLocalKeyFiles = @"showAllFilesInLocalKeyFiles";
 static NSString* const kMonitorInternetConnectivity = @"monitorInternetConnectivity";
 static NSString* const kInstantPinUnlocking = @"instantPinUnlocking";
-static NSString* const kiCloudOn = @"iCloudOn";
+static NSString* const kSentryCrashReportingEnabled = @"sentryCrashReportingEnabled";
+
 static NSString* const kFavIconDownloadOptions = @"favIconDownloadOptions";
 static NSString* const kShowDatabaseIcon = @"showDatabaseIcon";
 static NSString* const kShowDatabaseStatusIcon = @"showDatabaseStatusIcon";
@@ -38,6 +47,8 @@ static NSString* const kDatabaseCellTopSubtitle = @"databaseCellTopSubtitle";
 static NSString* const kDatabaseCellSubtitle1 = @"databaseCellSubtitle1";
 static NSString* const kDatabaseCellSubtitle2 = @"databaseCellSubtitle2";
 static NSString* const kShowDatabasesSeparator = @"showDatabasesSeparator";
+
+static NSString* const kDatabasesSortOption = @"databasesSortOption";
 
 static NSString* const kSyncPullEvenIfModifiedDateSame = @"syncPullEvenIfModifiedDateSame";
 static NSString* const kSyncForcePushDoNotCheckForConflicts = @"syncForcePushDoNotCheckForConflicts";
@@ -61,7 +72,7 @@ static NSString* const kHasOnboardedForAutoFillConvenienceAutoUnlock = @"hasOnbo
 static NSString* const kAutoFillAutoLaunchSingleDatabase = @"autoFillAutoLaunchSingleDatabase";
 static NSString* const kAutoFillQuickLaunchUuid = @"autoFillQuickLaunchUuid";
 static NSString* const kMigratedQuickLaunchToAutoFill = @"migratedQuickLaunchToAutoFill";
-static NSString* const kAutoFillShowPinned = @"autoFillShowPinned";
+static NSString* const kAutoFillShowFavourites = @"autoFillShowPinned";
 static NSString* const kCoalesceAppLockAndQuickLaunchBiometrics = @"coalesceAppLockAndQuickLaunchBiometrics";
 static NSString* const kAppPrivacyShieldMode = @"appPrivacyShieldMode";
 static NSString* const kMigratedOfflineDetectedBehaviour = @"migratedOfflineDetectedBehaviour";
@@ -69,9 +80,6 @@ static NSString* const kMigratedOfflineDetectedBehaviour = @"migratedOfflineDete
 
 
 static NSString* const kLaunchCountKey = @"launchCount";
-
-static NSString* const kiCloudWasOn = @"iCloudWasOn";
-static NSString* const kiCloudPrompted = @"iCloudPrompted";
 
 static NSString* const kInstallDate = @"installDate";
 static NSString* const kShowKeePassCreateSafeOptions = @"showKeePassCreateSafeOptions";
@@ -81,6 +89,8 @@ static NSString* const kNumberOfEntitlementCheckFails = @"numberOfEntitlementChe
 static NSString* const kDeleteDataAfterFailedUnlockCount = @"deleteDataAfterFailedUnlockCount";
 static NSString* const kFailedUnlockAttempts = @"failedUnlockAttempts";
 static NSString* const kAppLockAppliesToPreferences = @"appLockAppliesToPreferences";
+
+static NSString* const kDeleteDatabaseAfterXFailedUnlockAttempts = @"deleteDatabaseAfterXFailedUnlockAttempts";
 
 static NSString* const kAppLockMode = @"appLockMode2.0";
 static NSString* const kAppLockPin = @"appLockPin2.0";
@@ -102,6 +112,7 @@ static NSString* const kAddLegacySupplementaryTotpCustomFields = @"addLegacySupp
 static NSString* const kAddOtpAuthUrl = @"addOtpAuthUrl";
 
 static NSString* const kPromptedForSale = @"promptedForSale3";
+static NSString* const kSaleBannerDismissedForSale = @"saleBannerDismissedForSale1";
 static NSString* const kPinYinSearchEnabled = @"pinYinSearchEnabled";
 
 static NSString* const kLastKnownGoodDatabaseState = @"lastKnownGoodDatabaseState";
@@ -120,8 +131,6 @@ static NSString* const kHasPromptedThatFreeTrialWillEndSoon = @"hasPromptedThatF
 static NSString* const kAppHasBeenDowngradedToFreeEdition = @"appHasBeenDowngradedToFreeEdition";
 static NSString* const kHasPromptedThatAppHasBeenDowngradedToFreeEdition = @"hasPromptedThatAppHasBeenDowngradedToFreeEdition";
 
-static NSString* const kDisableReadOnlyToggles = @"disableReadOnlyToggles";
-static NSString* const kDatabasesAreAlwaysReadOnly = @"databasesAreAlwaysReadOnly";
 static NSString* const kDisableFavIconFeature = @"disableFavIconFeature";
 static NSString* const kDisableNativeNetworkStorageOptions = @"disableNativeNetworkStorageOptions";
 
@@ -138,13 +147,60 @@ static NSString* const kDuplicateItemReferenceUsername = @"duplicateItemReferenc
 
 static NSString* const kDuplicateItemEditAfterwards = @"duplicateItemEditAfterwards";
 static NSString* const kDisableThirdPartyStorageOptions = @"disableThirdPartyStorageOptions";
-static NSString* const kSuppressAppBackgroundTriggers = @"suppressAppBackgroundTriggers";
+static NSString* const kDisableCustomViews = @"disableCustomViews";
+
 static NSString* const kMarkdownNotes = @"markdownNotes";
 static NSString* const kAutoFillLongTapPreview = @"autoFillLongTapPreview";
 static NSString* const kHideTipJar = @"hideTipJar";
 static NSString* const kUseParentGroupIconOnCreate = @"useParentGroupIconOnCreate";
 static NSString* const kStripUnusedIconsOnSave = @"stripUnusedIconsOnSave";
 static NSString* const kPinCodeHapticFeedback = @"pinCodeHapticFeedback";
+static NSString* const kHasMigratedToLazySync = @"hasMigratedToLazySync-Iteration-5-RB-OneDrive";
+static NSString* const kVisibleBrowseTabs = @"visibleBrowseTabs";
+static NSString* const kBusinessOrganisationName = @"businessOrganisationName";
+static NSString* const kLastQuickTypeMultiDbRegularClear = @"lastQuickTypeMultiDbRegularClear";
+static NSString* const kAppendDateToExportFileName = @"appendDateToExportFileName";
+
+static NSString* const kDatabasesAreAlwaysReadOnly = @"databasesAreAlwaysReadOnly";
+static NSString* const kDisableExport = @"disableExport";
+static NSString* const kDisablePrinting = @"disablePrinting";
+static NSString* const kAtomicSftpWrite = @"atomicSftpWrite";
+static NSString* const kStripUnusedHistoricalIcons = @"stripUnusedHistoricalIcons";
+static NSString* const kDatabasesSerializationError = @"databasesSerializationError";
+static NSString* const kWiFiSyncHasBeenGrantedPermission = @"wiFiSyncHasBeenGrantedPermission";
+static NSString* const kDisableWiFiSync = @"disableWiFiSync";
+
+static NSString* const kZipExportBehaviour = @"zipExportBehaviour";
+
+static NSString* const kWiFiSyncOn = @"wiFiSyncOn";
+static NSString* const kWiFiSyncServiceName = @"wiFiSyncServiceName";
+static NSString* const kWiFiSyncPasscodeSSKey = @"wiFiSyncPasscodeSSKey";
+static NSString* const kCloudKitZoneCreated = @"cloudKitZoneCreated";
+static NSString* const kChangeNotificationsSubscriptionCreated = @"changeNotificationsSubscriptionCreated";
+static NSString* const kShowDatabasesOnAppShortcutMenu = @"showDatabasesOnAppShortcutMenu";
+static NSString* const kHasWarnedAboutCloudKitUnavailability = @"hasWarnedAboutCloudKitUnavailability";
+static NSString* const kHasGotUserNotificationsPermissions = @"hasGotUserNotificationsPermissions";
+static NSString* const kLastAskToEnableNotifications = @"lastAskToEnableNotifications";
+static NSString* const kWiFiSyncPasscodeSSKeyHasBeenInitialized = @"wiFiSyncPasscodeSSKeyHasBeenInitialized";
+static NSString* const kLastWiFiSyncPasscodeError = @"lastWiFiSyncPasscodeError";
+static NSString* const kUseUSGovAuthority = @"useUSGovAuthority";
+static NSString* const kAppAppearance = @"appAppearance";
+static NSString* const kShowDatabaseNamesInBrowse = @"showDatabaseNamesInBrowse";
+static NSString* const kWarnAboutLocalDeviceDatabases = @"warnAboutLocalDeviceDatabases";
+
+static NSString* const kDisableCopyTo = @"disableCopyTo";
+static NSString* const kDisableMakeVisibleInFiles = @"disableMakeVisibleInFiles";
+static NSString* const kLastCloudKitRefresh = @"lastCloudKitRefresh";
+static NSString* const kAssociatedWebsites = @"associatedWebsites";
+static NSString* const kTwoFactorEasyReadSeparator = @"twoFactorEasyReadSeparator";
+static NSString* const kTwoFactorHideCountdownDigits = @"twoFactorHideCountdownDigits2";
+static NSString* const kAppleWatchIntegration = @"appleWatchIntegration";
+static NSString* const kShowInteractiveAppleWatchSyncGuide = @"showInteractiveAppleWatchSyncGuide";
+
+static NSString* const kShowHiddenDatabases = @"showHiddenDatabases";
+
+static NSString* const kSearchLastUsedScope = @"searchLastUsedScope";
+static NSString* const kRememberSearchScope = @"rememberSearchScope";
 
 @implementation AppPreferences
 
@@ -179,7 +235,7 @@ static NSString* const kPinCodeHapticFeedback = @"pinCodeHapticFeedback";
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:self.appGroupName];
     
     if(defaults == nil) {
-        NSLog(@"ERROR: Could not get NSUserDefaults for Suite Name: [%@]", self.appGroupName);
+        slog(@"ERROR: Could not get NSUserDefaults for Suite Name: [%@]", self.appGroupName);
     }
     
     return defaults;
@@ -187,8 +243,359 @@ static NSString* const kPinCodeHapticFeedback = @"pinCodeHapticFeedback";
 
 
 
-- (BOOL)expressUpdateSyncPerfImprovementEnabled {
-    return NO; 
+- (BOOL)showInteractiveAppleWatchSyncGuide {
+    return [self getBool:kShowInteractiveAppleWatchSyncGuide fallback:YES];
+}
+
+- (void)setShowInteractiveAppleWatchSyncGuide:(BOOL)showInteractiveAppleWatchSyncGuide {
+    [self setBool:kShowInteractiveAppleWatchSyncGuide value:showInteractiveAppleWatchSyncGuide];
+}
+
+
+
+- (BOOL)appleWatchIntegration {
+    return [self getBool:kAppleWatchIntegration fallback:YES];
+}
+
+- (void)setAppleWatchIntegration:(BOOL)appleWatchIntegration {
+    [self setBool:kAppleWatchIntegration value:appleWatchIntegration];
+    
+#ifndef IS_APP_EXTENSION
+    if ( appleWatchIntegration ) {
+        [WatchAppManager.shared quickActivate];
+    }
+#endif
+}
+
+- (BOOL)twoFactorHideCountdownDigits {
+    return [self getBool:kTwoFactorHideCountdownDigits fallback:YES];
+}
+
+- (void)setTwoFactorHideCountdownDigits:(BOOL)twoFactorHideCountdownDigits {
+    [self setBool:kTwoFactorHideCountdownDigits value:twoFactorHideCountdownDigits];
+}
+
+- (BOOL)twoFactorEasyReadSeparator {
+    return [self getBool:kTwoFactorEasyReadSeparator fallback:YES];
+}
+
+- (void)setTwoFactorEasyReadSeparator:(BOOL)twoFactorEasyReadSeparator {
+    [self setBool:kTwoFactorEasyReadSeparator value:twoFactorEasyReadSeparator];
+}
+
+- (BOOL)associatedWebsites {
+    return [self getBool:kAssociatedWebsites fallback:YES];
+}
+
+- (void)setAssociatedWebsites:(BOOL)showAssociatedWebsites {
+    [self setBool:kAssociatedWebsites value:showAssociatedWebsites];
+}
+
+- (NSDate *)lastCloudKitRefresh {
+    NSUserDefaults *userDefaults = AppPreferences.sharedInstance.sharedAppGroupDefaults;
+    return [userDefaults objectForKey:kLastCloudKitRefresh];
+}
+
+- (void)setLastCloudKitRefresh:(NSDate *)lastCloudKitRefresh {
+    NSUserDefaults *userDefaults = AppPreferences.sharedInstance.sharedAppGroupDefaults;
+    
+    [userDefaults setObject:lastCloudKitRefresh forKey:kLastCloudKitRefresh];
+    
+    [userDefaults synchronize];
+}
+
+- (BOOL)disableCopyTo {
+    return [self getBool:kDisableCopyTo fallback:self.disableExport];
+}
+
+- (void)setDisableCopyTo:(BOOL)disableCopyTo {
+    [self setBool:kDisableCopyTo value:disableCopyTo];
+}
+
+- (BOOL)disableMakeVisibleInFiles {
+    return [self getBool:kDisableMakeVisibleInFiles fallback:self.disableExport];
+}
+
+- (void)setDisableMakeVisibleInFiles:(BOOL)disableMakeVisibleInFiles {
+    [self setBool:kDisableMakeVisibleInFiles value:disableMakeVisibleInFiles];
+}
+
+- (BOOL)warnAboutLocalDeviceDatabases {
+    return [self getBool:kWarnAboutLocalDeviceDatabases fallback:YES];
+}
+
+- (void)setWarnAboutLocalDeviceDatabases:(BOOL)warnAboutLocalDeviceDatabases {
+    [self setBool:kWarnAboutLocalDeviceDatabases value:warnAboutLocalDeviceDatabases];
+}
+
+- (BOOL)showDatabaseNamesInBrowse {
+    return [self getBool:kShowDatabaseNamesInBrowse fallback:YES];
+}
+
+- (void)setShowDatabaseNamesInBrowse:(BOOL)showDatabaseNamesInBrowse {
+    [self setBool:kShowDatabaseNamesInBrowse value:showDatabaseNamesInBrowse];
+}
+
+- (AppAppearance)appAppearance {
+    return [self getInteger:kAppAppearance];
+}
+
+- (void)setAppAppearance:(AppAppearance)appAppearance {
+    [self setInteger:kAppAppearance value:appAppearance];
+}
+
+- (BOOL)useOneDriveUSGovCloudInstance {
+    return NO;
+
+}
+
+- (void)setUseOneDriveUSGovCloudInstance:(BOOL)useOneDriveUSGovCloudInstance {
+
+}
+
+- (BOOL)hasGotUserNotificationsPermissions {
+    return [self getBool:kHasGotUserNotificationsPermissions];
+}
+
+- (void)setHasGotUserNotificationsPermissions:(BOOL)hasGotUserNotificationsPermissions {
+    [self setBool:kHasGotUserNotificationsPermissions value:hasGotUserNotificationsPermissions];
+}
+
+- (BOOL)hasWarnedAboutCloudKitUnavailability {
+    return [self getBool:kHasWarnedAboutCloudKitUnavailability];
+}
+
+- (void)setHasWarnedAboutCloudKitUnavailability:(BOOL)hasWarnedAboutCloudKitUnavailability {
+    [self setBool:kHasWarnedAboutCloudKitUnavailability value:hasWarnedAboutCloudKitUnavailability];
+}
+
+- (BOOL)showDatabasesOnAppShortcutMenu {
+#ifndef NO_NETWORKING
+    return [self getBool:kShowDatabasesOnAppShortcutMenu fallback:YES];
+#else
+    return [self getBool:kShowDatabasesOnAppShortcutMenu fallback:NO];
+#endif
+}
+
+- (void)setShowDatabasesOnAppShortcutMenu:(BOOL)showDatabasesOnAppShortcutMenu {
+    [self setBool:kShowDatabasesOnAppShortcutMenu value:showDatabasesOnAppShortcutMenu];
+}
+
+- (BOOL)changeNotificationsSubscriptionCreated {
+    return [self getBool:kChangeNotificationsSubscriptionCreated];
+}
+
+- (void)setChangeNotificationsSubscriptionCreated:(BOOL)changeNotificationsSubscriptionCreated {
+    [self setBool:kChangeNotificationsSubscriptionCreated value:changeNotificationsSubscriptionCreated];
+}
+
+- (BOOL)cloudKitZoneCreated {
+    return [self getBool:kCloudKitZoneCreated];
+}
+
+- (void)setCloudKitZoneCreated:(BOOL)cloudKitZoneCreated {
+    [self setBool:kCloudKitZoneCreated value:cloudKitZoneCreated];
+}
+
+- (BOOL)disableWiFiSyncClientMode {
+    return [self getBool:kDisableWiFiSync];
+}
+
+- (void)setDisableWiFiSyncClientMode:(BOOL)disableWiFiSync {
+    [self setBool:kDisableWiFiSync value:disableWiFiSync];
+}
+
+- (BOOL)runAsWiFiSyncSourceDevice {
+    return [self getBool:kWiFiSyncOn fallback:NO];
+}
+
+- (void)setRunAsWiFiSyncSourceDevice:(BOOL)wiFiSyncOn {
+    [self setBool:kWiFiSyncOn value:wiFiSyncOn];
+}
+
+- (BOOL)wiFiSyncPasscodeSSKeyHasBeenInitialized {
+    return [self getBool:kWiFiSyncPasscodeSSKeyHasBeenInitialized];
+}
+
+- (void)setWiFiSyncPasscodeSSKeyHasBeenInitialized:(BOOL)wiFiSyncPasscodeSSKeyHasBeenInitialized {
+    [self setBool:kWiFiSyncPasscodeSSKeyHasBeenInitialized value:wiFiSyncPasscodeSSKeyHasBeenInitialized];
+}
+
+- (NSString *)lastWiFiSyncPasscodeError {
+    return [self getString:kLastWiFiSyncPasscodeError fallback:nil];
+}
+
+- (void)setLastWiFiSyncPasscodeError:(NSString *)lastWiFiSyncPasscodeError {
+    [self setString:kLastWiFiSyncPasscodeError value:lastWiFiSyncPasscodeError];
+}
+
+- (NSString *)wiFiSyncPasscode {
+    NSError* error;
+    NSString* thePasscode = [SecretStore.sharedInstance getSecureString:kWiFiSyncPasscodeSSKey error:&error];
+    
+    [self setLastWiFiSyncPasscodeError:error ? [NSString stringWithFormat:@"%@", error] : nil];
+    
+    if ( self.wiFiSyncPasscodeSSKeyHasBeenInitialized ) {
+        if ( thePasscode == nil ) {
+            slog(@"🔴 WiFiSync Passcode nil but has already been initialized. Something very wrong... [%@]", error);
+        }
+        
+        return thePasscode;
+    }
+    else {
+        if (  thePasscode != nil ) {
+            self.wiFiSyncPasscodeSSKeyHasBeenInitialized = YES;
+            return thePasscode;
+        }
+        else {
+            NSString* passcode = [NSString stringWithFormat:@"%0.6d", arc4random_uniform(1000000)];
+            
+            [self setWiFiSyncPasscode:passcode];
+            
+            self.wiFiSyncPasscodeSSKeyHasBeenInitialized = YES;
+            
+            return passcode;
+        }
+    }
+}
+
+- (void)setWiFiSyncPasscode:(NSString *)wiFiSyncPasscode {
+    [SecretStore.sharedInstance setSecureString:wiFiSyncPasscode forIdentifier:kWiFiSyncPasscodeSSKey];
+}
+
+- (NSString *)wiFiSyncServiceName {
+    return [self getString:kWiFiSyncServiceName fallback:nil];
+}
+
+- (void)setWiFiSyncServiceName:(NSString *)wiFiSyncServiceName {
+    [self setString:kWiFiSyncServiceName value:wiFiSyncServiceName];
+}
+
+- (NSInteger)zipExportBehaviour {
+    return [self getInteger:kZipExportBehaviour];
+}
+
+- (void)setZipExportBehaviour:(NSInteger)zipExportBehaviour {
+    [self setInteger:kZipExportBehaviour value:zipExportBehaviour];
+}
+
+- (SearchScope)searchScope {
+    NSInteger raw = [self getInteger:kSearchLastUsedScope fallback:kSearchScopeAll];
+
+    if (raw < kSearchScopeTitle || raw > kSearchScopeAll) { 
+        [self setSearchScope:kSearchScopeAll];
+        return kSearchScopeAll;
+    }
+
+    return (SearchScope)raw;
+}
+
+- (void)setSearchScope:(SearchScope)searchScope {
+    [self setInteger:kSearchLastUsedScope value:searchScope];
+}
+
+- (BOOL)rememberSearchScope {
+    return [self getBool:kRememberSearchScope fallback:YES];
+}
+
+- (void)setRememberSearchScope:(BOOL)rememberSearchScope {
+    [self setBool:kRememberSearchScope value:rememberSearchScope];
+}
+
+- (SearchScope)initialSearchScope {
+    return self.rememberSearchScope ? self.searchScope : kSearchScopeAll;
+}
+
+- (void)persistSearchScopeIfEnabled:(SearchScope)scope {
+    if (self.rememberSearchScope) {
+        self.searchScope = scope;
+    }
+}
+
+- (BOOL)wiFiSyncHasRequestedNetworkPermissions {
+    return [self getBool:kWiFiSyncHasBeenGrantedPermission];
+}
+
+- (void)setWiFiSyncHasRequestedNetworkPermissions:(BOOL)wiFiSyncHasBeenGrantedPermission {
+    [self setBool:kWiFiSyncHasBeenGrantedPermission value:wiFiSyncHasBeenGrantedPermission];
+}
+
+- (NSString *)databasesSerializationError {
+    return [self getString:kDatabasesSerializationError];
+}
+
+- (void)setDatabasesSerializationError:(NSString *)databasesSerializationError {
+    [self setString:kDatabasesSerializationError value:databasesSerializationError];
+}
+
+- (BOOL)stripUnusedHistoricalIcons {
+    return [self getBool:kStripUnusedHistoricalIcons fallback:AppPreferences.sharedInstance.stripUnusedIconsOnSave];
+}
+
+- (void)setStripUnusedHistoricalIcons:(BOOL)stripUnusedHistoricalIcons {
+    [self setBool:kStripUnusedHistoricalIcons value:stripUnusedHistoricalIcons];
+}
+
+- (BOOL)atomicSftpWrite {
+    return [self getBool:kAtomicSftpWrite fallback:YES];
+}
+
+- (void)setAtomicSftpWrite:(BOOL)atomicSftpWrite {
+    [self setBool:kAtomicSftpWrite value:atomicSftpWrite];
+}
+
+- (BOOL)disableExport {
+    return [self getBool:kDisableExport];
+}
+
+- (void)setDisableExport:(BOOL)disableExport {
+    [self setBool:kDisableExport value:disableExport];
+}
+
+- (BOOL)disablePrinting {
+    return [self getBool:kDisablePrinting];
+}
+
+- (void)setDisablePrinting:(BOOL)disablePrinting {
+    [self setBool:kDisablePrinting value:disablePrinting];
+}
+
+- (BOOL)appendDateToExportFileName {
+    return [self getBool:kAppendDateToExportFileName fallback:YES];
+}
+
+- (void)setAppendDateToExportFileName:(BOOL)appendDateToExportFileName {
+    [self setBool:kAppendDateToExportFileName value:appendDateToExportFileName];
+}
+
+- (NSDate *)lastQuickTypeMultiDbRegularClear {
+    NSUserDefaults *userDefaults = AppPreferences.sharedInstance.sharedAppGroupDefaults;
+    return [userDefaults objectForKey:kLastQuickTypeMultiDbRegularClear];
+}
+
+- (void)setLastQuickTypeMultiDbRegularClear:(NSDate *)lastQuickTypeMultiDbRegularClear {
+    NSUserDefaults *userDefaults = AppPreferences.sharedInstance.sharedAppGroupDefaults;
+    
+    [userDefaults setObject:lastQuickTypeMultiDbRegularClear forKey:kLastQuickTypeMultiDbRegularClear];
+    
+    [userDefaults synchronize];
+}
+
+- (NSString *)businessOrganisationName {
+    return [AppPreferences.sharedInstance.sharedAppGroupDefaults objectForKey:kBusinessOrganisationName];
+}
+
+- (void)setBusinessOrganisationName:(NSString *)businessOrganisationName {
+    [AppPreferences.sharedInstance.sharedAppGroupDefaults setObject:businessOrganisationName forKey:kBusinessOrganisationName];
+    [AppPreferences.sharedInstance.sharedAppGroupDefaults synchronize];
+}
+
+- (BOOL)hasMigratedToLazySync {
+    return [self getBool:kHasMigratedToLazySync];
+}
+
+- (void)setHasMigratedToLazySync:(BOOL)hasMigratedToLazySync {
+    [self setBool:kHasMigratedToLazySync value:hasMigratedToLazySync];
 }
 
 - (BOOL)pinCodeHapticFeedback {
@@ -200,7 +607,7 @@ static NSString* const kPinCodeHapticFeedback = @"pinCodeHapticFeedback";
 }
 
 - (BOOL)stripUnusedIconsOnSave {
-    return [self getBool:kStripUnusedIconsOnSave];
+    return [self getBool:kStripUnusedIconsOnSave fallback:YES];
 }
 
 - (void)setStripUnusedIconsOnSave:(BOOL)stripUnusedIconsOnSave {
@@ -239,20 +646,20 @@ static NSString* const kPinCodeHapticFeedback = @"pinCodeHapticFeedback";
     [self setBool:kMarkdownNotes value:markdownNotes];
 }
 
-- (BOOL)suppressAppBackgroundTriggers {
-    return [self getBool:kSuppressAppBackgroundTriggers];
-}
-
-- (void)setSuppressAppBackgroundTriggers:(BOOL)suppressAppBackgroundTriggers {
-    [self setBool:kSuppressAppBackgroundTriggers value:suppressAppBackgroundTriggers];
-}
-
 - (BOOL)disableThirdPartyStorageOptions {
     return [self getBool:kDisableThirdPartyStorageOptions];
 }
 
 - (void)setDisableThirdPartyStorageOptions:(BOOL)disableThirdPartyStorageOptions {
     [self setBool:kDisableThirdPartyStorageOptions value:disableThirdPartyStorageOptions];
+}
+
+- (BOOL)disableCustomViews {
+    return [self getBool:kDisableCustomViews fallback:NO];
+}
+
+- (void)setDisableCustomViews:(BOOL)disableCustomViews {
+    [self setBool:kDisableCustomViews value:disableCustomViews];
 }
 
 - (BOOL)duplicateItemEditAfterwards {
@@ -264,7 +671,7 @@ static NSString* const kPinCodeHapticFeedback = @"pinCodeHapticFeedback";
 }
 
 - (BOOL)exportItemsPreserveTimestamps {
-    return [self getBool:kExportItemsPreserveTimestamps];
+    return [self getBool:kExportItemsPreserveTimestamps fallback:YES];
 }
 
 - (void)setExportItemsPreserveTimestamps:(BOOL)exportItemsPreserveTimestamps {
@@ -335,14 +742,6 @@ static NSString* const kPinCodeHapticFeedback = @"pinCodeHapticFeedback";
     [self setBool:kDisableNativeNetworkStorageOptions value:disableNativeNetworkStorageOptions];
 }
 
-- (BOOL)disableReadOnlyToggles {
-    return [self getBool:kDisableReadOnlyToggles];
-}
-
-- (void)setDisableReadOnlyToggles:(BOOL)disableReadOnlyToggles {
-    [self setBool:kDisableReadOnlyToggles value:disableReadOnlyToggles];
-}
-
 - (BOOL)databasesAreAlwaysReadOnly {
     return [self getBool:kDatabasesAreAlwaysReadOnly];
 }
@@ -399,6 +798,14 @@ static NSString* const kPinCodeHapticFeedback = @"pinCodeHapticFeedback";
     return [self setBool:kPromptToEnableAutoFill value:promptToEnableAutoFill];
 }
 
+- (NSDate *)lastAskToEnableNotifications {
+    return [self getDate:kLastAskToEnableNotifications];
+}
+
+- (void)setLastAskToEnableNotifications:(NSDate *)lastAskToEnableNotifications {
+    [self setDate:kLastAskToEnableNotifications value:lastAskToEnableNotifications];
+}
+
 - (NSDate *)lastAskToEnableAutoFill {
     return [self getDate:kLastAskToEnableAutoFill];
 }
@@ -432,20 +839,28 @@ static NSString* const kPinCodeHapticFeedback = @"pinCodeHapticFeedback";
 }
 
 - (NSData *)lastKnownGoodBiometricsDatabaseState {
-    return [self.sharedAppGroupDefaults objectForKey:kLastKnownGoodDatabaseState];
+    NSString* bundleId = [NSBundle mainBundle].bundleIdentifier ?: @"";
+    NSString* key = [NSString stringWithFormat:@"%@.%@", kLastKnownGoodDatabaseState, bundleId];
+    return [self.sharedAppGroupDefaults objectForKey:key];
 }
 
 - (void)setLastKnownGoodBiometricsDatabaseState:(NSData *)lastKnownGoodBiometricsDatabaseState {
-    [self.sharedAppGroupDefaults setObject:lastKnownGoodBiometricsDatabaseState forKey:kLastKnownGoodDatabaseState];
+    NSString* bundleId = [NSBundle mainBundle].bundleIdentifier ?: @"";
+    NSString* key = [NSString stringWithFormat:@"%@.%@", kLastKnownGoodDatabaseState, bundleId];
+    [self.sharedAppGroupDefaults setObject:lastKnownGoodBiometricsDatabaseState forKey:key];
     [self.sharedAppGroupDefaults synchronize];
 }
 
 - (NSData *)autoFillLastKnownGoodBiometricsDatabaseState {
-    return [self.sharedAppGroupDefaults objectForKey:kAutoFillLastKnownGoodDatabaseState];
+    NSString* bundleId = [NSBundle mainBundle].bundleIdentifier ?: @"";
+    NSString* key = [NSString stringWithFormat:@"%@.%@", kAutoFillLastKnownGoodDatabaseState, bundleId];
+    return [self.sharedAppGroupDefaults objectForKey:key];
 }
 
 - (void)setAutoFillLastKnownGoodBiometricsDatabaseState:(NSData *)autoFillLastKnownGoodBiometricsDatabaseState {
-    [self.sharedAppGroupDefaults setObject:autoFillLastKnownGoodBiometricsDatabaseState forKey:kAutoFillLastKnownGoodDatabaseState];
+    NSString* bundleId = [NSBundle mainBundle].bundleIdentifier ?: @"";
+    NSString* key = [NSString stringWithFormat:@"%@.%@", kAutoFillLastKnownGoodDatabaseState, bundleId];
+    [self.sharedAppGroupDefaults setObject:autoFillLastKnownGoodBiometricsDatabaseState forKey:key];
     [self.sharedAppGroupDefaults synchronize];
 }
 
@@ -487,6 +902,14 @@ static NSString* const kPinCodeHapticFeedback = @"pinCodeHapticFeedback";
 
 - (void)setPromptedForSale:(NSInteger)promptedForSale {
     [self setInteger:kPromptedForSale value:promptedForSale];
+}
+
+- (NSInteger)saleBannerDismissedForSale {
+    return [self getInteger:kSaleBannerDismissedForSale fallback:-1];
+}
+
+- (void)setSaleBannerDismissedForSale:(NSInteger)saleBannerDismissedForSale {
+    [self setInteger:kSaleBannerDismissedForSale value:saleBannerDismissedForSale];
 }
 
 - (PasswordStrengthConfig *)passwordStrengthConfig {
@@ -531,12 +954,12 @@ static NSString* const kPinCodeHapticFeedback = @"pinCodeHapticFeedback";
     [self setBool:kCoalesceAppLockAndQuickLaunchBiometrics value:coalesceAppLockAndQuickLaunchBiometrics];
 }
 
-- (BOOL)autoFillShowPinned {
-    return [self getBool:kAutoFillShowPinned fallback:YES];
+- (BOOL)autoFillShowFavourites {
+    return [self getBool:kAutoFillShowFavourites fallback:YES];
 }
 
-- (void)setAutoFillShowPinned:(BOOL)autoFillShowPinned {
-    [self setBool:kAutoFillShowPinned value:autoFillShowPinned];
+- (void)setAutoFillShowFavourites:(BOOL)autoFillShowPinned {
+    [self setBool:kAutoFillShowFavourites value:autoFillShowPinned];
 }
 
 
@@ -702,6 +1125,7 @@ static NSString* const kPinCodeHapticFeedback = @"pinCodeHapticFeedback";
 
 
 
+
 - (void)setPro:(BOOL)value {
     NSUserDefaults *userDefaults = self.sharedAppGroupDefaults;
     
@@ -709,7 +1133,7 @@ static NSString* const kPinCodeHapticFeedback = @"pinCodeHapticFeedback";
     
     [userDefaults synchronize];
     
-    [[NSNotificationCenter defaultCenter] postNotificationName:kProStatusChangedNotificationKey object:nil];
+    [[NSNotificationCenter defaultCenter] postNotificationName:kProStatusChangedNotification object:nil];
 }
 
 - (BOOL)isPro {
@@ -843,20 +1267,27 @@ static NSString* const kPinCodeHapticFeedback = @"pinCodeHapticFeedback";
     [self setBool:kMonitorInternetConnectivity value:monitorInternetConnectivity];
 }
 
+- (BOOL)sentryCrashReportingEnabled {
+    NSNumber *stored = [self.sharedAppGroupDefaults objectForKey:kSentryCrashReportingEnabled];
+    if (stored == nil) {
+        BOOL defaultValue = (self.launchCount == 0);
+        [self setBool:kSentryCrashReportingEnabled value:defaultValue];
+        return defaultValue;
+    }
+
+    return stored.boolValue;
+}
+
+- (void)setSentryCrashReportingEnabled:(BOOL)sentryCrashReportingEnabled {
+    [self setBool:kSentryCrashReportingEnabled value:sentryCrashReportingEnabled];
+}
+
 - (BOOL)instantPinUnlocking {
     return [self getBool:kInstantPinUnlocking fallback:YES];
 }
 
 - (void)setInstantPinUnlocking:(BOOL)instantPinUnlocking {
     [self setBool:kInstantPinUnlocking value:instantPinUnlocking];
-}
-
-- (BOOL)iCloudOn {
-    return [self getBool:kiCloudOn];
-}
-
-- (void)setICloudOn:(BOOL)iCloudOn {
-    [self setBool:kiCloudOn value:iCloudOn];
 }
 
 - (FavIconDownloadOptions *)favIconDownloadOptions {
@@ -923,6 +1354,15 @@ static NSString* const kPinCodeHapticFeedback = @"pinCodeHapticFeedback";
 
 - (void)setDatabaseCellSubtitle2:(DatabaseCellSubtitleField)databaseCellSubtitle2 {
     [self setInteger:kDatabaseCellSubtitle2 value:databaseCellSubtitle2];
+}
+
+- (DatabaseSortOption)databasesSortOption {
+    NSInteger defaultValue = DatabaseSortOptionDate;
+    return [self getInteger:kDatabasesSortOption fallback:defaultValue];
+}
+
+- (void)setDatabasesSortOption:(DatabaseSortOption)option {
+    [self setInteger:kDatabasesSortOption value:option];
 }
 
 
@@ -1059,7 +1499,7 @@ static NSString* const kPinCodeHapticFeedback = @"pinCodeHapticFeedback";
     
     launchCount++;
     
-    NSLog(@"Application has been launched %ld times", (long)launchCount);
+
     
     NSUserDefaults *userDefaults = AppPreferences.sharedInstance.sharedAppGroupDefaults;
     [userDefaults setInteger:launchCount forKey:kLaunchCountKey];
@@ -1067,34 +1507,10 @@ static NSString* const kPinCodeHapticFeedback = @"pinCodeHapticFeedback";
     [userDefaults synchronize];
 }
 
-- (BOOL)iCloudWasOn {
-    return [AppPreferences.sharedInstance.sharedAppGroupDefaults boolForKey:kiCloudWasOn];
-}
-
--(void)setICloudWasOn:(BOOL)iCloudWasOn {
-    [AppPreferences.sharedInstance.sharedAppGroupDefaults setBool:iCloudWasOn forKey:kiCloudWasOn];
-    [AppPreferences.sharedInstance.sharedAppGroupDefaults synchronize];
-}
-
-- (BOOL)iCloudPrompted {
-    return [AppPreferences.sharedInstance.sharedAppGroupDefaults boolForKey:kiCloudPrompted];
-}
-
-- (void)setICloudPrompted:(BOOL)iCloudPrompted {
-    [AppPreferences.sharedInstance.sharedAppGroupDefaults setBool:iCloudPrompted forKey:kiCloudPrompted];
-    [AppPreferences.sharedInstance.sharedAppGroupDefaults synchronize];
-}
-
 
 
 - (NSString*)getFlagsStringForDiagnostics {
-    return [NSString stringWithFormat:@"[%d[%ld]%d%d%d%d]",
-            AppPreferences.sharedInstance.isPro,
-            (long)self.launchCount,
-            AppPreferences.sharedInstance.iCloudOn,
-            self.iCloudWasOn,
-            self.iCloudPrompted,
-            self.iCloudAvailable];
+    return [NSString stringWithFormat:@"[%d[%ld]]", AppPreferences.sharedInstance.isPro, (long)self.launchCount];
 }
 
 - (BOOL)showKeePassCreateSafeOptions {
@@ -1171,6 +1587,15 @@ static NSString* const kPinCodeHapticFeedback = @"pinCodeHapticFeedback";
     [AppPreferences.sharedInstance.sharedAppGroupDefaults synchronize];
 }
 
+- (BOOL)deleteDatabaseAfterXFailedUnlockAttempts {
+    return NO;
+}
+
+- (void)setDeleteDatabaseAfterXFailedUnlockAttempts:(BOOL)deleteDatabaseAfterXFailedUnlockAttempts {
+    
+    [self setBool:kDeleteDatabaseAfterXFailedUnlockAttempts value:NO];
+}
+
 - (NSUInteger)failedUnlockAttempts {
     return [AppPreferences.sharedInstance.sharedAppGroupDefaults integerForKey:kFailedUnlockAttempts];
 }
@@ -1188,31 +1613,39 @@ static NSString* const kPinCodeHapticFeedback = @"pinCodeHapticFeedback";
     [self setBool:kAppLockAppliesToPreferences value:appLockAppliesToPreferences];
 }
 
+- (BOOL)showHiddenDatabases {
+    return [self getBool:kShowHiddenDatabases];
+}
+
+- (void)setShowHiddenDatabases:(BOOL)showHiddenDatabases {
+    [self setBool:kShowHiddenDatabases value:showHiddenDatabases];
+}
+
 
 
 + (NSString*)getAppGroupFromProvisioningProfile {
     NSString* profilePath = [NSBundle.mainBundle pathForResource:@"embedded" ofType:@"mobileprovision"];
     
     if (profilePath == nil) {
-        NSLog(@"INFO: getAppGroupFromProvisioningProfile - Could not find embedded.mobileprovision file");
+        slog(@"INFO: getAppGroupFromProvisioningProfile - Could not find embedded.mobileprovision file");
         return nil;
     }
     
     NSData* plistData = [NSData dataWithContentsOfFile:profilePath];
     if(!plistData) {
-        NSLog(@"Error: getAppGroupFromProvisioningProfile - dataWithContentsOfFile nil");
+        slog(@"Error: getAppGroupFromProvisioningProfile - dataWithContentsOfFile nil");
         return nil;
     }
     
     NSString* plistDataString = [NSString stringWithFormat:@"%@", plistData];
     if(plistDataString == nil) {
-        NSLog(@"Error: getAppGroupFromProvisioningProfile - plistData - stringWithFormat nil");
+        slog(@"Error: getAppGroupFromProvisioningProfile - plistData - stringWithFormat nil");
         return nil;
     }
     
     NSString* plistString = [self extractPlist:plistDataString];
     if(!plistString) {
-        NSLog(@"Error: getAppGroupFromProvisioningProfile - extractPlist nil");
+        slog(@"Error: getAppGroupFromProvisioningProfile - extractPlist nil");
         return nil;
     }
     
@@ -1221,7 +1654,7 @@ static NSString* const kPinCodeHapticFeedback = @"pinCodeHapticFeedback";
                                                                              error:&error];
     
     if(error || regex == nil) {
-        NSLog(@"Error: getAppGroupFromProvisioningProfile - regularExpressionWithPattern %@", error);
+        slog(@"Error: getAppGroupFromProvisioningProfile - regularExpressionWithPattern %@", error);
         return nil;
     }
     
@@ -1233,7 +1666,7 @@ static NSString* const kPinCodeHapticFeedback = @"pinCodeHapticFeedback";
         return appGroup;
     }
     else {
-        NSLog(@"INFO: getAppGroupFromProvisioningProfile - App Group Not Found - [%@]", res);
+        slog(@"INFO: getAppGroupFromProvisioningProfile - App Group Not Found - [%@]", res);
         return nil;
     }
 }
@@ -1259,13 +1692,13 @@ static NSString* const kPinCodeHapticFeedback = @"pinCodeHapticFeedback";
     NSRegularExpression* regex = [NSRegularExpression regularExpressionWithPattern:pattern options:NSRegularExpressionCaseInsensitive error:&error];
     
     if(error) {
-        NSLog(@"hexStringToAscii Error: %@", error);
+        slog(@"hexStringToAscii Error: %@", error);
         return nil;
     }
     
     NSArray<NSTextCheckingResult*>* matches = [regex matchesInString:hexString options:kNilOptions range:NSMakeRange(0, hexString.length)];
     if(!matches) {
-        NSLog(@"hexStringToAscii Error: Matches nil");
+        slog(@"hexStringToAscii Error: Matches nil");
         return nil;
     }
     
@@ -1281,7 +1714,7 @@ static NSString* const kPinCodeHapticFeedback = @"pinCodeHapticFeedback";
             return @(u32);
         }
         else {
-            NSLog(@"Do not know how to decode.");
+            slog(@"Do not know how to decode.");
             return @(32); 
         }
     }];
@@ -1346,5 +1779,5 @@ static NSString* const kPinCodeHapticFeedback = @"pinCodeHapticFeedback";
     [self.sharedAppGroupDefaults setObject:value forKey:key];
     [self.sharedAppGroupDefaults synchronize];
 }
-    
+
 @end

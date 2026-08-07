@@ -7,18 +7,28 @@
 //
 
 #import "DatabaseCellView.h"
-#import "BookmarksHelper.h"
 #import "Utils.h"
 #import "NSDate+Extensions.h"
 #import "MacUrlSchemes.h"
 #import "WorkingCopyManager.h"
-#import "FileManager.h"
+#import "StrongboxMacFilesManager.h"
 #import "Settings.h"
 #import "MacSyncManager.h"
 #import <QuartzCore/QuartzCore.h>
 #import "SafeStorageProviderFactory.h"
+
+#ifndef NO_NETWORKING
 #import "SFTPStorageProvider.h"
 #import "WebDAVStorageProvider.h"
+#endif
+
+#ifndef IS_APP_EXTENSION
+#import "Strongbox-Swift.h"
+#else
+#import "Strongbox_Auto_Fill-Swift.h"
+#endif
+
+NSString* const kDatabaseCellView = @"DatabaseCellView";
 
 @interface DatabaseCellView () <NSTextFieldDelegate>
 
@@ -30,18 +40,21 @@
 
 
 
+@property (weak) IBOutlet NSImageView *imageViewCloudKitShared;
 @property (weak) IBOutlet NSImageView *imageViewQuickLaunch;
 @property (weak) IBOutlet NSImageView *imageViewOutstandingUpdate;
 @property (weak) IBOutlet NSImageView *imageViewReadOnly;
 @property (weak) IBOutlet NSImageView *imageViewSyncing;
 @property (weak) IBOutlet NSProgressIndicator *syncProgressIndicator;
-@property (weak) IBOutlet NSImageView *imageViewUnlocked;
 
 @property NSClickGestureRecognizer *gestureRecognizerClick;
 @property NSString* uuid;
 @property NSString* originalNickName;
 
 @property (weak) IBOutlet NSImageView *imageViewProvider;
+@property (weak) IBOutlet NSStackView *masterStack;
+@property (weak) IBOutlet NSTextField *labelStatus;
+@property (weak) IBOutlet NSImageView *imageViewUnlockedIndicator;
 
 @end
 
@@ -54,11 +67,6 @@
     
     self.gestureRecognizerClick = [[NSClickGestureRecognizer alloc] initWithTarget:self action:@selector(onNicknameClick)];
     [self.textFieldName addGestureRecognizer:self.gestureRecognizerClick];
-    
-    if (@available(macOS 11.0, *)) {
-        self.imageViewUnlocked.image = [NSImage imageWithSystemSymbolName:@"lock.open.fill" accessibilityDescription:nil];
-        self.imageViewUnlocked.contentTintColor = NSColor.systemGreenColor;
-    }
 }
 
 - (void)prepareForReuse {
@@ -80,30 +88,48 @@
                  disabled:NO];
 }
 
+- (void)setWithDatabase:(MacDatabasePreferences*)metadata disabled:(BOOL)disabled {
+    [self setWithDatabase:metadata
+ nickNameEditClickEnabled:YES
+            showSyncState:YES
+ indicateAutoFillDisabled:NO
+         wormholeUnlocked:NO
+                 disabled:disabled];
+}
+
 - (void)setWithDatabase:(MacDatabasePreferences *)metadata
 nickNameEditClickEnabled:(BOOL)nickNameEditClickEnabled
           showSyncState:(BOOL)showSyncState
 indicateAutoFillDisabled:(BOOL)indicateAutoFillDisabled
        wormholeUnlocked:(BOOL)wormholeUnlocked
                disabled:(BOOL)disabled {
+    [self setWithDatabase:metadata nickNameEditClickEnabled:nickNameEditClickEnabled showSyncState:showSyncState indicateAutoFillDisabled:indicateAutoFillDisabled wormholeUnlocked:wormholeUnlocked disabled:disabled hideRightSideFields:NO];
+}
+
+- (void)setWithDatabase:(MacDatabasePreferences *)metadata
+nickNameEditClickEnabled:(BOOL)nickNameEditClickEnabled
+          showSyncState:(BOOL)showSyncState
+indicateAutoFillDisabled:(BOOL)indicateAutoFillDisabled
+       wormholeUnlocked:(BOOL)wormholeUnlocked
+               disabled:(BOOL)disabled
+    hideRightSideFields:(BOOL)hideRightSideFields {
     [self resetUi:metadata];
     
     self.gestureRecognizerClick.enabled = nickNameEditClickEnabled;
-    self.imageViewUnlocked.hidden = !wormholeUnlocked;
     
     @try {
-        self.imageViewProvider.image = [SafeStorageProviderFactory getImageForProvider:metadata.storageProvider];
+        self.imageViewProvider.image = [SafeStorageProviderFactory getImageForProvider:metadata.storageProvider database:metadata];
 
-        [self bindTextFields:metadata];
+        [self bindTextFields:metadata hideRightSideFields:hideRightSideFields];
     
         [self bindEnableDisabled:metadata disabled:disabled indicateAutoFillDisabled:indicateAutoFillDisabled];
 
-        [self bindIndicators:metadata];
+        [self bindIndicatorsAndStatus:metadata wormholeUnlocked:wormholeUnlocked];
         
         [self bindSyncState:metadata showSyncState:showSyncState];
     }
     @catch (NSException *exception) {
-        NSLog(@"Exception getting display attributes for database: %@", exception);
+        slog(@"Exception getting display attributes for database: %@", exception);
     }
 }
 
@@ -120,12 +146,93 @@ indicateAutoFillDisabled:(BOOL)indicateAutoFillDisabled
     self.imageViewSyncing.hidden = YES;
     self.syncProgressIndicator.hidden = YES;
     [self.syncProgressIndicator stopAnimation:nil];
+
+
+    self.imageViewUnlockedIndicator.alphaValue = 0.0;
+    self.labelStatus.stringValue = @"";
 }
 
-- (void)bindIndicators:(MacDatabasePreferences*)metadata {
+- (void)bindIndicatorsAndStatus:(MacDatabasePreferences*)metadata 
+               wormholeUnlocked:(BOOL)wormholeUnlocked {
     self.imageViewQuickLaunch.hidden = !metadata.launchAtStartup;
     self.imageViewOutstandingUpdate.hidden = metadata.outstandingUpdateId == nil;
     self.imageViewReadOnly.hidden = !metadata.readOnly;
+    
+    BOOL unlocked = (wormholeUnlocked || [self isDatabaseUnlocked:metadata.uuid]);
+    
+    self.imageViewUnlockedIndicator.alphaValue = unlocked ? 1.0 : 0.0;
+    
+    self.labelStatus.stringValue = [self getStatusText:metadata unlocked:unlocked];
+    self.labelStatus.textColor = unlocked ? NSColor.systemGreenColor : NSColor.secondaryLabelColor;
+    
+    self.imageViewCloudKitShared.hidden = metadata.storageProvider != kCloudKit || !metadata.isSharedInCloudKit;
+    
+    if ( metadata.isSharedInCloudKit ) {
+        BOOL iOwn = metadata.isOwnedByMeCloudKit;
+        NSImage* cloudkitSharedIndicator = [NSImage imageWithSystemSymbolName:@"person.2.fill" accessibilityDescription:nil];
+        NSArray<NSColor*>* colors = iOwn ?  @[NSColor.systemGreenColor, NSColor.systemBlueColor] : @[NSColor.systemBlueColor, NSColor.systemGreenColor];
+
+        NSImageSymbolConfiguration* config = [NSImageSymbolConfiguration configurationWithPaletteColors:colors];
+        NSImage* coloured = [cloudkitSharedIndicator imageWithSymbolConfiguration:config];
+
+        self.imageViewCloudKitShared.image = coloured;
+        
+        self.imageViewCloudKitShared.toolTip = iOwn ? 
+        NSLocalizedString(@"shared_by_you", @"Shared by you") :
+                          NSLocalizedString(@"shared_with_you", @"Shared with you"); 
+    }
+}
+
+- (BOOL)isDatabaseUnlocked:(NSString*)uuid {
+#ifndef IS_APP_EXTENSION
+    return [DatabasesCollection.shared isUnlockedWithUuid:uuid]; 
+#else
+    return NO;
+#endif
+}
+
+- (NSString*)getStatusText:(MacDatabasePreferences*)metadata unlocked:(BOOL)unlocked {
+    NSMutableArray* s = NSMutableArray.array;
+        
+#ifndef IS_APP_EXTENSION
+    Model* model = [DatabasesCollection.shared getUnlockedWithUuid:metadata.uuid];
+    
+    if ( model ) {
+        [s addObject:NSLocalizedString(@"database_unlocked_status", @"Unlocked")]; 
+
+        if ( model.isReadOnly  ) {
+            [s addObject:NSLocalizedString(@"databases_toggle_read_only_context_menu", @"Read-Only")];
+        }
+        if ( model.isInOfflineMode ) {
+            [s addObject:NSLocalizedString(@"browse_vc_pulldown_refresh_offline_title", @"Offline Mode")];
+        }
+    }
+    else {
+        if ( unlocked ) {
+            [s addObject:NSLocalizedString(@"database_unlocked_status", @"Unlocked")];
+        }
+        if ( metadata.readOnly ) {
+            [s addObject:NSLocalizedString(@"databases_toggle_read_only_context_menu", @"Read-Only")];
+        }
+        if ( metadata.alwaysOpenOffline || metadata.userRequestOfflineOpenEphemeralFlagForDocument ) {
+            [s addObject:NSLocalizedString(@"browse_vc_pulldown_refresh_offline_title", @"Offline Mode")];
+        }
+    }
+#else
+    if ( unlocked ) {
+        [s addObject:NSLocalizedString(@"database_unlocked_status", @"Unlocked")];
+    }
+    if ( metadata.readOnly ) {
+        [s addObject:NSLocalizedString(@"databases_toggle_read_only_context_menu", @"Read-Only")];
+    }
+    if ( metadata.alwaysOpenOffline ) {
+        [s addObject:NSLocalizedString(@"browse_vc_pulldown_refresh_offline_title", @"Offline Mode")];
+    }
+#endif
+    NSString* csv = [s componentsJoinedByString:@", "];
+    
+
+    return csv.length ? [NSString stringWithFormat:@"(%@)", csv] : @"";
 }
 
 - (void)bindEnableDisabled:(MacDatabasePreferences*)metadata disabled:(BOOL)disabled indicateAutoFillDisabled:(BOOL)indicateAutoFillDisabled {
@@ -141,98 +248,39 @@ indicateAutoFillDisabled:(BOOL)indicateAutoFillDisabled
     }
 }
 
-- (void)bindTextFields:(MacDatabasePreferences*)metadata {
-    if ( ![metadata.fileUrl.scheme isEqualToString:kStrongboxFileUrlScheme] && ![metadata.fileUrl.scheme isEqualToString:kStrongboxSyncManagedFileUrlScheme] ) {
-        [self bindTextFieldsForNoneFileDatabase:metadata];
-    }
-    else {
-        [self bindTextFieldsForFileDatabase:metadata];
-    }
-}
-
-- (void)bindTextFieldsForFileDatabase:(MacDatabasePreferences*)metadata {
-    NSString* path = @"";
+- (void)bindTextFields:(MacDatabasePreferences*)metadata hideRightSideFields:(BOOL)hideRightSideFields {
     NSString* fileSize = @"";
     NSString* fileMod = @"";
     NSString* title = metadata.nickName ? metadata.nickName : @"";
-
-    
-    
-    
-    
-    
-    
-    NSURL* url;
-    
-    if ( [metadata.fileUrl.scheme isEqualToString:kStrongboxSyncManagedFileUrlScheme] ) {
-        url = fileUrlFromManagedUrl(metadata.fileUrl);
-    }
-    else {
-        url = metadata.fileUrl;
-    }
-    
-    if ( url ) {
-        if ( [NSFileManager.defaultManager isUbiquitousItemAtURL:url] ) {
-            path = getFriendlyICloudPath(url.path);
-            self.imageViewProvider.image = [SafeStorageProviderFactory getImageForProvider:kiCloud];
-        }
-        else {
-            path = [NSString stringWithFormat:@"%@ (%@)", getPathRelativeToUserHome(url.path), [SafeStorageProviderFactory getStorageDisplayNameForProvider:metadata.storageProvider]];
-        }
-        
-        NSError* error;
-        NSDictionary* attr = [NSFileManager.defaultManager attributesOfItemAtPath:url.path error:&error];
-        if (error) {
-            NSLog(@"Error getting attributes of database file: [%@]", error);
-            path = [NSString stringWithFormat:@"(%ld) %@", (long)error.code, error.localizedDescription];
-        }
-        else {
-            fileSize = friendlyFileSizeString(attr.fileSize);
-            fileMod = attr.fileModificationDate.friendlyDateTimeStringPrecise;
-        }
-    }
-
-    self.textFieldName.stringValue = title;
-    self.textFieldSubtitleLeft.stringValue = path;
-    self.textFieldSubtitleTopRight.stringValue = fileSize;
-    self.textFieldSubtitleBottomRight.stringValue = fileMod;
-}
-
-- (void)bindTextFieldsForNoneFileDatabase:(MacDatabasePreferences*)metadata {
-    NSString* path = @"";
-    NSString* fileSize = @"";
-    NSString* fileMod = @"";
-    NSString* title = metadata.nickName ? metadata.nickName : @"";
-
-    if ( metadata.storageProvider == kSFTP ) {
-        SFTPSessionConfiguration* connection = [SFTPStorageProvider.sharedInstance getConnectionFromDatabase:metadata];
-        
-        path = [NSString stringWithFormat:@"%@ (%@)", metadata.fileUrl.lastPathComponent, connection.name.length ? connection.name : connection.host];
-    }
-    else if ( metadata.storageProvider == kWebDAV ) {
-        WebDAVSessionConfiguration* connection = [WebDAVStorageProvider.sharedInstance getConnectionFromDatabase:metadata];
-        
-        path = [NSString stringWithFormat:@"%@ (%@)", metadata.fileUrl.lastPathComponent, connection.name.length ? connection.name : connection.host];
-    }
-    else {
-        path = [NSString stringWithFormat:@"%@ (%@)", metadata.fileUrl.lastPathComponent, [SafeStorageProviderFactory getStorageDisplayNameForProvider:metadata.storageProvider] ];
-    }
     
     NSDate* modDate;
     unsigned long long size;
     NSURL* workingCopy = [WorkingCopyManager.sharedInstance getLocalWorkingCache:metadata.uuid
-                                                                         modified:&modDate
-                                                                         fileSize:&size];
-    
+                                                                        modified:&modDate
+                                                                        fileSize:&size];
     if ( workingCopy ) {
         fileSize = friendlyFileSizeString(size);
         fileMod = modDate.friendlyDateTimeStringPrecise;
     }
     
     self.textFieldName.stringValue = title;
-    self.textFieldSubtitleLeft.stringValue = path;
     self.textFieldSubtitleTopRight.stringValue = fileSize;
     self.textFieldSubtitleBottomRight.stringValue = fileMod;
+    self.textFieldSubtitleLeft.stringValue = [SafeStorageProviderFactory getStorageSubtitleForDatabasesManager:metadata];
+    
+    if ( [metadata.fileUrl.scheme isEqualToString:kStrongboxFileUrlScheme] || [metadata.fileUrl.scheme isEqualToString:kStrongboxSyncManagedFileUrlScheme] ) {
+        NSURL* url = [metadata.fileUrl.scheme isEqualToString:kStrongboxSyncManagedFileUrlScheme] ? fileUrlFromManagedUrl(metadata.fileUrl) : metadata.fileUrl;
+
+        
+        
+
+        if ( url && [NSFileManager.defaultManager isUbiquitousItemAtURL:url] ) {
+            self.imageViewProvider.image = [SafeStorageProviderFactory getImageForProvider:kiCloud];
+        }
+    }
+    
+    self.textFieldSubtitleTopRight.hidden = hideRightSideFields;
+    self.textFieldSubtitleBottomRight.hidden = hideRightSideFields;
 }
 
 - (void)bindSyncState:(MacDatabasePreferences *)metadata showSyncState:(BOOL)showSyncState {
@@ -258,20 +306,18 @@ indicateAutoFillDisabled:(BOOL)indicateAutoFillDisabled
         
         self.imageViewSyncing.image = [NSImage imageNamed:@"syncronize"];
         
-        if (@available(macOS 11.0, *)) {
-            self.imageViewSyncing.image = [NSImage imageWithSystemSymbolName:@"function" accessibilityDescription:nil];
-            self.imageViewSyncing.controlSize = NSControlSizeLarge;
-        }
-
+        self.imageViewSyncing.image = [NSImage imageWithSystemSymbolName:@"function" accessibilityDescription:nil];
+        self.imageViewSyncing.controlSize = NSControlSizeLarge;
+        
         NSColor *tint = NSColor.systemYellowColor;
         self.imageViewSyncing.contentTintColor = tint;
-
+        
         self.syncProgressIndicator.hidden = NO;
         [self.syncProgressIndicator startAnimation:nil];
     }
 }
 
-- (void)onChangeNickname {
+- (void)onBeginRenameEdit {
     [self onNicknameClick];
 }
 
@@ -279,7 +325,7 @@ indicateAutoFillDisabled:(BOOL)indicateAutoFillDisabled
 
     
     if ( self.textFieldName.isEditable ) {
-        NSLog(@"Ignoring onNicknameClick - because isEditable");
+        slog(@"Ignoring onNicknameClick - because isEditable");
         return;
     }
     
@@ -305,12 +351,12 @@ indicateAutoFillDisabled:(BOOL)indicateAutoFillDisabled
 - (void)controlTextDidEndEditing:(NSNotification *)obj {
 
  
-    [self endEditingNickname];
     [self setNewNicknameIfValidOtherwiseRestore];
+    [self endEditingNickname];
 }
 
 - (BOOL)control:(NSControl *)control textView:(NSTextView *)textView doCommandBySelector:(SEL)commandSelector {
-    NSLog(@"%@-%@-%@", control, textView, NSStringFromSelector(commandSelector));
+
 
     if (commandSelector == NSSelectorFromString(@"insertNewline:")) { 
         [self endEditingNickname];
@@ -328,11 +374,8 @@ indicateAutoFillDisabled:(BOOL)indicateAutoFillDisabled
     NSString* raw = self.textFieldName.stringValue;
     NSString* trimmed = [MacDatabasePreferences trimDatabaseNickName:raw];
 
-    if ( ![self.originalNickName isEqualToString:trimmed] &&
-        [MacDatabasePreferences isValid:trimmed] &&
-        [MacDatabasePreferences isUnique:trimmed] ) {
-        
-        [MacDatabasePreferences fromUuid:self.uuid].nickName = trimmed;
+    if ( ![self.originalNickName isEqualToString:trimmed] && [MacDatabasePreferences isValid:trimmed] && [MacDatabasePreferences isUnique:trimmed] ) {
+        self.onUserRenamedDatabase(trimmed);
     }
     else {
         [self restoreOriginalNickname];

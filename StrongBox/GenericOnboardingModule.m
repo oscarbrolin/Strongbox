@@ -33,7 +33,7 @@
     return NO;
 }
 
-- (nonnull UIViewController *)instantiateViewController:(nonnull OnboardingModuleDoneBlock)onDone {
+- (UIViewController *)instantiateViewController:(nonnull OnboardingModuleDoneBlock)onDone {
     UIStoryboard* storyboard = [UIStoryboard storyboardWithName:@"GenericOnboardSlide" bundle:nil];
     GenericOnboardingViewController* vc = [storyboard instantiateInitialViewController];
     
@@ -50,7 +50,12 @@
     
     vc.header = self.header;
     vc.message = self.message;
+    
     vc.image = self.image;
+    if (@available(iOS 17.0, *)) {
+        vc.symbolEffect = self.symbolEffect;
+    }
+    
     vc.onButtonClicked = self.onButtonClicked;
     vc.hideDismiss = self.hideDismiss;
     vc.imageSize = self.imageSize;

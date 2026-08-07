@@ -16,7 +16,7 @@
 #import "NSDate+Extensions.h"
 #import "WebDAVConnections.h"
 
-#if TARGET_OS_IPHONE
+#if TARGET_OS_IOS
 
 #import "SVProgressHUD.h"
 
@@ -32,6 +32,17 @@
 
 @property DAVSession* maintainedSessionForListings;
 @property WebDAVSessionConfiguration* maintainedConfigurationForListings;
+
+- (void)enqueueListingRequestWithSession:(DAVSession *)session
+                                    path:(NSString *)path
+                            fallbackPath:(NSString *)fallbackPath
+                              completion:(void (^)(BOOL success, NSArray<DAVResponseItem*> *result, NSError *error))completion;
+
+- (void)enqueueListingRequestWithSession:(DAVSession *)session
+                                    path:(NSString *)path
+                            fallbackPath:(NSString *)fallbackPath
+                         attemptFallback:(BOOL)attemptFallback
+                              completion:(void (^)(BOOL success, NSArray<DAVResponseItem*> *result, NSError *error))completion;
 
 @end
 
@@ -79,7 +90,7 @@
 
 - (void)dismissProgressSpinner {
     dispatch_async(dispatch_get_main_queue(), ^{
-#if TARGET_OS_IPHONE
+#if TARGET_OS_IOS
         [SVProgressHUD dismiss];
 #else
         [macOSSpinnerUI.sharedInstance dismiss];
@@ -89,7 +100,7 @@
 
 - (void)showProgressSpinner:(NSString*)message viewController:(VIEW_CONTROLLER_PTR)viewController {
     dispatch_async(dispatch_get_main_queue(), ^{
-#if TARGET_OS_IPHONE
+#if TARGET_OS_IOS
         [SVProgressHUD showWithStatus:message];
 #else
         [macOSSpinnerUI.sharedInstance show:message viewController:viewController];
@@ -118,15 +129,15 @@ viewController:(VIEW_CONTROLLER_PTR)viewController
 
 
 
-- (void)create:(NSString *)nickName
-     extension:(NSString *)extension
+- (void)create:(NSString *)nickName 
+      fileName:(NSString *)fileName
           data:(NSData *)data
   parentFolder:(NSObject *)parentFolder
 viewController:(VIEW_CONTROLLER_PTR)viewController
-    completion:(void (^)(METADATA_PTR, const NSError *))completion {
+    completion:(void (^)(METADATA_PTR _Nullable, const NSError * _Nullable))completion {
     if(self.maintainSessionForListing && self.maintainedSessionForListings) { 
         [self createWithSession:nickName
-                      extension:extension
+                       fileName:fileName
                            data:data
                    parentFolder:parentFolder
                         session:self.maintainedSessionForListings
@@ -143,7 +154,7 @@ viewController:(VIEW_CONTROLLER_PTR)viewController
             }
             
             [self createWithSession:nickName
-                          extension:extension
+                           fileName:fileName
                                data:data
                        parentFolder:parentFolder
                             session:session
@@ -155,15 +166,13 @@ viewController:(VIEW_CONTROLLER_PTR)viewController
 }
 
 - (void)createWithSession:(NSString *)nickName
-                extension:(NSString *)extension
+                 fileName:(NSString *)fileName
                      data:(NSData *)data
              parentFolder:(NSObject *)parentFolder
                   session:(DAVSession*)session
             configuration:(WebDAVSessionConfiguration*)configuration
            viewController:(VIEW_CONTROLLER_PTR)viewController
                completion:(void (^)(METADATA_PTR, NSError *))completion {
-    NSString *desiredFilename = [NSString stringWithFormat:@"%@.%@", nickName, extension];
-    
     WebDAVProviderData* providerData = (WebDAVProviderData*)parentFolder;
     
     NSString* path;
@@ -171,14 +180,14 @@ viewController:(VIEW_CONTROLLER_PTR)viewController
     NSURL* ur = root.urlExtendedParse;
     
     if (ur == nil || ur.scheme == nil) {
-        path = [root stringByAppendingPathComponent:desiredFilename];
+        path = [root stringByAppendingPathComponent:fileName];
     }
     else {
         
         
         
 
-        path = [ur URLByAppendingPathComponent:desiredFilename].absoluteString; 
+        path = [ur URLByAppendingPathComponent:fileName].absoluteString; 
     }
         
     DAVPutRequest *request = [[DAVPutRequest alloc] initWithPath:path];
@@ -299,7 +308,7 @@ viewController:(VIEW_CONTROLLER_PTR)viewController
     
     if ( !connection ) {
         NSError* error = [Utils createNSError:@"Could not load connection!" errorCode:-322243];
-        completion(nil, error);
+        completion(YES, nil, error);
         return;
     }
     
@@ -307,7 +316,7 @@ viewController:(VIEW_CONTROLLER_PTR)viewController
        completion:^(BOOL userCancelled, DAVSession *session, WebDAVSessionConfiguration *configuration, NSError *error) {
         if(!session) {
             NSError* error = [Utils createNSError:NSLocalizedString(@"webdav_storage_could_not_connect", @"Could not connect to server.") errorCode:-2];
-            completion(nil, error);
+            completion(YES, nil, error);
             return;
         }
         
@@ -317,16 +326,13 @@ viewController:(VIEW_CONTROLLER_PTR)viewController
         
         
         NSString* path = pd.href.stringByDeletingLastPathComponent; 
+        NSString* fallbackPath = [path isEqualToString:pd.href] ? nil : pd.href;
         
-        DAVListingRequest* listingRequest = [[DAVListingRequest alloc] initWithPath:path];
-        listingRequest.delegate = self;
-        
-        listingRequest.strongboxCompletion = ^(BOOL success, id result, NSError *error) {
+        [self enqueueListingRequestWithSession:session path:path fallbackPath:fallbackPath completion:^(BOOL success, NSArray<DAVResponseItem *> *listingResponse, NSError *error) {
             if(!success) {
-                completion(nil, error);
+                completion(YES, nil, error);
             }
             else {
-                NSArray<DAVResponseItem*>* listingResponse = (NSArray<DAVResponseItem*>*)result;
                 NSString* targetFileName = pd.href.lastPathComponent;       
                 NSString* urlDecodedTargetFileName = [targetFileName stringByRemovingPercentEncoding];
                             
@@ -337,16 +343,14 @@ viewController:(VIEW_CONTROLLER_PTR)viewController
 
                 if (!responseItem) {
                     NSError* error = [Utils createNSError:@"Could not get attributes of webdav file" errorCode:-2];
-                    completion(nil, error);
+                    completion(YES, nil, error);
                     return;
                 }
                 
                 NSDate* modDate = responseItem.modificationDate;
-                completion(modDate, nil);
+                completion(YES, modDate, nil);
             }
-        };
-        
-        [session enqueueRequest:listingRequest];
+        }];
     }];
 }
 
@@ -383,10 +387,9 @@ viewController:(VIEW_CONTROLLER_PTR)viewController
         
         
         NSString* path = pd.href.stringByDeletingLastPathComponent; 
+        NSString* fallbackPath = [path isEqualToString:pd.href] ? nil : pd.href;
         
-        DAVListingRequest* listingRequest = [[DAVListingRequest alloc] initWithPath:path];
-        listingRequest.delegate = self;
-        listingRequest.strongboxCompletion = ^(BOOL success, id result, NSError *error) {
+        void (^listingCompletion)(BOOL, NSArray<DAVResponseItem *> *, NSError *) = ^(BOOL success, NSArray<DAVResponseItem *> *listingResponse, NSError *error) {
             if(!success) {
                 if (viewController) {
                     [self dismissProgressSpinner];
@@ -395,7 +398,6 @@ viewController:(VIEW_CONTROLLER_PTR)viewController
                 completionHandler(kReadResultError, nil, nil, error);
             }
             else {
-                NSArray<DAVResponseItem*>* listingResponse = (NSArray<DAVResponseItem*>*)result;
                 NSString* targetFileName = pd.href.lastPathComponent;       
                 NSString* urlDecodedTargetFileName = [targetFileName stringByRemovingPercentEncoding];
                             
@@ -444,12 +446,12 @@ viewController:(VIEW_CONTROLLER_PTR)viewController
                 [session enqueueRequest:request];
             }
         };
-  
+
         if (viewController) {
             [self showProgressSpinner:NSLocalizedString(@"storage_provider_status_reading", @"A storage provider is in the process of reading. This is the status displayed on the progress dialog. In english:  Reading...") viewController:viewController];
         }
         
-        [session enqueueRequest:listingRequest];
+        [self enqueueListingRequestWithSession:session path:path fallbackPath:fallbackPath completion:listingCompletion];
     }];
 }
 
@@ -502,9 +504,9 @@ viewController:(VIEW_CONTROLLER_PTR)viewController
     WebDAVProviderData* providerData = [self getProviderDataFromMetaData:safeMetaData];
     
     NSString* path = providerData.href.stringByDeletingLastPathComponent; 
-    DAVListingRequest* listingRequest = [[DAVListingRequest alloc] initWithPath:path];
-    listingRequest.delegate = self;
-    listingRequest.strongboxCompletion = ^(BOOL success, id result, NSError *error) {
+    NSString* fallbackPath = [path isEqualToString:providerData.href] ? nil : providerData.href;
+    
+    [self enqueueListingRequestWithSession:session path:path fallbackPath:fallbackPath completion:^(BOOL success, NSArray<DAVResponseItem *> *listingResponse, NSError *error) {
         if(!success) {
             if (viewController) {
                 [self dismissProgressSpinner];
@@ -513,7 +515,6 @@ viewController:(VIEW_CONTROLLER_PTR)viewController
             completion(kUpdateResultError, nil, error);
         }
         else {
-            NSArray<DAVResponseItem*>* listingResponse = (NSArray<DAVResponseItem*>*)result;
             NSString* targetFileName = providerData.href.lastPathComponent;       
             NSString* urlDecodedTargetFileName = [targetFileName stringByRemovingPercentEncoding];
                         
@@ -541,12 +542,42 @@ viewController:(VIEW_CONTROLLER_PTR)viewController
 
             completion(kUpdateResultSuccess, modDate, nil);
         }
+    }];
+}
+
+
+
+
+
+- (void)enqueueListingRequestWithSession:(DAVSession *)session
+                                    path:(NSString *)path
+                            fallbackPath:(NSString *)fallbackPath
+                              completion:(void (^)(BOOL success, NSArray<DAVResponseItem*> *result, NSError *error))completion {
+    [self enqueueListingRequestWithSession:session path:path fallbackPath:fallbackPath attemptFallback:YES completion:completion];
+}
+
+- (void)enqueueListingRequestWithSession:(DAVSession *)session
+                                    path:(NSString *)path
+                            fallbackPath:(NSString *)fallbackPath
+                         attemptFallback:(BOOL)attemptFallback
+                              completion:(void (^)(BOOL success, NSArray<DAVResponseItem*> *result, NSError *error))completion {
+    if (!session || !path || !completion) {
+        return;
+    }
+    
+    DAVListingRequest* listingRequest = [[DAVListingRequest alloc] initWithPath:path];
+    listingRequest.delegate = self;
+    listingRequest.strongboxCompletion = ^(BOOL success, id result, NSError *error) {
+        if (success || !fallbackPath || !attemptFallback) {
+            completion(success, success ? (NSArray<DAVResponseItem*>*)result : nil, error);
+            return;
+        }
+        
+        [self enqueueListingRequestWithSession:session path:fallbackPath fallbackPath:nil attemptFallback:NO completion:completion];
     };
     
     [session enqueueRequest:listingRequest];
 }
-
-
 
 static WebDAVProviderData* makeProviderData(NSString *href, WebDAVSessionConfiguration* sessionConfiguration) {
     WebDAVProviderData* ret = [[WebDAVProviderData alloc] init];
@@ -561,7 +592,7 @@ static WebDAVProviderData* makeProviderData(NSString *href, WebDAVSessionConfigu
 
 - (WebDAVProviderData*)getProviderDataFromMetaData:(METADATA_PTR)metaData {
 
-#if TARGET_OS_IPHONE
+#if TARGET_OS_IOS
     NSString* json = metaData.fileIdentifier;
 #else
     NSString* json = metaData.storageInfo;
@@ -584,17 +615,19 @@ static WebDAVProviderData* makeProviderData(NSString *href, WebDAVSessionConfigu
     NSData* data = [NSJSONSerialization dataWithJSONObject:[foo serializationDictionary] options:0 error:&error];
     
     if(error) {
-        NSLog(@"%@", error);
+        slog(@"%@", error);
         return nil;
     }
     
     NSString *json = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
     
-#if TARGET_OS_IPHONE
-    return [DatabasePreferences templateDummyWithNickName:nickName
-                                          storageProvider:self.storageId
-                                                 fileName:[[foo.href lastPathComponent] stringByRemovingPercentEncoding]
-                                           fileIdentifier:json];
+#if TARGET_OS_IOS
+    DatabasePreferences *ret = [DatabasePreferences templateDummyWithNickName:nickName
+                                                              storageProvider:self.storageId
+                                                                     fileName:[[foo.href lastPathComponent] stringByRemovingPercentEncoding]
+                                                               fileIdentifier:json];
+    
+    ret.lazySyncMode = YES; 
 #else
     NSURLComponents* components = [NSURLComponents componentsWithString:foo.href];
     
@@ -616,9 +649,9 @@ static WebDAVProviderData* makeProviderData(NSString *href, WebDAVSessionConfigu
     newComponents.queryItems = @[[NSURLQueryItem queryItemWithName:@"uuid" value:ret.uuid]];
     
     ret.fileUrl = newComponents.URL;
+#endif
     
     return ret;
-#endif
 }
 
 
@@ -631,7 +664,7 @@ static WebDAVProviderData* makeProviderData(NSString *href, WebDAVSessionConfigu
     
 }
     
-- (void)testConnection:(WebDAVSessionConfiguration*)connection viewController:(VIEW_CONTROLLER_PTR)viewController completion:(void (^)(NSError* error))completion {
+- (void)testConnection:(WebDAVSessionConfiguration*)connection viewController:(VIEW_CONTROLLER_PTR)viewController completion:(void (^)(NSError* _Nullable error))completion {
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0L), ^{
         [self connect:connection
        viewController:viewController

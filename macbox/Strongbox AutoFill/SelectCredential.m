@@ -9,19 +9,17 @@
 #import "SelectCredential.h"
 #import "DatabaseSearchAndSorter.h"
 #import "NodeIconHelper.h"
-#import "AutoFillCredentialCell.h"
+#import "EntryTableCellView.h"
 #import "NSString+Extensions.h"
 #import "CustomBackgroundTableView.h"
 #import "OTPToken+Generation.h"
+#import "NSArray+Extensions.h"
 
 #ifndef IS_APP_EXTENSION
 #import "Strongbox-Swift.h"
 #else
-#import "Strongbox_AutoFill-Swift.h"
+#import "Strongbox_Auto_Fill-Swift.h"
 #endif
-
-
-static NSString* const kAutoFillCredentialCell = @"AutoFillCredentialCell";
 
 @interface SelectCredential () <NSTableViewDelegate, NSTableViewDataSource, NSSearchFieldDelegate>
 
@@ -34,6 +32,15 @@ static NSString* const kAutoFillCredentialCell = @"AutoFillCredentialCell";
 
 @property BOOL viewWillAppearFirstTimeDone;
 @property BOOL doneFirstAppearanceTasks;
+@property (weak) IBOutlet NSTextField *cautionImpreciseWarning;
+
+@property BOOL doneSmartInit;
+@property (weak) IBOutlet NSButton *buttonCreateNew;
+
+@property (nullable) NSTimer* otpTimer;
+@property (weak) IBOutlet NSTextField *serviceIde;
+@property (weak) IBOutlet NSStackView *stackView;
+@property (weak) IBOutlet NSTextField *serviceIdHeader;
 
 @end
 
@@ -43,45 +50,101 @@ static NSString* const kAutoFillCredentialCell = @"AutoFillCredentialCell";
     [super viewWillAppear];
     
     if ( !self.viewWillAppearFirstTimeDone ) {
-        self.viewWillAppearFirstTimeDone = YES;
-        
-        NSString* loc = NSLocalizedString(@"mac_search_placeholder", @"Search (⌘F)");
-        [self.searchField setPlaceholderString:loc];
-        self.searchField.enabled = YES;
-        self.searchField.delegate = self;
-        self.tableView.dataSource = self;
-        self.tableView.delegate = self;
-        self.tableView.doubleAction = @selector(onSelect:);
-
-        [self.tableView registerNib:[[NSNib alloc] initWithNibNamed:kAutoFillCredentialCell bundle:nil]
-                      forIdentifier:kAutoFillCredentialCell];
-
-        [self bindSelectButton];
-        
-        [self loadItems];
-        
-        NSString *text = self.items.count ?
-            NSLocalizedString(@"pick_creds_vc_empty_search_dataset_title", @"No Matching Entries") :
-            NSLocalizedString(@"pick_creds_vc_empty_dataset_title", @"Empty Database");
-        
-        self.tableView.emptyString = text;
+        [self setupUI];
     }
 }
 
 - (void)viewDidAppear {
     [super viewDidAppear];
-
-    if ( !self.doneFirstAppearanceTasks ) { 
+    
+    if ( !self.doneFirstAppearanceTasks ) {
         self.doneFirstAppearanceTasks = YES;
         self.view.window.frameAutosaveName = @"SelectCredential-AutoSave";
+        
+        [self.stackView setCustomSpacing:4 afterView:self.serviceIdHeader];
 
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        self.serviceIde.maximumNumberOfLines = 4;
+        
+        self.serviceIde.stringValue = self.serviceIdentifiers.firstObject ? self.serviceIdentifiers.firstObject.identifier : NSLocalizedString(@"generic_none_available", @"None Available");
+        
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             [self smartInitializeSearch];
-
+            
             [self.view.window makeFirstResponder:self.searchField];
             
             [self onSearch:nil];
         });
+    }
+    
+    [self startOtpRefreshTimer];
+}
+
+- (void)viewDidDisappear {
+    [super viewDidDisappear];
+    
+    [self stopOtpRefreshTimer];
+}
+
+- (void)setupUI {
+    self.viewWillAppearFirstTimeDone = YES;
+    
+    NSString* loc = NSLocalizedString(@"mac_search_placeholder", @"Search (⌘F)");
+    [self.searchField setPlaceholderString:loc];
+    self.searchField.enabled = YES;
+    self.searchField.delegate = self;
+    self.tableView.dataSource = self;
+    self.tableView.delegate = self;
+    self.tableView.doubleAction = @selector(onSelect:);
+    
+    [self.tableView registerNib:[[NSNib alloc] initWithNibNamed:kEntryTableCellViewIdentifier bundle:nil]
+                  forIdentifier:kEntryTableCellViewIdentifier];
+    
+    [self.tableView sizeLastColumnToFit];
+    
+    [self bindSelectButton];
+    
+    [self loadItems];
+    
+    NSString *text = self.items.count ?
+    NSLocalizedString(@"pick_creds_vc_empty_search_dataset_title", @"No Matching Entries") :
+    NSLocalizedString(@"pick_creds_vc_empty_dataset_title", @"Empty Database");
+    
+    self.tableView.emptyString = text;
+    self.cautionImpreciseWarning.hidden = YES;
+    
+    if (@available(macOS 13.0, *)) {
+        self.buttonCreateNew.hidden = self.model.isReadOnly || self.twoFaOnlyMode;
+    }
+    else {
+        self.buttonCreateNew.hidden = YES;
+    }
+}
+
+- (void)stopOtpRefreshTimer {
+    if ( self.otpTimer ) {
+        [self.otpTimer invalidate];
+        self.otpTimer = nil;
+    }
+}
+
+- (void)startOtpRefreshTimer {
+    [self stopOtpRefreshTimer];
+    
+    self.otpTimer = [NSTimer scheduledTimerWithTimeInterval:1
+                                                     target:self
+                                                   selector:@selector(refreshOtpCodes)
+                                                   userInfo:nil
+                                                    repeats:YES];
+}
+
+- (void)refreshOtpCodes {
+    NSScrollView* scrollView = self.tableView.enclosingScrollView;
+    CGRect visibleRect = scrollView.contentView.visibleRect;
+    NSRange rowRange = [self.tableView rowsInRect:visibleRect];
+
+    if ( rowRange.length > 0 ) {
+        NSIndexSet* indexSet = [[NSIndexSet alloc] initWithIndexesInRange:rowRange];
+        [self.tableView reloadDataForRowIndexes:indexSet columnIndexes:[NSIndexSet indexSetWithIndex:0]];
     }
 }
 
@@ -95,12 +158,16 @@ static NSString* const kAutoFillCredentialCell = @"AutoFillCredentialCell";
     }
     
     [self bindSelectButton];
+    
+    if ( self.doneSmartInit ) {
+        self.cautionImpreciseWarning.hidden = YES;
+    }
 }
 
 - (BOOL)control:(NSControl *)control textView:(NSTextView *)textView doCommandBySelector:(SEL)commandSelector {
     if(control == self.searchField) { 
         if (commandSelector == @selector(moveDown:)) {
-            NSLog(@"%@-%@-%@", control, textView, NSStringFromSelector(commandSelector));
+            slog(@"%@-%@-%@", control, textView, NSStringFromSelector(commandSelector));
             if (self.tableView.numberOfRows > 0) {
                 [self.view.window makeFirstResponder:self.tableView];
                 [self.tableView selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
@@ -122,7 +189,9 @@ static NSString* const kAutoFillCredentialCell = @"AutoFillCredentialCell";
 }
 
 - (void)loadItems {
-    self.items = [self.model filterAndSortForBrowse:self.model.database.effectiveRootGroup.allChildRecords.mutableCopy
+    NSArray<Node*>* entries = self.twoFaOnlyMode ? self.model.totpEntries : self.model.allSearchableNoneExpiredEntries;
+    
+    self.items = [self.model filterAndSortForBrowse:entries.mutableCopy
                               includeKeePass1Backup:NO
                                   includeRecycleBin:NO
                                      includeExpired:NO
@@ -206,17 +275,19 @@ static NSString* const kAutoFillCredentialCell = @"AutoFillCredentialCell";
         return;
     }
     else {
-        NSLog(@"No matches across all fields for Domain: %@", domain);
+        slog(@"No matches across all fields for Domain: %@", domain);
     }
 
     
 
     NSString * searchTerm = getCompanyOrOrganisationNameFromDomain(domain);
-    items = [self getMatchingItems:searchTerm scope:kSearchScopeAll];
-    if(items.count) {
-        self.searchField.stringValue = domain;
-        return;
-    }
+    
+    self.searchField.stringValue = searchTerm;
+    self.cautionImpreciseWarning.hidden = NO;
+    
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        self.doneSmartInit = YES;
+    });
 }
 
 NSString *getPublicDomain(NSString* url) {
@@ -228,25 +299,7 @@ NSString *getPublicDomain(NSString* url) {
         return @"";
     }
 
-    NSString *domain = [BrowserAutoFillManager extractDomainFromUrlWithUrl:url];
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    return domain;
+    return [BrowserAutoFillManager extractPSLDomainFromUrlWithUrl:url];
 }
 
 NSString *getCompanyOrOrganisationNameFromDomain(NSString* domain) {
@@ -256,14 +309,12 @@ NSString *getCompanyOrOrganisationNameFromDomain(NSString* domain) {
     
     NSArray<NSString*> *parts = [domain componentsSeparatedByString:@"."];
     
-    NSLog(@"%@", parts);
-    
-    NSString *searchTerm =  parts.count ? parts[0] : domain;
+    NSString *searchTerm = parts.count ? parts[0] : domain;
     return searchTerm;
 }
 
 - (NSArray<Node*>*)getMatchingItems:(NSString*)searchText scope:(SearchScope)scope {
-    return [self.model search:searchText
+    NSArray<Node*>* ret = [self.model search:searchText
                         scope:scope
                   dereference:YES
         includeKeePass1Backup:NO
@@ -273,6 +324,15 @@ NSString *getCompanyOrOrganisationNameFromDomain(NSString* domain) {
               browseSortField:kBrowseSortFieldTitle
                    descending:NO
             foldersSeparately:YES];
+    
+    if ( self.twoFaOnlyMode ) {
+        return [ret filter:^BOOL(Node * _Nonnull obj) {
+            return obj.fields.otpToken != nil;
+        }];
+    }
+    else {
+        return ret;
+    }
 }
 
 
@@ -283,19 +343,26 @@ NSString *getCompanyOrOrganisationNameFromDomain(NSString* domain) {
     if (index != NSNotFound) {
         Node* node = [self getDataSource][index];
         
-        [self dismissViewController:self];
-        
         NSString* totp = node.fields.otpToken ? node.fields.otpToken.password : @"";
-        NSString* user = [self.model dereference:node.fields.username node:node];
-        NSString* password = [self.model dereference:node.fields.password node:node];
-
-        self.onDone(NO, user, password, totp);
+        
+        if ( !self.twoFaOnlyMode ) {
+            NSString* user = [self.model dereference:node.fields.username node:node];
+            if ( user.length == 0 ) {
+                user = [self.model.database dereference:node.fields.email node:node]; 
+            }
+            
+            NSString* password = [self.model dereference:node.fields.password node:node];
+            
+            [self dismissAndComplete:NO createNew:NO username:user password:password totp:totp];
+        }
+        else {
+            [self dismissAndComplete:NO createNew:NO username:nil password:nil totp:totp];
+        }
     }
 }
 
 - (IBAction)onCancel:(id)sender {
-    [self dismissViewController:self];
-    self.onDone(YES, nil, nil, nil);
+    [self dismissAndComplete:YES createNew:NO username:nil password:nil totp:nil];
 }
 
 - (void)tableViewSelectionDidChange:(NSNotification *)notification {
@@ -318,15 +385,11 @@ NSString *getCompanyOrOrganisationNameFromDomain(NSString* domain) {
     
     NSImage* icon = [NodeIconHelper getIconForNode:node predefinedIconSet:kKeePassIconSetClassic format:self.model.originalFormat large:NO];
 
-    AutoFillCredentialCell *result = [tableView makeViewWithIdentifier:kAutoFillCredentialCell owner:self];
+    EntryTableCellView *result = [tableView makeViewWithIdentifier:kEntryTableCellViewIdentifier owner:self];
 
-    result.textFieldTitle.stringValue = title ? title : @"";
-    result.textFieldSubtitle.stringValue = username ? username : @"";
-    result.textFieldTopRight.stringValue = @"";
-    result.textFieldBottomRight.stringValue = @"";
+    NSString* path = [self.model.database getPathDisplayString:node];
+    [result setContent:title username:username totp:node.fields.otpToken image:icon path:path database:self.model.metadata.nickName];
     
-    result.image.image = icon;
-
     return result;
 }
 
@@ -347,6 +410,24 @@ NSString *getCompanyOrOrganisationNameFromDomain(NSString* domain) {
 
         [super keyDown:theEvent];
     }
+}
+
+- (IBAction)onCreateNew:(id)sender {
+    [self dismissAndComplete:NO createNew:YES username:nil password:nil totp:nil];
+}
+
+- (void)dismissAndComplete:(BOOL)userCancelled createNew:(BOOL)createNew username:(NSString*_Nullable)username password:(NSString*_Nullable)password totp:(NSString*_Nullable)totp {
+    if ( self.presentingViewController ) {
+        [self.presentingViewController dismissViewController:self];
+    }
+    else if ( self.view.window.sheetParent ) {
+        [self.view.window.sheetParent endSheet:self.view.window returnCode:NSModalResponseCancel];
+    }
+    else {
+        [self.view.window close];
+    }
+    
+    self.onDone(userCancelled, createNew, username, password, totp);
 }
 
 @end

@@ -7,6 +7,7 @@
 //
 
 #import "QuickTypeRecordIdentifier.h"
+#import "SBLog.h"
 
 static NSString* const kDatabaseIdKey = @"safeId";
 static NSString* const kNodeIdKey = @"nodeId";
@@ -25,6 +26,10 @@ static NSString* const kFieldKeyKey = @"fieldKey";
 }
 
 + (instancetype)fromJson:(NSString *)json {
+    if ( !json ) {
+        return nil;
+    }
+    
     NSError* error;
     NSDictionary* dictionary = [NSJSONSerialization JSONObjectWithData:[json dataUsingEncoding:NSUTF8StringEncoding] options:kNilOptions error:&error];
     
@@ -32,7 +37,7 @@ static NSString* const kFieldKeyKey = @"fieldKey";
         return [QuickTypeRecordIdentifier identifierWithDatabaseId:dictionary[kDatabaseIdKey] nodeId:dictionary[kNodeIdKey] fieldKey:dictionary[kFieldKeyKey]];
     }
     else {
-        NSLog(@"Could not deserialize from: %@",error);
+        slog(@"Could not deserialize from: %@",error);
         return nil;
     }
 }
@@ -54,7 +59,7 @@ static NSString* const kFieldKeyKey = @"fieldKey";
         return [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
     }
     else {
-        NSLog(@"Error Serializing: %@", error);
+        slog(@"Error Serializing: %@", error);
         return nil;
     }
 }

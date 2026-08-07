@@ -17,20 +17,25 @@
 NS_ASSUME_NONNULL_BEGIN
 
 extern NSString *const CellHeightsChangedNotification;
-extern NSString *const kNotificationNameItemDetailsEditDone;
 
 @interface ItemDetailsViewController : UITableViewController
 
 + (NSArray<NSNumber*>*)defaultCollapsedSections;
 
++ (instancetype)fromStoryboard:(Model*)model nodeUuid:(NSUUID*_Nullable)nodeUuid;
+
 @property BOOL createNewItem;
 @property BOOL editImmediately;
 
-@property NSUUID* parentGroupId;
+@property NSUUID*_Nullable parentGroupId;
 @property NSUUID*_Nullable itemId;
 @property NSNumber*_Nullable historicalIndex;
 
 @property BOOL forcedReadOnly;
+@property BOOL isStandaloneDetailsModal;
+@property BOOL explicitHideMetadata;
+@property BOOL explicitHideHistory;
+
 @property Model* databaseModel;
 
 #ifdef IS_APP_EXTENSION
@@ -42,8 +47,6 @@ extern NSString *const kNotificationNameItemDetailsEditDone;
 @property (nonatomic, nullable) NSString* autoFillSuggestedNotes;
 
 #endif
-
-- (void)performSynchronousUpdate;
 
 @end
 

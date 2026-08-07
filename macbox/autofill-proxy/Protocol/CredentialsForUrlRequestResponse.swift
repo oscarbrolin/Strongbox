@@ -8,25 +8,34 @@
 
 import Cocoa
 
-class CredentialsForUrlRequest : Codable {
-    var url : String
-    
-    init ( url : String ) {
+class CredentialsForUrlRequest: Codable {
+    static let DefaultMaxResults = 12
+    static let AbsoluteMaxResults = 24
+
+    var url: String
+    var subdomainMatching: Bool? = nil
+    var skip: Int? = 0
+    var take: Int? = DefaultMaxResults
+
+    init(url: String, subdomainMatching: Bool? = nil, skip: Int? = nil, take: Int? = nil) {
         self.url = url
+        self.subdomainMatching = subdomainMatching
+        self.skip = skip
+        self.take = take
     }
 }
 
-class CredentialsForUrlResponse : Codable {
-    var results : [AutoFillCredential]
-    var unlockedDatabaseCount : Int
-    
-    init(results : [AutoFillCredential], unlockedDatabaseCount : Int) {
+class CredentialsForUrlResponse: Codable {
+    var results: [AutoFillCredential]
+    var unlockedDatabaseCount: Int
+
+    init(results: [AutoFillCredential], unlockedDatabaseCount: Int) {
         self.results = results
         self.unlockedDatabaseCount = unlockedDatabaseCount
     }
-    
+
     @objc
-    func toJson () -> String? {
-        return AutoFillJsonHelper.toJson(object: self)
+    func toJson() -> String? {
+        AutoFillJsonHelper.toJson(object: self)
     }
 }

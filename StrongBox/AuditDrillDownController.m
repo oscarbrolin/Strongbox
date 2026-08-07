@@ -39,8 +39,14 @@ static NSString* const kSwitchTableCellId = @"SwitchTableCell";
 
 @implementation AuditDrillDownController
 
++ (UINavigationController*)fromStoryboard {
+    UIStoryboard* sb = [UIStoryboard storyboardWithName:@"AuditDrillDown" bundle:nil];
+    
+    return [sb instantiateInitialViewController];
+}
+
 - (void)dealloc {
-    NSLog(@"DEALLOC [%@]", self);
+    slog(@"DEALLOC [%@]", self);
     [self unListenToNotifications];
 }
 
@@ -91,7 +97,7 @@ static NSString* const kSwitchTableCellId = @"SwitchTableCell";
 - (void)listenToNotifications {
     [NSNotificationCenter.defaultCenter addObserver:self
                                            selector:@selector(refreshItems)
-                                               name:kNotificationNameItemDetailsEditDone
+                                               name:kModelEditedNotification
                                              object:nil];
 
     [NSNotificationCenter.defaultCenter addObserver:self
@@ -101,17 +107,17 @@ static NSString* const kSwitchTableCellId = @"SwitchTableCell";
 
     [NSNotificationCenter.defaultCenter addObserver:self
                                            selector:@selector(refreshItems)
-                                               name:kAuditCompletedNotificationKey
+                                               name:kAuditCompletedNotification
                                              object:nil];
 
 }
 
 - (void)unListenToNotifications {
-        [NSNotificationCenter.defaultCenter removeObserver:self name:kNotificationNameItemDetailsEditDone object:nil];
+    [NSNotificationCenter.defaultCenter removeObserver:self];
 }
 
 - (IBAction)onDone:(id)sender {
-    self.onDone(NO, self);
+    [self.presentingViewController dismissViewControllerAnimated:YES completion:nil];
 }
 
 #pragma mark - Table view data source
@@ -122,7 +128,7 @@ static NSString* const kSwitchTableCellId = @"SwitchTableCell";
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     if (section == kSectionSettingsIdx) {
-        return 2 + (self.model.auditIssueCount.intValue == 0 || self.hideShowAllAuditIssues ? 0 : 1);
+        return 2;
     }
     else if (section == kSectionBasicIdx) {
         return self.flags.count == 0 ? 1 : self.basicRows.count;
@@ -155,21 +161,11 @@ static NSString* const kSwitchTableCellId = @"SwitchTableCell";
             
             return cell;
         }
-        else if (indexPath.row == 1) {
-            UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"auditDrillDownBasicCellId" forIndexPath:indexPath];
-            cell.imageView.image = nil;
-            cell.selectionStyle = UITableViewCellSelectionStyleDefault;
-            cell.textLabel.text = NSLocalizedString(@"audit_drill_down_go_to_database_audit_preferences", @"Database Audit Preferences");
-            cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
-        
-            return cell;
-        }
         else {
             UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"auditDrillDownBasicCellId" forIndexPath:indexPath];
-            
             cell.imageView.image = nil;
             cell.selectionStyle = UITableViewCellSelectionStyleDefault;
-            cell.textLabel.text = NSLocalizedString(@"audit_drill_down_view_all_audit_issues", @"View All Audit Issues");
+            cell.textLabel.text = NSLocalizedString(@"audit_drill_down_go_to_database_audit_preferences", @"Database Audit Settings");
             cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
         
             return cell;
@@ -179,12 +175,7 @@ static NSString* const kSwitchTableCellId = @"SwitchTableCell";
         UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"auditDrillDownBasicCellId" forIndexPath:indexPath];
         cell.accessoryType = UITableViewCellAccessoryNone;
         
-        if (@available(iOS 13.0, *)) {
-            cell.imageView.image = [UIImage systemImageNamed:@"checkmark.shield"];
-        }
-        else {
-            cell.imageView.image = [UIImage imageNamed:@"security_checked"];
-        }
+        cell.imageView.image = [UIImage systemImageNamed:@"checkmark.shield"];
         
         if (self.flags.count == 0) {
             if ([self.model isExcludedFromAudit:self.itemId]) {
@@ -233,9 +224,6 @@ static NSString* const kSwitchTableCellId = @"SwitchTableCell";
         if ( indexPath.row == 1) {
             [self performSegueWithIdentifier:@"segueToDatabaseAuditPreferences" sender:nil];
         }
-        else if (indexPath.row == 2) {
-            self.onDone(YES, self);
-        }
     }
     else if (indexPath.section == kSectionActionsIdx) {
         if (!self.model.metadata.auditConfig.hibpCaveatAccepted) {
@@ -251,7 +239,7 @@ static NSString* const kSwitchTableCellId = @"SwitchTableCell";
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
     if (section == kSectionSettingsIdx) {
-        return NSLocalizedString(@"audit_drill_down_section_header_preferences", @"Preferences");
+        return NSLocalizedString(@"audit_drill_down_section_header_preferences", @"Settings");
     }
     else if (section == kSectionBasicIdx) {
         return NSLocalizedString(@"audit_drill_down_section_header_summary", @"Summary");
@@ -369,7 +357,7 @@ static NSString* const kSwitchTableCellId = @"SwitchTableCell";
     
     Node* item = [self.model.database getItemById:self.itemId];
     if ( !item ) {
-        NSLog(@"WARNWARN: Could not find item to check for HIBP");
+        slog(@"WARNWARN: Could not find item to check for HIBP");
         return;
     }
 
@@ -402,6 +390,9 @@ static NSString* const kSwitchTableCellId = @"SwitchTableCell";
     else if (flag.intValue == kAuditFlagPwned) {
         return NSLocalizedString(@"audit_summary_flag_pwned", @"Password is Pwned (HIBP)");
     }
+    else if(flag.intValue == kAuditFlagBreachedAccount) {
+        return NSLocalizedString(@"audit_summary_flag_breached", @"Account was included in a breach (HIBP)");
+    }
     else if (flag.intValue == kAuditFlagTooShort) {
         return NSLocalizedString(@"audit_summary_flag_password_is_too_short", @"Password is too short.");
     }
@@ -429,7 +420,7 @@ static NSString* const kSwitchTableCellId = @"SwitchTableCell";
     NSString* locNo = NSLocalizedString(@"audit_hibp_warning_no", @"No, I don't want to use this feature");
     NSString* locYes = NSLocalizedString(@"audit_hibp_warning_yes", @"Yes, I understand and agree");
     
-    [Alerts twoOptionsWithCancel:self title:loc1 message:loc2 defaultButtonText:locNo secondButtonText:locYes action:^(int response) {
+    [Alerts twoOptionsWithCancel:self title:loc1 message:loc2 defaultButtonText:locNo secondButtonText:locYes completion:^(int response) {
         if (response == 1) { 
             DatabaseAuditorConfiguration* config = self.model.metadata.auditConfig;
             config.hibpCaveatAccepted = YES;
@@ -445,14 +436,14 @@ static NSString* const kSwitchTableCellId = @"SwitchTableCell";
     
     Node* item = [self.model.database getItemById:self.itemId];
     if ( !item ) {
-        NSLog(@"WARNWARN: Could not find item to check for HIBP");
+        slog(@"WARNWARN: Could not find item to check for HIBP");
         return;
     }
     
     NSString* password = item.fields.password;
     
     [self.model oneTimeHibpCheck:password completion:^(BOOL pwned, NSError * _Nonnull error) {
-        NSLog(@"HIBP: %hhd - %@", pwned, error);
+        slog(@"HIBP: %hhd - %@", pwned, error);
         dispatch_async(dispatch_get_main_queue(), ^{
             [SVProgressHUD dismiss];
 
@@ -494,8 +485,6 @@ static NSString* const kSwitchTableCellId = @"SwitchTableCell";
         AuditConfigurationVcTableViewController *vc = segue.destinationViewController;
         vc.model = self.model;
         vc.updateDatabase = self.updateDatabase;
-        vc.onDone = self.onDone;
-        vc.hideShowAllAuditIssues = self.hideShowAllAuditIssues;
     }
 }
 

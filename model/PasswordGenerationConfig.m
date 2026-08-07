@@ -35,6 +35,9 @@ static NSString* const kWordListSwedish = @"swedish-diceware.wordlist.utf8";
 static NSString* const kWordListNorwegian = @"norwegian-diceware.wordlist.utf8";
 static NSString* const kWordListFinnish = @"finnish-diceware.wordlist.utf8";
 static NSString* const kWordListIcelandic = @"icelandic-diceware.wordlist.utf8";
+static NSString* const kWordListOrchardSt = @"orchard-street-medium";
+
+static NSString* const kWordListPtBr = @"ptbr-diceware.wordlist.utf8";
 
 static NSString* const kWordListFandomGameOfThrones = @"gameofthrones_8k_2018.utf8";
 static NSString* const kWordListFandomHarryPotter = @"harrypotter_8k_2018.utf8";
@@ -70,6 +73,8 @@ const static NSDictionary<NSString*, WordList*> *wordListsMap;
                 [WordList named:NSLocalizedString(@"pwgen_wordlist_harrypotter", @"Harry Potter (EFF Fandom)") withKey:kWordListFandomHarryPotter withCategory:kWordListCategoryFandom],
                 [WordList named:NSLocalizedString(@"pwgen_wordlist_star_trek", @"Star Trek (EFF Fandom)") withKey:kWordListFandomStarTrek withCategory:kWordListCategoryFandom],
                 [WordList named:NSLocalizedString(@"pwgen_wordlist_starwars", @"Star Wars (EFF Fandom)") withKey:kWordListFandomStarWars withCategory:kWordListCategoryFandom],
+                [WordList named:NSLocalizedString(@"pwgen_wordlist_orchard_st", @"Orchard Street (Medium)") withKey:kWordListOrchardSt withCategory:kWordListCategoryStandard],
+                [WordList named:NSLocalizedString(@"pwgen_wordlist_pt_br", @"Portuguese (Brazilian)") withKey:kWordListPtBr withCategory:kWordListCategoryLanguages],
             ];
             
             NSMutableDictionary<NSString*, WordList*>* wld = NSMutableDictionary.dictionary;
@@ -88,7 +93,7 @@ const static NSDictionary<NSString*, WordList*> *wordListsMap;
     
     ret.algorithm = kPasswordGenerationAlgorithmBasic;
     
-    ret.basicLength = 16;
+    ret.basicLength = 22;
     ret.basicExcludedCharacters = @"";
     ret.useCharacterGroups = @[@(kPasswordGenerationCharacterPoolLower),
                                @(kPasswordGenerationCharacterPoolUpper),
@@ -99,7 +104,7 @@ const static NSDictionary<NSString*, WordList*> *wordListsMap;
     ret.nonAmbiguousOnly = YES;
     ret.pickFromEveryGroup = YES;
     
-    ret.wordCount = 5;
+    ret.wordCount = 6;
     ret.wordLists = @[kWordListEffLarge];
     ret.wordSeparator = @"-";
     ret.wordCasing = kPasswordGenerationWordCasingTitle;

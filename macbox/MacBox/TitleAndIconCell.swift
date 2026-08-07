@@ -9,63 +9,93 @@
 import Cocoa
 
 class TitleAndIconCell: NSTableCellView, NSTextFieldDelegate {
-    @IBOutlet var icon: NSImageView!
+    @IBOutlet private var icon: NSImageView!
     @IBOutlet var title: NSTextField!
-    @IBOutlet var topSpaceConstraint: NSLayoutConstraint!
-    @IBOutlet var leadingSpaceConstraint: NSLayoutConstraint!
-    @IBOutlet var bottomSpaceConstraint: NSLayoutConstraint!
+    @IBOutlet private var topSpaceConstraint: NSLayoutConstraint!
+    @IBOutlet private var leadingSpaceConstraint: NSLayoutConstraint!
+    @IBOutlet private var bottomSpaceConstraint: NSLayoutConstraint!
+    @IBOutlet private var childCount: NSTextField!
+    @IBOutlet private var trailingFavStar: NSImageView!
 
-    @IBOutlet var childCount: NSTextField!
-    @IBOutlet var favStarIcon: NSImageView!
+    @IBOutlet var titleWidthConstraint: NSLayoutConstraint!
 
-    @IBOutlet var trailingFavStar: NSImageView!
+    override func awakeFromNib() {
+        super.awakeFromNib()
 
+        icon.wantsLayer = true
+        icon.layer?.cornerRadius = 3.0
+        icon.clipsToBounds = true
+    }
+
+    @objc
     static let NibIdentifier: NSUserInterfaceItemIdentifier = .init("TitleAndIconCell")
 
     override func prepareForReuse() {
         super.prepareForReuse()
-        
-        favStarIcon.isHidden = true
+
+        title.isEditable = false
         trailingFavStar.isHidden = true
     }
 
-    func setContent(_ attributedTitle: NSAttributedString,
-                    editable : Bool = false,
+    @objc
+    func setContent(_ text: String,
+                    font: NSFont? = FontManager.shared.bodyFont,
+                    textTintColor: NSColor? = nil,
+                    editable: Bool = false,
                     iconImage: NSImage? = nil,
                     topSpacing: CGFloat = 4.0,
                     bottomSpacing: CGFloat = 4.0,
                     leadingSpace: CGFloat = 0.0,
-                    showLeadingFavStar: Bool = false,
                     showTrailingFavStar: Bool = false,
-                    contentTintColor: NSColor? = nil,
-                    count: Int? = nil,
-                    onTitleEdited : (( _ text : String ) -> Void )? = nil)
+                    iconTintColor: NSColor? = nil,
+                    count: String? = nil,
+                    tooltip: String? = nil,
+                    disabledAppearance: Bool = false,
+                    onTitleEdited: ((_ text: String) -> Void)? = nil)
     {
-        favStarIcon.isHidden = !showLeadingFavStar
         trailingFavStar.isHidden = !showTrailingFavStar
 
-        title.attributedStringValue = attributedTitle
+        title.font = font
+        title.stringValue = text
+        title.textColor = textTintColor ?? .labelColor
+
+        
+        
+        
+        
+        
+        
+        
+
+        titleWidthConstraint.constant = title.intrinsicContentSize.width
         title.isEditable = editable
         self.onTitleEdited = onTitleEdited
 
-        icon.image = iconImage
-        icon.contentTintColor = contentTintColor
+        toolTip = tooltip
 
-        if let count = count {
+        icon.image = iconImage
+        icon.contentTintColor = iconTintColor
+
+        if let count {
             childCount.isHidden = false
-            childCount.stringValue = String(format: "(%ld)", count)
+            childCount.stringValue = count
         } else {
             childCount.isHidden = true
         }
+        childCount.textColor = textTintColor ?? .secondaryLabelColor
 
         topSpaceConstraint.constant = topSpacing
         bottomSpaceConstraint.constant = bottomSpacing
         leadingSpaceConstraint.constant = leadingSpace
+
+        title.isEnabled = !disabledAppearance
+        title.textColor = !disabledAppearance ? nil : .secondaryLabelColor
+        icon.isEnabled = !disabledAppearance
     }
-    
-    var onTitleEdited : (( _ text : String ) -> Void )? = nil
-    
-    @IBAction func onEdited(_ sender: Any) {
-        onTitleEdited?( title.stringValue )
+
+    var onTitleEdited: ((_ text: String) -> Void)? = nil
+
+    @IBAction func onEdited(_: Any) {
+        onTitleEdited?(title.stringValue)
     }
 }

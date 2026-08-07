@@ -25,12 +25,11 @@
 #import "AutoFillManager.h"
 #import "EntryViewModel.h"
 #import "NSDate+Extensions.h"
+#import "NSData+Extensions.h"
 #import "WindowController.h"
 #import "OutlineView.h"
 #import "ClickableImageView.h"
 #import "SelectPredefinedIconController.h"
-#import "FavIconDownloader.h"
-#import "FavIconManager.h"
 #import "NSString+Extensions.h"
 #import "macOSSpinnerUI.h"
 #import "MMcGACTextField.h"
@@ -39,11 +38,10 @@
 #import "PasswordStrengthUIHelper.h"
 #import "MMcGSecureTextField.h"
 #import "MMcGACTextViewEditor.h"
-#import "FileManager.h"
+#import "StrongboxMacFilesManager.h"
 #import "StreamUtils.h"
 #import "CustomFieldTableCellView.h"
 #import "EditCustomFieldController.h"
-#import "NotificationConstants.h"
 #import "Constants.h"
 #import "DatabaseSettingsTabViewController.h"
 #import "OEXTokenField.h"
@@ -65,12 +63,70 @@
 #import "MacCustomizationManager.h"
 #import "UpgradeWindowController.h"
 #import "MacUrlSchemes.h"
-#import "DropboxV2StorageProvider.h" 
 #import "RMStore.h"
 #import "AutoFillProxy.h"
 #import "CryptoBoxHelper.h"
 #import "DocumentController.h"
 #import "ConcurrentMutableDictionary.h"
+#import "ConcurrentMutableSet.h"
 #import "AutoFillCommon.h"
 #import "AutoFillProxyServer.h"
 #import "ObjCExceptionCatcherForSwift.h"
+#import "DatabasesManagerVC.h"
+#import "SafariAutoFillWormhole.h"
+#import "MacSyncManager.h"
+#import "WorkingCopyManager.h"
+#import "AutoFillLoadingVC.h"
+#import "NSString+Levenshtein.h"
+#import "SyncLogViewController.h"
+#import "CHCSVParser.h"
+
+#import "WebDAVSessionConfiguration.h"
+#import "WebDAVStorageProvider.h"
+#import "WebDAVSessionConfigurationCredential.h"
+
+#ifndef NO_3RD_PARTY_STORAGE_PROVIDERS
+
+#import "DropboxV2StorageProvider.h" 
+
+#endif
+
+#ifndef NO_FAVICON_LIBRARY
+
+#import "FavIconDownloader.h"
+#import "FavIconManager.h"
+
+#endif
+
+#import "Node+KeeAgentSSH.h"
+#import "OpenSSHPrivateKey.h"
+#import "SSHAgentServer.h"
+#import "XMLWriter.h"
+
+#import "ConcurrentCircularBuffer.h"
+#import "ConcurrentMutableArray.h"
+
+#import "BrowseOutlineView.h"
+
+#import <Quartz/Quartz.h>
+
+#import "MMWormhole.h"
+
+#import "Node+Passkey.h"
+#import "NewEntryDefaultsHelper.h"
+#import "DatabaseMerger.h"
+
+#import "Model.h"
+#import "KeyFile.h"
+#import "DatabaseNuker.h"
+#import "CommonDatabasePreferences.h"
+#import "CreateDatabaseOrSetCredentialsWizard.h"
+#import "SampleItemsGenerator.h"
+
+#import "SafeStorageProviderFactory.h"
+#import "ApplicationPreferences.h"
+#import "EntryTableCellView.h"
+
+#import "DatabaseCellView.h"
+#import "OnboardingWelcomeViewController.h"
+#import "DatabaseAuditor+Swift.h"

@@ -46,7 +46,7 @@ class UnifiedRecord: Decodable {
     var type: RecordType {
         let maybeRecordType: RecordType? = typeName == nil ? .Unknown : recordTypeByTypeName[typeName!]
         if maybeRecordType == nil {
-            print("⚠️ Unknown Record Type: \(String(describing: typeName))")
+            swlog("⚠️ Unknown Record Type: \(String(describing: typeName))")
         }
         return maybeRecordType ?? .Unknown
     }
@@ -55,36 +55,36 @@ class UnifiedRecord: Decodable {
         entry.icon = NodeIcon.withPreset(recordType.icon().rawValue)
     }
 
-    func getAlternativeUrlCount(_ entry: Node) -> Int {
-        return entry.fields.alternativeUrls.count
-    }
 
-    func addAlternativeUrl(_ entry: Node, url: String) {
-        let alternativeCount: Int = getAlternativeUrlCount(entry)
 
-        let newKey = "KP2A_URL_\(alternativeCount + 1)"
 
-        entry.fields.setCustomField(newKey, value: StringValue(string: url))
-    }
 
-    func addUrl(_ entry: Node, url: String) {
-        guard !url.isEmpty else {
-            return
-        }
 
-        if entry.fields.url == url {
-            return
-        }
-        if entry.fields.alternativeUrls.contains(url) {
-            return
-        }
 
-        if entry.fields.url.count > 0 {
-            addAlternativeUrl(entry, url: url)
-        } else {
-            entry.fields.url = url
-        }
-    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     func fillStrongboxEntry(entry: Node) {
         if faveIndex != nil, faveIndex! > 0 {
@@ -102,7 +102,8 @@ class UnifiedRecord: Decodable {
         let canonicalUrl: String = location ?? ""
 
         if canonicalUrl.count > 0 {
-            addUrl(entry, url: canonicalUrl)
+            BaseImporter.addUrl(entry, canonicalUrl)
+
         }
 
         if title != nil {
@@ -123,7 +124,7 @@ class UnifiedRecord: Decodable {
             
 
             if secureContents!.fields != nil {
-                let fields: [Field] = secureContents!.fields!
+                let fields: [OnePifField] = secureContents!.fields!
 
                 for field in fields {
                     addField(entry, field: field)
@@ -139,7 +140,8 @@ class UnifiedRecord: Decodable {
                     let theUrl: String = url["url"] ?? ""
 
                     if theUrl.count > 0 {
-                        addUrl(entry, url: theUrl)
+                        let label = url["label"]
+                        BaseImporter.addUrl(entry, theUrl, label)
                     }
                 }
             }
@@ -149,8 +151,10 @@ class UnifiedRecord: Decodable {
             if secureContents!.sections != nil {
                 for section in secureContents!.sections! {
                     if section.fields != nil {
+                        let sectionLabel = (section.title != nil && section.title!.count > 0) ? section.title : section.name
+
                         for field in section.fields! {
-                            addSectionField(entry, field: field)
+                            addSectionField(entry, sectionLabel, field: field)
                         }
                     }
                 }
@@ -164,7 +168,7 @@ class UnifiedRecord: Decodable {
         }
     }
 
-    func addField(_ entry: Node, field: Field) {
+    func addField(_ entry: Node, field: OnePifField) {
         guard let value = field.value, let name = field.name else {
             return
         }
@@ -192,16 +196,16 @@ class UnifiedRecord: Decodable {
         }
     }
 
-    fileprivate func addDateStringField(_ epoch: Int64, _ title: String, _ entry: Node) {
+    fileprivate func addDateStringField(_ epoch: Int64, _ title: String, _ entry: Node, sectionLabel: String?) {
         let date = Date(timeIntervalSince1970: TimeInterval(epoch))
         let mydf = DateFormatter()
         mydf.dateStyle = .long 
         let dateFmt = mydf.string(from: date)
 
-        addEntryField(entry, title, dateFmt)
+        addEntryField(entry, title, dateFmt, sectionLabel: sectionLabel)
     }
 
-    func addSectionField(_ entry: Node, field: SectionField) {
+    func addSectionField(_ entry: Node, _ sectionLabel: String?, field: SectionField) {
         guard let value = field.v, let title = field.t, let datatype = field.k, let name = field.n else {
             return
         }
@@ -212,7 +216,7 @@ class UnifiedRecord: Decodable {
         case "concealed":
             if !stringValue.isEmpty {
                 let isAlternativeTotpStyle = name.starts(with: "TOTP_")
-                let isTotpUrl = stringValue.starts(with: "otpauth:
+                let isTotpUrl = stringValue.starts(with: "otpauth://")
 
                 if isTotpUrl {
                     let url = URL(string: stringValue)
@@ -232,9 +236,9 @@ class UnifiedRecord: Decodable {
                     let secretData = NSData.secret(with: stringValue)
 
                     var token: OTPToken?
-                    if secretData != nil {
+                    if let secretData {
                         let tmp = OTPToken(type: OTPTokenType.timer, secret: secretData, name: "TOTP", issuer: "TOTP")
-                        if tmp != nil, tmp!.validate() {
+                        if tmp.validate() {
                             token = tmp
                         } else {
                             token = nil
@@ -257,37 +261,37 @@ class UnifiedRecord: Decodable {
                 let year = number! / 100
                 let month = number! % 100
                 let stringExpiry = String(format: "%02d/%04d", month, year)
-                addEntryField(entry, title, stringExpiry)
+                addEntryField(entry, title, stringExpiry, sectionLabel: sectionLabel)
             }
         case "date":
-
-
-
-
-
-
-
-
-
-
+//            if ( !stringValue.isEmpty ) {
+//                let d : Int64? = value.value as? Int64
+//                if ( d != nil ) {
+//                    addDateStringField(d!, title, entry)
+//                }
+//                else {
+//                    swlog("🔴 Unknown Date format value: [\(title)] = [\(stringValue)] with type [\(String(describing: datatype))]")
+//                }
+//            }
+//            else if ( value.value as? Int64 != nil ) {
             let epoch: Int64? = value.value as? Int64
 
             if epoch != nil {
-
-
-
-
-                addDateStringField(epoch!, title, entry)
-
+//                if ( title == "expires" ) {
+//                    entry.fields.expires = Date(timeIntervalSince1970: Double(epoch!))
+//                }
+//                else {
+                addDateStringField(epoch!, title, entry, sectionLabel: sectionLabel)
+//                }
             } else {
-                print("🔴 Unknown Date format value: [\(title)] = [\(stringValue)] with type [\(String(describing: datatype))]")
+                swlog("🔴 Unknown Date format value: [\(title)] = [\(stringValue)] with type [\(String(describing: datatype))]")
             }
 
-
+//            }
         case "string", "phone", "menu", "cctype", "gender", "email":
             if !stringValue.isEmpty {
-
-                addEntryField(entry, title, stringValue)
+//                swlog("Adding regular String Field [\(title)] = [\(stringValue)] with type [\(String(describing: datatype))]")
+                addEntryField(entry, title, stringValue, sectionLabel: sectionLabel)
             }
         case "address":
             let lines: [String: Any] = value.value as! [String: Any]
@@ -296,56 +300,50 @@ class UnifiedRecord: Decodable {
                 if !line.key.isEmpty {
                     let stringValue = String(describing: line.value)
                     if !stringValue.isEmpty {
-
+//                        swlog("Adding Address Field [\(line.key)] = [\(stringValue)]")
                         addEntryField(entry, line.key, stringValue)
                     }
                 }
             }
         case "URL":
             if !stringValue.isEmpty {
-
-                addUrl(entry, url: stringValue)
+                let label = title.count > 0 ? title : name
+                BaseImporter.addUrl(entry, stringValue, label)
             }
         case "file":
-            
+            // Ignore Files
             break
         default:
-
-            addEntryField(entry, title, stringValue)
+//            swlog("🔴 Adding Unknown Type field [\(title)] = [\(stringValue)] with type [\(String(describing: datatype))]")
+            addEntryField(entry, title, stringValue, sectionLabel: sectionLabel)
         }
     }
 
-    func addEntryField(_ entry: Node, _ key: String, _ value: String, _ concealed: Bool = false) {
+    func addEntryField(_ entry: Node, _ key: String, _ value: String, _ concealed: Bool = false, sectionLabel: String? = nil, name: String? = nil) {
         if value.count > 0 {
             if key == "username" {
                 if entry.fields.username.count == 0 {
                     entry.fields.username = value
-                    return
-                } else {
-                    let uniqueKey = key + "-" + UUID().uuidString
-                    entry.fields.setCustomField(uniqueKey, value: StringValue(string: value, protected: concealed))
                     return
                 }
             } else if key == "password" {
                 if entry.fields.password.count == 0 {
                     entry.fields.password = value
                     return
-                } else {
-                    let uniqueKey = key + "-" + UUID().uuidString
-                    entry.fields.setCustomField(uniqueKey, value: StringValue(string: value, protected: concealed))
-                    return
                 }
             } else if key == "url" {
-                addUrl(entry, url: value)
+                BaseImporter.addUrl(entry, value)
                 return
             }
         }
 
-        if key.count == 0 || entry.fields.customFields.keys.contains(key as NSString) {
-            let uniqueKey = key + "-" + UUID().uuidString
-            entry.fields.setCustomField(uniqueKey, value: StringValue(string: value, protected: concealed))
-        } else {
-            entry.fields.setCustomField(key, value: StringValue(string: value, protected: concealed))
+        let prefixSectionName = true
+        var label = key.count > 0 ? key : name
+
+        if prefixSectionName, let sectionLabel, !sectionLabel.isEmpty, label != nil {
+            label = String(format: "%@-%@", sectionLabel, label!)
         }
+
+        BaseImporter.addCustomField(node: entry, name: label, value: value, protected: concealed)
     }
 }

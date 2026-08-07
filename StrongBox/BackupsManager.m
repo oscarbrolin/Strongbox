@@ -7,11 +7,17 @@
 //
 
 #import "BackupsManager.h"
-#import "FileManager.h"
+
+#if TARGET_OS_IOS
+#import "StrongboxiOSFilesManager.h"
+#else
+#import "StrongboxMacFilesManager.h"
+#endif
+
 #import "Utils.h"
 #import "NSDate+Extensions.h"
 
-#if !TARGET_OS_IPHONE
+#if !TARGET_OS_IOS
 #import "Settings.h"
 #endif
 
@@ -29,7 +35,7 @@
 }
 
 - (BOOL)writeBackup:(NSURL *)snapshot metadata:(METADATA_PTR)metadata {
-#if !TARGET_OS_IPHONE
+#if !TARGET_OS_IOS
     if ( !Settings.sharedInstance.makeLocalRollingBackups ) {
         return YES;
     }
@@ -41,18 +47,18 @@
 
         NSURL* dir = metadata.backupsDirectory; 
         if(!dir) {
-            NSLog(@"Error saving backup");
+            slog(@"Error saving backup");
             return NO;
         }
 
         NSURL* url = [metadata.backupsDirectory URLByAppendingPathComponent:filename];
 
-        NSLog(@"Creating Backup [%@]", url);
+
         
         NSError* error;
         BOOL success = [NSFileManager.defaultManager copyItemAtURL:snapshot toURL:url error:&error];
         if(!success) {
-            NSLog(@"Error saving backup: [%@]-[%@]", error, url);
+            slog(@"Error saving backup: [%@]-[%@]", error, url);
             return NO;
         }
         
@@ -61,7 +67,7 @@
         
         [NSFileManager.defaultManager setAttributes:@{ NSFileCreationDate : now } ofItemAtPath:url.path error:&error];
         if(!success) {
-            NSLog(@"Error saving backup: [%@]", error);
+            slog(@"Error saving backup: [%@]", error);
             return NO;
         }
     }
@@ -83,7 +89,7 @@
     NSError* error;
     
     if(![NSFileManager.defaultManager removeItemAtURL:item.url error:&error]) {
-        NSLog(@"Error Deleting Backup: [%@]", error);
+        slog(@"Error Deleting Backup: [%@]", error);
     }
 }
 
@@ -102,18 +108,18 @@
 }
 
 - (NSArray<BackupItem*> *)getAllEmergencyRecoveryFilesAsBackups {
-#if TARGET_OS_IPHONE
-    NSArray<BackupItem*>* appSupport = [self getAllAvailableFilesAsBackupsAtDir:FileManager.sharedInstance.appSupportDirectory];
-    NSArray<BackupItem*>* documents = [self getAllAvailableFilesAsBackupsAtDir:FileManager.sharedInstance.documentsDirectory];
+#if TARGET_OS_IOS
+    NSArray<BackupItem*>* appSupport = [self getAllAvailableFilesAsBackupsAtDir:StrongboxFilesManager.sharedInstance.appSupportDirectory];
+    NSArray<BackupItem*>* documents = [self getAllAvailableFilesAsBackupsAtDir:StrongboxFilesManager.sharedInstance.documentsDirectory];
 #endif
     
-    NSArray<BackupItem*>* sharedAppGroup = [self getAllAvailableFilesAsBackupsAtDir:FileManager.sharedInstance.sharedAppGroupDirectory recursive:NO];
-    NSArray<BackupItem*>* syncManager = [self getAllAvailableFilesAsBackupsAtDir:FileManager.sharedInstance.syncManagerLocalWorkingCachesDirectory recursive:YES];
+    NSArray<BackupItem*>* sharedAppGroup = [self getAllAvailableFilesAsBackupsAtDir:StrongboxFilesManager.sharedInstance.sharedAppGroupDirectory recursive:NO];
+    NSArray<BackupItem*>* syncManager = [self getAllAvailableFilesAsBackupsAtDir:StrongboxFilesManager.sharedInstance.syncManagerLocalWorkingCachesDirectory recursive:YES];
 
     NSMutableArray<BackupItem*>* ret = [NSMutableArray arrayWithArray:sharedAppGroup];
     [ret addObjectsFromArray:syncManager];
 
-#if TARGET_OS_IPHONE
+#if TARGET_OS_IOS
     [ret addObjectsFromArray:appSupport];
     [ret addObjectsFromArray:documents];
 #endif
@@ -125,7 +131,7 @@
 
 
 - (NSArray<BackupItem*> *)getAllAvailableBackups {
-    NSURL* dir = FileManager.sharedInstance.backupFilesDirectory;
+    NSURL* dir = StrongboxFilesManager.sharedInstance.backupFilesDirectory;
 
     return [self getAllAvailableFilesAsBackupsAtDir:dir];
 }
@@ -166,7 +172,7 @@
             }
         }
         else {
-            NSLog(@"Error getting attributes for file: [%@]", url);
+            slog(@"Error getting attributes for file: [%@]", url);
         }
     }
 
@@ -178,7 +184,7 @@
 - (NSArray<BackupItem*> *)getAvailableBackupsForDatabase:(METADATA_PTR)metadata {
     NSURL* dir = metadata.backupsDirectory; 
     if(!dir) {
-        NSLog(@"Could not get backup directory");
+        slog(@"Could not get backup directory");
 
         return @[];
     }
@@ -192,7 +198,7 @@
                                                                               error:&error];
 
     if(!files) {
-        NSLog(@"Could not get files at backup path");
+        slog(@"Could not get files at backup path");
         return @[];
     }
     
@@ -213,7 +219,7 @@
             }
         }
         else {
-            NSLog(@"Error getting attributes for file: [%@]", file);
+            slog(@"Error getting attributes for file: [%@]", file);
         }
     }
     

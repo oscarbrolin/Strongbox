@@ -63,7 +63,7 @@ informativeText:(NSString*)informativeText
      informativeText:message
               window:window
           completion:completion];
-
+    
 }
 
 + (void)yesNo:(NSString *)messageText informativeText:(NSString*)informativeText
@@ -112,7 +112,9 @@ disableEscapeKey:(BOOL)disableEscapeKey
 }
 
 + (void)error:(const NSError*)error window:(NSWindow*)window completion:(void (^)(void))completion {
-    NSString* loc = NSLocalizedString(@"alerts_unknown_error", @"Unknown Error");
+    NSString* loc2 = NSLocalizedString(@"alerts_unknown_error", @"Unknown Error");
+    NSString* loc = error.domain.description.length ? error.domain.description : loc2;
+    
     [self error:loc error:error window:window completion:completion];
 }
 
@@ -123,18 +125,18 @@ disableEscapeKey:(BOOL)disableEscapeKey
 + (void)error:(NSString*)message error:(NSError*)error window:(NSWindow*)window completion:(void (^)(void))completion {
     dispatch_async(dispatch_get_main_queue(), ^{
         NSAlert *alert = [[NSAlert alloc] init];
-
+        
         [alert setMessageText:message];
         
         if(error && error.localizedDescription) {
-            [alert setInformativeText:error.localizedDescription];
+            [alert setInformativeText: [NSString stringWithFormat:@"[%ld] %@", error.code, error.localizedDescription]];
         }
         
         [alert setAlertStyle:NSAlertStyleWarning];
         
         NSString* loc = NSLocalizedString(@"alerts_ok", @"OK");
         [alert addButtonWithTitle:loc];
-
+        
         [alert beginSheetModalForWindow:window completionHandler:^(NSModalResponse returnCode) {
             if(completion) {
                 completion();
@@ -144,6 +146,10 @@ disableEscapeKey:(BOOL)disableEscapeKey
 }
 
 - (NSString *)input:(NSString *)prompt defaultValue:(NSString *)defaultValue allowEmpty:(BOOL)allowEmpty {
+    return [self input:prompt defaultValue:defaultValue allowEmpty:allowEmpty secure:NO];
+}
+
+- (NSString *)input:(NSString *)prompt defaultValue:(NSString *)defaultValue allowEmpty:(BOOL)allowEmpty secure:(BOOL)secure {
     NSAlert *alert = [[NSAlert alloc] init];
     [alert setMessageText:prompt];
     
@@ -156,8 +162,9 @@ disableEscapeKey:(BOOL)disableEscapeKey
     NSString* loc2 = NSLocalizedString(@"generic_cancel", @"Cancel");
     [alert addButtonWithTitle:loc2];
     
-    self.simpleInputTextField = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 200, 24)];
+    self.simpleInputTextField = secure ? [[NSSecureTextField alloc] initWithFrame:NSMakeRect(0, 0, 200, 24)] : [[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 200, 24)];
     [self.simpleInputTextField setStringValue:defaultValue];
+    
     self.simpleInputTextField.delegate=self;
     
     [alert setAccessoryView:self.simpleInputTextField];
@@ -341,6 +348,48 @@ disableEscapeKey:(BOOL)disableEscapeKey
             }
             else {
                 completion(3);
+            }
+        }];
+    });
+}
+
++ (void)threeOptionsWithCancel:(NSString *)messageText
+               informativeText:(NSString *)informativeText
+             option1AndDefault:(NSString *)option1AndDefault
+                       option2:(NSString *)option2
+                       option3:(NSString *)option3
+                        window:(NSWindow *)window
+                    completion:(void (^)(NSUInteger))completion {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        NSAlert *alert = [[NSAlert alloc] init];
+        
+        if (informativeText) [alert setInformativeText:informativeText];
+        if (messageText) [alert setMessageText:messageText];
+        
+        [alert setAlertStyle:NSAlertStyleInformational];
+        
+        [alert addButtonWithTitle:option1AndDefault];
+        [[[alert buttons] objectAtIndex:0] setKeyEquivalent:@"\r"]; 
+        
+        [alert addButtonWithTitle:option2];
+        [alert addButtonWithTitle:option3];
+
+        NSString* localizedCancel = NSLocalizedString(@"generic_cancel", @"Cancel");
+        [alert addButtonWithTitle:localizedCancel];
+        [[[alert buttons] objectAtIndex:3] setKeyEquivalent:[NSString stringWithFormat:@"%C", 0x1b]]; 
+
+        [alert beginSheetModalForWindow:window completionHandler:^(NSModalResponse returnCode) {
+            if(returnCode == NSAlertFirstButtonReturn) {
+                completion(1);
+            }
+            else if ( returnCode == NSAlertSecondButtonReturn ) {
+                completion(2);
+            }
+            else if ( returnCode == NSAlertThirdButtonReturn ) {
+                completion(3);
+            }
+            else {
+                completion(0);
             }
         }];
     });

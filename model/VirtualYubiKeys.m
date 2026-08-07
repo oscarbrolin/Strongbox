@@ -8,11 +8,12 @@
 
 #import "VirtualYubiKeys.h"
 #import "NSArray+Extensions.h"
-#import "FileManager.h"
 
-@interface VirtualYubiKeys ()
-
-@end
+#if TARGET_OS_IOS
+#import "StrongboxiOSFilesManager.h"
+#else
+#import "StrongboxMacFilesManager.h"
+#endif
 
 static NSString* const kConfigFilename = @"virtual-yubikeys.json";
 NSString* _Nonnull const kVirtualYubiKeysChangedNotification = @"VirtualYubiKeysChangedNotification";
@@ -32,7 +33,7 @@ NSString* _Nonnull const kVirtualYubiKeysChangedNotification = @"VirtualYubiKeys
 - (NSMutableArray<VirtualYubiKey*>*)deserialize {
     NSMutableArray<VirtualYubiKey*> *ret = NSMutableArray.array;
     
-    NSURL* fileUrl = [FileManager.sharedInstance.preferencesDirectory URLByAppendingPathComponent:kConfigFilename];
+    NSURL* fileUrl = [StrongboxFilesManager.sharedInstance.preferencesDirectory URLByAppendingPathComponent:kConfigFilename];
     
     NSError* error;
     __block NSError* readError;
@@ -47,14 +48,16 @@ NSString* _Nonnull const kVirtualYubiKeysChangedNotification = @"VirtualYubiKeys
     }];
     
     if (!json || error || readError) {
-        NSLog(@"Error reading file for Virtual Hardware Keys: [%@] - [%@]", error, readError);
+        if ( readError && readError.code == NSFileReadNoSuchFileError ) return ret;
+        
+        slog(@"🔴 Error reading file for Virtual Hardware Keys: [%@] - [%@]", error, readError);
         return ret;
     }
 
     NSArray* jsonArray = [NSJSONSerialization JSONObjectWithData:json options:kNilOptions error:&error];
 
     if (error) {
-        NSLog(@"Error getting json Virtual Hardware Keys: [%@]", error);
+        slog(@"Error getting json Virtual Hardware Keys: [%@]", error);
         return ret;
     }
 
@@ -81,11 +84,11 @@ NSString* _Nonnull const kVirtualYubiKeysChangedNotification = @"VirtualYubiKeys
     NSData* json = [NSJSONSerialization dataWithJSONObject:jsonArray options:options error:&error];
 
     if (error) {
-        NSLog(@"Error getting json for databases: [%@]", error);
+        slog(@"Error getting json for databases: [%@]", error);
         return;
     }
 
-    NSURL* fileUrl = [FileManager.sharedInstance.preferencesDirectory URLByAppendingPathComponent:kConfigFilename];
+    NSURL* fileUrl = [StrongboxFilesManager.sharedInstance.preferencesDirectory URLByAppendingPathComponent:kConfigFilename];
 
     NSFileCoordinator *fileCoordinator = [[NSFileCoordinator alloc] initWithFilePresenter:nil];
     __block NSError *writeError = nil;
@@ -98,7 +101,7 @@ NSString* _Nonnull const kVirtualYubiKeysChangedNotification = @"VirtualYubiKeys
     }];
 
     if (!success || error || writeError) {
-        NSLog(@"Error writing Virtual Hardware Keys file: [%@]-[%@]", error, writeError);
+        slog(@"Error writing Virtual Hardware Keys file: [%@]-[%@]", error, writeError);
         return;
     }
     else {

@@ -24,6 +24,9 @@ typedef enum : NSUInteger {
     OGNavigationSpecialAttachmentItems,
     OGNavigationSpecialExpired,
     OGNavigationSpecialNearlyExpired,
+    OGNavigationSpecialKeeAgentSshKeyItems,
+    OGNavigationSpecialPasskeys,
+    OGNavigationSpecialAllFavourites,
 } OGNavigationSpecial;
 
 typedef enum : NSUInteger {
@@ -36,6 +39,7 @@ typedef enum : NSUInteger {
     OGNavigationAuditCategoryLowEntropy,
     OGNavigationAuditCategoryTwoFactorAvailable,
     OGNavigationAuditCategoryAllEntries,
+    OGNavigationAuditCategoryExcludedItems,
 } OGNavigationAuditCategory;
 
 #endif /* NextNavigationConstants_h */

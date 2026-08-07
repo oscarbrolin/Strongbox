@@ -7,7 +7,7 @@
 //
 
 #import "MergeSelectSecondDatabaseViewController.h"
-#import "SecondDatabaseListTableViewController.h"
+#import "SelectDatabaseViewController.h"
 #import "Alerts.h"
 #import "SelectComparisonTypeViewController.h"
 #import "IOSCompositeKeyDeterminer.h"
@@ -18,21 +18,11 @@
 @implementation MergeSelectSecondDatabaseViewController
 
 - (BOOL)shouldAutorotate {
-    if ( UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad ) {
-        return YES; /* Device is iPad */
-    }
-    else {
-        return NO;
-    }
+    return UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad;
 }
 
 - (UIInterfaceOrientationMask)supportedInterfaceOrientations {
-    if ( UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad ) {
-        return UIInterfaceOrientationMaskAll; /* Device is iPad */
-    }
-    else {
-        return UIInterfaceOrientationMaskPortrait;
-    }
+    return UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad ? UIInterfaceOrientationMaskAll : UIInterfaceOrientationMaskPortrait;
 }
 
 
@@ -44,13 +34,15 @@
 - (void)prepareForSegue:(UIStoryboardSegue *)segue sender:(id)sender {
     if ([segue.identifier isEqualToString:@"segueToShowMergeSecondDatabasesList"]) {
         UINavigationController *nav = segue.destinationViewController;
-        SecondDatabaseListTableViewController* vc = (SecondDatabaseListTableViewController*)nav.topViewController;
-        vc.firstDatabase = self.firstDatabase;
+        SelectDatabaseViewController* vc = (SelectDatabaseViewController*)nav.topViewController;
+        vc.disableDatabaseUuid = self.firstDatabase.metadata.uuid;
         
         __weak MergeSelectSecondDatabaseViewController* weakSelf = self;
         vc.onSelectedDatabase = ^(DatabasePreferences * _Nonnull secondDatabase, UIViewController *__weak  _Nonnull vcToDismiss) {
             [vcToDismiss.presentingViewController dismissViewControllerAnimated:YES completion:^{
-                [weakSelf onSecondDatabaseSelected:secondDatabase];
+                if ( secondDatabase ) {
+                    [weakSelf onSecondDatabaseSelected:secondDatabase];
+                }
             }];
         };
     }
@@ -82,28 +74,34 @@
 
     Model* expressAttempt = [DatabaseUnlocker expressTryUnlockWithKey:database key:firstKey];
     if ( expressAttempt ) {
-        NSLog(@"YAY - Express Unlocked Second DB with same CKFs! No need to re-request CKFs...");
+        slog(@"YAY - Express Unlocked Second DB with same CKFs! No need to re-request CKFs...");
         [self onUnlockDone:kUnlockDatabaseResultSuccess model:expressAttempt error:nil];
     }
     else {
-        IOSCompositeKeyDeterminer* determiner = [IOSCompositeKeyDeterminer determinerWithViewController:self database:database isAutoFillOpen:NO isAutoFillQuickTypeOpen:NO biometricPreCleared:NO noConvenienceUnlock:NO];
+        IOSCompositeKeyDeterminer* determiner = [IOSCompositeKeyDeterminer determinerWithViewController:self 
+                                                                                               database:database
+                                                                                         isAutoFillOpen:NO
+                                                             transparentAutoFillBackgroundForBiometrics:NO
+                                                                                    biometricPreCleared:NO
+                                                                                    noConvenienceUnlock:NO];
+        
         [determiner getCredentials:^(GetCompositeKeyResult result, CompositeKeyFactors * _Nullable factors, BOOL fromConvenience, NSError * _Nullable error) {
             if (result == kGetCompositeKeyResultSuccess) {
-                DatabaseUnlocker* unlocker = [DatabaseUnlocker unlockerForDatabase:database viewController:self forceReadOnly:NO isAutoFillOpen:NO offlineMode:YES];
-                [unlocker unlockLocalWithKey:factors keyFromConvenience:fromConvenience completion:^(UnlockDatabaseResult result, Model * _Nullable model, NSError * _Nullable innerStreamError, NSError * _Nullable error) {
-                    if ( innerStreamError ) {
-                        [self displayError:error];
-                    }
-                    else {
+                DatabaseUnlocker* unlocker = [DatabaseUnlocker unlockerForDatabase:database viewController:self forceReadOnly:NO isNativeAutoFillAppExtensionOpen:NO offlineMode:YES];
+                [unlocker unlockLocalWithKey:factors keyFromConvenience:fromConvenience completion:^(UnlockDatabaseResult result, Model * _Nullable model, NSError * _Nullable error) {
+
+
+
+
                         [self onUnlockDone:result model:model error:error];
-                    }
+
                 }];
             }
             else if (result == kGetCompositeKeyResultError) {
                 [self displayError:error];
             }
             else if (result == kGetCompositeKeyResultDuressIndicated) {
-                [DuressActionHelper performDuressAction:self database:database isAutoFillOpen:NO completion:^(UnlockDatabaseResult result, Model * _Nullable model, NSError * _Nullable innerStreamError, NSError * _Nullable error) {
+                [DuressActionHelper performDuressAction:self database:database isAutoFillOpen:NO completion:^(UnlockDatabaseResult result, Model * _Nullable model, NSError * _Nullable error) {
                     [self onUnlockDone:result model:model error:error];
                 }];
             }
@@ -125,7 +123,7 @@
     }
     else if (result == kUnlockDatabaseResultIncorrectCredentials) {
         
-        NSLog(@"INCORRECT CREDENTIALS - kUnlockDatabaseResultIncorrectCredentials");
+        slog(@"INCORRECT CREDENTIALS - kUnlockDatabaseResultIncorrectCredentials");
     }
     else if (result == kUnlockDatabaseResultError) {
         [self displayError:error];

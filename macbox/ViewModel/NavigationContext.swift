@@ -1,5 +1,5 @@
 //
-//  NextGenNavigationContext.swift
+//  NavigationContext.swift
 //  MacBox
 //
 //  Created by Strongbox on 15/11/2021.
@@ -17,6 +17,9 @@ enum NavigationContext: Equatable {
         case itemsWithAttachments
         case expiredEntries
         case nearlyExpiredEntries
+        case keeAgentSshKeyEntries
+        case passkeys
+        case allFavourites
     }
 
     enum AuditNavigationCategory: Equatable {
@@ -29,6 +32,7 @@ enum NavigationContext: Equatable {
         case lowEntropy
         case twoFactorAvailable
         case allEntries
+        case excludedItems
     }
 
     case none 
@@ -68,6 +72,12 @@ func convertSpecialToOGSpecial(_ special: NavigationContext.SpecialNavigationIte
         return OGNavigationSpecialTotpItems
     case .itemsWithAttachments:
         return OGNavigationSpecialAttachmentItems
+    case .keeAgentSshKeyEntries:
+        return OGNavigationSpecialKeeAgentSshKeyItems
+    case .passkeys:
+        return OGNavigationSpecialPasskeys
+    case .allFavourites:
+        return OGNavigationSpecialAllFavourites
     }
 }
 
@@ -91,6 +101,8 @@ func convertAuditCategoryToOGCategory(_ category: NavigationContext.AuditNavigat
         return OGNavigationAuditCategoryTwoFactorAvailable
     case .allEntries:
         return OGNavigationAuditCategoryAllEntries
+    case .excludedItems:
+        return OGNavigationAuditCategoryExcludedItems
     }
 }
 
@@ -145,8 +157,10 @@ func getNavContextFromModel(_ database: ViewModel) -> NavigationContext {
             navContext = .auditIssues(.twoFactorAvailable)
         case OGNavigationAuditCategoryAllEntries:
             navContext = .auditIssues(.allEntries)
+        case OGNavigationAuditCategoryExcludedItems:
+            navContext = .auditIssues(.excludedItems)
         default:
-            NSLog("🔴 Unknown OG Nav Context")
+            swlog("🔴 Unknown OG Nav Context")
         }
     case OGNavigationContextSpecial:
         switch database.nextGenNavigationContextSpecial {
@@ -160,11 +174,17 @@ func getNavContextFromModel(_ database: ViewModel) -> NavigationContext {
             navContext = .special(.totpItems)
         case OGNavigationSpecialAttachmentItems:
             navContext = .special(.itemsWithAttachments)
+        case OGNavigationSpecialKeeAgentSshKeyItems:
+            navContext = .special(.keeAgentSshKeyEntries)
+        case OGNavigationSpecialPasskeys:
+            navContext = .special(.passkeys)
+        case OGNavigationSpecialAllFavourites:
+            navContext = .special(.allFavourites)
         default:
-            NSLog("🔴 Unknown OG Nav Context")
+            swlog("🔴 Unknown OG Nav Context")
         }
     default:
-        NSLog("🔴 Unknown OG Nav Context")
+        swlog("🔴 Unknown OG Nav Context")
     }
 
     return navContext

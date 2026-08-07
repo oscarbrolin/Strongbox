@@ -8,12 +8,12 @@
 
 import Cocoa
 
-class DatabasesManagerWindow: NSWindow {
+class DatabasesManagerWindow: NSPanel {
     override var canBecomeKey: Bool {
-        return true
+        true
     }
 
-    override func cancelOperation(_: Any?) { // Pickup Esc
+    override func cancelOperation(_: Any?) { 
         close()
     }
 }

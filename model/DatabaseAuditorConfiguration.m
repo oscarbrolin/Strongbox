@@ -36,12 +36,16 @@ const NSUInteger kDefaultLowEntropyThreshold = 36; // bits
 
         self.checkForSimilarPasswords = NO; 
         self.checkHibp = NO; 
-        
+        self.checkHibpBreaches = NO; 
+
         self.lastKnownAuditIssueCount = nil;
         self.showAuditPopupNotifications = NO;
         self.hibpCaveatAccepted = NO;
+        self.hibpCaveatTwoAccepted = NO;
         self.hibpCheckForNewBreachesIntervalSeconds = 7 * 24 * 60 * 60; 
         self.lastHibpOnlineCheck = nil;
+        
+        self.excludeShortNumericPINCodes = YES;
     }
         
     return self;
@@ -68,14 +72,18 @@ const NSUInteger kDefaultLowEntropyThreshold = 36; // bits
     if (jsonDictionary[@"minimumLength"] != nil ) ret.minimumLength = ((NSNumber*)(jsonDictionary[@"minimumLength"])).unsignedIntegerValue;
     if (jsonDictionary[@"checkForMinimumLength"] != nil ) ret.checkForMinimumLength = ((NSNumber*)(jsonDictionary[@"checkForMinimumLength"])).boolValue;
     if (jsonDictionary[@"checkHibp"] != nil ) ret.checkHibp = ((NSNumber*)(jsonDictionary[@"checkHibp"])).boolValue;
+    if (jsonDictionary[@"checkHibpBreaches"] != nil ) ret.checkHibpBreaches = ((NSNumber*)(jsonDictionary[@"checkHibpBreaches"])).boolValue;
     if (jsonDictionary[@"showAuditPopupNotifications2"] != nil ) ret.showAuditPopupNotifications = ((NSNumber*)(jsonDictionary[@"showAuditPopupNotifications2"])).boolValue;
     if (jsonDictionary[@"hibpCaveatAccepted"] != nil ) ret.hibpCaveatAccepted = ((NSNumber*)(jsonDictionary[@"hibpCaveatAccepted"])).boolValue;
+    if (jsonDictionary[@"hibpCaveatAcceptedTwo"] != nil ) ret.hibpCaveatTwoAccepted = ((NSNumber*)(jsonDictionary[@"hibpCaveatAcceptedTwo"])).boolValue;
     if (jsonDictionary[@"hibpCheckForNewBreachesIntervalSeconds"] != nil ) ret.hibpCheckForNewBreachesIntervalSeconds = ((NSNumber*)(jsonDictionary[@"hibpCheckForNewBreachesIntervalSeconds"])).unsignedIntegerValue;
 
     if (jsonDictionary[@"lastHibpOnlineCheck"] != nil ) ret.lastHibpOnlineCheck = [NSDate dateWithTimeIntervalSinceReferenceDate:((NSNumber*)(jsonDictionary[@"lastHibpOnlineCheck"])).doubleValue];
     if (jsonDictionary[@"lastKnownAuditIssueCount"] != nil ) ret.lastKnownAuditIssueCount = ((NSNumber*)(jsonDictionary[@"lastKnownAuditIssueCount"]));
     if (jsonDictionary[@"lowEntropyThreshold"] != nil ) ret.lowEntropyThreshold = ((NSNumber*)(jsonDictionary[@"lowEntropyThreshold"])).unsignedIntegerValue;
     if (jsonDictionary[@"checkForTwoFactorAvailable"] != nil ) ret.checkForTwoFactorAvailable = ((NSNumber*)(jsonDictionary[@"checkForTwoFactorAvailable"])).boolValue;
+    if (jsonDictionary[@"excludeShortNumericPINCodes"] != nil ) ret.excludeShortNumericPINCodes = ((NSNumber*)(jsonDictionary[@"excludeShortNumericPINCodes"])).boolValue;
+    if (jsonDictionary[@"lastDuration"] != nil ) ret.lastDuration = ((NSNumber*)(jsonDictionary[@"lastDuration"])).doubleValue;
 
     return ret;
 }
@@ -93,12 +101,16 @@ const NSUInteger kDefaultLowEntropyThreshold = 36; // bits
         @"minimumLength" : @(self.minimumLength),
         @"checkForMinimumLength" : @(self.checkForMinimumLength),
         @"checkHibp" : @(self.checkHibp),
+        @"checkHibpBreaches" : @(self.checkHibpBreaches),
         @"showAuditPopupNotifications2" : @(self.showAuditPopupNotifications),
         @"hibpCaveatAccepted" : @(self.hibpCaveatAccepted),
+        @"hibpCaveatAcceptedTwo" : @(self.hibpCaveatTwoAccepted),
         @"hibpCheckForNewBreachesIntervalSeconds" : @(self.hibpCheckForNewBreachesIntervalSeconds),
 
         @"lowEntropyThreshold" : @(self.lowEntropyThreshold),
         @"checkForTwoFactorAvailable" : @(self.checkForTwoFactorAvailable),
+        @"excludeShortNumericPINCodes" : @(self.excludeShortNumericPINCodes),
+        @"lastDuration" : @(self.lastDuration),
     }];
 
     if( self.lastHibpOnlineCheck != nil) {
@@ -127,7 +139,9 @@ const NSUInteger kDefaultLowEntropyThreshold = 36; // bits
         self.minimumLength = [coder decodeIntegerForKey:@"minimumLength"];
         self.checkForMinimumLength = [coder decodeBoolForKey:@"checkForMinimumLength"];
         self.checkHibp = [coder decodeBoolForKey:@"checkHibp"];
+        self.checkHibpBreaches = [coder decodeBoolForKey:@"checkHibpBreaches"];
         self.hibpCaveatAccepted = [coder decodeBoolForKey:@"hibpCaveatAccepted"];
+        self.hibpCaveatTwoAccepted = [coder decodeBoolForKey:@"hibpCaveatAcceptedTwo"];
         self.hibpCheckForNewBreachesIntervalSeconds = [coder decodeIntegerForKey:@"hibpCheckForNewBreachesIntervalSeconds"];
         self.lowEntropyThreshold = [coder decodeIntegerForKey:@"lowEntropyThreshold"];
         self.checkForTwoFactorAvailable = [coder decodeBoolForKey:@"checkForTwoFactorAvailable"];
@@ -141,7 +155,18 @@ const NSUInteger kDefaultLowEntropyThreshold = 36; // bits
             self.showAuditPopupNotifications = NO;
         }
 
+        if ( [coder containsValueForKey:@"excludeShortNumericPINCodes"] ) {
+            self.excludeShortNumericPINCodes = [coder decodeBoolForKey:@"excludeShortNumericPINCodes"];
+        }
+        else {
+            self.excludeShortNumericPINCodes = YES;
+        }
+
+        if ( [coder containsValueForKey:@"lastDuration"] ) {
+            self.lastDuration = ((NSNumber*)[coder decodeObjectForKey:@"lastDuration"]).doubleValue;
+        }
     }
+    
     return self;
 }
 
@@ -157,13 +182,26 @@ const NSUInteger kDefaultLowEntropyThreshold = 36; // bits
     [coder encodeInteger:self.minimumLength forKey:@"minimumLength"];
     [coder encodeBool:self.checkForMinimumLength forKey:@"checkForMinimumLength"];
     [coder encodeBool:self.checkHibp forKey:@"checkHibp"];
+    [coder encodeBool:self.checkHibpBreaches forKey:@"checkHibpBreaches"];
     [coder encodeBool:self.showAuditPopupNotifications forKey:@"showAuditPopupNotifications2"];
     [coder encodeBool:self.hibpCaveatAccepted forKey:@"hibpCaveatAccepted"];
+    [coder encodeBool:self.hibpCaveatTwoAccepted forKey:@"hibpCaveatAcceptedTwo"];
     [coder encodeInteger:self.hibpCheckForNewBreachesIntervalSeconds forKey:@"hibpCheckForNewBreachesIntervalSeconds"];
     [coder encodeInteger:self.lowEntropyThreshold forKey:@"lowEntropyThreshold"];
     [coder encodeBool:self.checkForTwoFactorAvailable forKey:@"checkForTwoFactorAvailable"];
     [coder encodeObject:self.lastHibpOnlineCheck forKey:@"lastHibpOnlineCheck"];
     [coder encodeObject:self.lastKnownAuditIssueCount forKey:@"lastKnownAuditIssueCount"];
+    [coder encodeBool:self.excludeShortNumericPINCodes forKey:@"excludeShortNumericPINCodes"];
+    
+    [coder encodeObject:@(self.lastDuration) forKey:@"lastDuration"];
+}
+
+- (NSString *)debugDescription {
+    return [NSString stringWithFormat:@"<%@: %p> %@", [self class], self, [self getJsonSerializationDictionary]];
+}
+
+- (NSString *)description {
+    return [NSString stringWithFormat:@"%@",  [self getJsonSerializationDictionary]];
 }
 
 @end

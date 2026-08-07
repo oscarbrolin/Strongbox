@@ -39,9 +39,17 @@
 @property (weak, nonatomic) IBOutlet UILabel *labelIterations;
 @property (weak, nonatomic) IBOutlet UISlider *sliderIterations;
 
+@property (weak, nonatomic) IBOutlet UITableViewCell *cellRestoreDefaults;
+
 @end
 
 @implementation EncryptionPreferencesViewController
+
++ (UINavigationController *)fromStoryboard {
+    UIStoryboard* sb = [UIStoryboard storyboardWithName:@"EncryptionPreferences" bundle:nil];
+    
+    return [sb instantiateInitialViewController];
+}
 
 - (void)viewDidLoad {
     [super viewDidLoad];
@@ -101,12 +109,25 @@
     [self cell:self.cellUpgradeToV4 setHidden:!self.currentSettings.shouldUpgradeToV4];
     [self cell:self.cellReduceArgon2 setHidden:!self.currentSettings.shouldReduceArgon2Memory];
 
-    if (@available(iOS 13.0, *)) {
-        self.cellUpgradeToV4.imageView.image = [UIImage systemImageNamed:@"exclamationmark.triangle"];
-        self.cellReduceArgon2.imageView.image = [UIImage systemImageNamed:@"exclamationmark.triangle"];
-    }
+    self.cellUpgradeToV4.imageView.image = [UIImage systemImageNamed:@"exclamationmark.triangle"];
+    self.cellReduceArgon2.imageView.image = [UIImage systemImageNamed:@"exclamationmark.triangle"];
     
     [self cell:self.cellCalibrate setHidden:YES]; 
+    
+    [self cell:self.cellRestoreDefaults setHidden:self.currentSettings.isStrongboxDefaultEncryptionSettings];
+    
+    if ( self.model.isReadOnly || self.currentSettings.isStrongboxDefaultEncryptionSettings ) {
+        self.cellRestoreDefaults.selectionStyle = UITableViewCellSelectionStyleNone;
+        self.cellRestoreDefaults.userInteractionEnabled = NO;
+        self.cellRestoreDefaults.textLabel.enabled = NO;
+
+    }
+    else {
+        self.cellRestoreDefaults.selectionStyle = UITableViewCellSelectionStyleDefault;
+        self.cellRestoreDefaults.userInteractionEnabled = YES;
+        self.cellRestoreDefaults.textLabel.enabled = YES;
+
+    }
     
     [self reloadDataAnimated:YES];
     
@@ -137,6 +158,9 @@
     }
     else if ( [self.tableView cellForRowAtIndexPath:indexPath] == self.cellCompression ) {
         [self promptForCompression];
+    }
+    else if ( [self.tableView cellForRowAtIndexPath:indexPath] == self.cellRestoreDefaults ) {
+        [self restoreDefaults];
     }
 }
 
@@ -253,7 +277,15 @@
         }
     }];
 }
+
+- (void)restoreDefaults {
+    EncryptionSettingsViewModel* defaults = [EncryptionSettingsViewModel defaultsForFormat:self.currentSettings.format];
     
+    self.currentSettings = [defaults clone];
+
+    [self bindUI];
+}
+
 - (void)promptForAlternativeKdf {
     if ( self.currentSettings.kdfIsEditable ) {
         NSArray<NSNumber*>* choices = @[@(kKdfAlgorithmAes256),

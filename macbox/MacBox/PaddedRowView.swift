@@ -7,18 +7,19 @@
 //
 
 import Cocoa
+
 // import AppKit
-// import Foundation
+
 
 class PaddedRowView: NSTableRowView {
-    // MMcG: Required or drawSelection is not called!!!
+    
     override var backgroundColor: NSColor {
         get {
-            return .red
+            .red
         }
         set {}
     }
-    
+
 
 
 
@@ -29,7 +30,7 @@ class PaddedRowView: NSTableRowView {
 
 
 
-    
+
     override func drawSelection(in dirtyRect: NSRect) {
         if selectionHighlightStyle != .none {
             if isEmphasized {
@@ -47,10 +48,135 @@ class PaddedRowView: NSTableRowView {
                 selectionPath.fill()
             } else {
                 
-                
             }
         } else {
             super.drawSelection(in: dirtyRect)
         }
     }
+
+    
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    
+
+
+
+
+
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -11,6 +11,7 @@ import Foundation
 class DetailsViewField {
     enum FieldType {
         case header
+        case headerWithTextButton
         case customField
         case title
         case metadata
@@ -21,6 +22,15 @@ class DetailsViewField {
         case tags
         case url
         case auditIssue
+        case keeAgentKeySummary
+        case keeAgentKey
+        case creditCardNumber
+        case creditCardCvv
+        case creditCardPin
+        case creditCardCardholder
+        case creditCardType
+        case creditCardValidFrom
+        case creditCardLimit
     }
 
     var name: String = ""
@@ -31,6 +41,12 @@ class DetailsViewField {
     var fieldType: FieldType = .customField
     var object: Any?
     var showStrength: Bool = false
+    var showHistory: Bool = false
+    var showShare: Bool = false
+    var showLargeTextView: Bool = false
+    var singleLineMode: Bool = false
+    var params: [String: String]
+    var leftImage: NSImage?
 
     init(name: String, value: String,
          fieldType: FieldType,
@@ -38,7 +54,11 @@ class DetailsViewField {
          concealable: Bool = false,
          icon: NodeIcon? = nil,
          object: Any? = nil,
-         showStrength: Bool = false)
+         showStrength: Bool = false,
+         showShare: Bool = false,
+         singleLineMode: Bool = false,
+         params: [String: String] = [:],
+         leftImage: NSImage? = nil)
     {
         self.name = name
         self.value = value
@@ -48,5 +68,9 @@ class DetailsViewField {
         self.icon = icon
         self.object = object
         self.showStrength = showStrength
+        self.showShare = showShare
+        self.singleLineMode = singleLineMode
+        self.params = params
+        self.leftImage = leftImage
     }
 }

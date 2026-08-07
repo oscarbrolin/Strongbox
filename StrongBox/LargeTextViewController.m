@@ -11,12 +11,23 @@
 #import "ColoredStringHelper.h"
 #import "AppPreferences.h"
 #import "Utils.h"
+#import "ClipboardManager.h"
+#import "ColoredStringHelper.h"
+
+#ifndef IS_APP_EXTENSION
+#import "Strongbox-Swift.h"
+#else
+#import "Strongbox_Auto_Fill-Swift.h"
+#endif
 
 @interface LargeTextViewController ()
 
-@property (weak, nonatomic) IBOutlet UILabel *labelLargeText;
 @property (weak, nonatomic) IBOutlet UIImageView *qrCodeImageView;
-@property (weak, nonatomic) IBOutlet UIButton *buttonShowQrCode;
+@property (weak, nonatomic) IBOutlet UILabel *labelSubtext;
+@property (weak, nonatomic) IBOutlet UILabel *labelLargeTextCaption;
+@property (weak, nonatomic) IBOutlet UIStackView *topStackView;
+@property (weak, nonatomic) IBOutlet UIButton *buttonDismiss;
+@property UIViewController* swiftUILargeTextView;
 
 @end
 
@@ -30,37 +41,66 @@
 - (void)viewDidLoad {
     [super viewDidLoad];
 
-    if (@available(iOS 13.0, *)) {
-        [self.buttonShowQrCode setTitleColor:UIColor.labelColor forState:UIControlStateNormal];
-    }
-       
-    UIImage* img = [Utils getQrCode:self.string pointSize:self.qrCodeImageView.frame.size.width];
-    self.qrCodeImageView.image = img;
-    self.qrCodeImageView.hidden = NO;
-    
-    UITapGestureRecognizer *tapGestureRecognizer = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(labelTapped)];
-    
-    tapGestureRecognizer.numberOfTapsRequired = 1;
-    
-    [self.labelLargeText addGestureRecognizer:tapGestureRecognizer];
-    self.labelLargeText.userInteractionEnabled = YES;
+    self.qrCodeImageView.hidden = YES;
 
-    if (!self.colorize) {
-        self.labelLargeText.font = FontManager.sharedInstance.easyReadFontForTotp;
-        self.labelLargeText.text = self.string;
+    if ( !self.hideLargeTextGrid ) {
+        [self loadSwiftUIView];
     }
-    else {
-        BOOL dark = NO;
-        if (@available(iOS 12.0, *)) {
-            dark = self.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark;
-        }
-        BOOL colorBlind = AppPreferences.sharedInstance.colorizeUseColorBlindPalette;
+
+    UITapGestureRecognizer *tapGestureRecognizerSubtext = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(subtextTapped)];
+    tapGestureRecognizerSubtext.numberOfTapsRequired = 1;
+    [self.labelSubtext addGestureRecognizer:tapGestureRecognizerSubtext];
+    self.labelSubtext.userInteractionEnabled = YES;
     
-        self.labelLargeText.attributedText = [ColoredStringHelper getColorizedAttributedString:self.string
-                                                                                      colorize:YES
-                                                                                      darkMode:dark
-                                                                                    colorBlind:colorBlind font:FontManager.sharedInstance.easyReadFontForTotp];
-    }
+    self.labelSubtext.text = self.subtext;
+    self.labelSubtext.hidden = self.subtext.length == 0;
+    self.labelLargeTextCaption.hidden = self.subtext.length == 0;
+    self.labelLargeTextCaption.text = NSLocalizedString(@"generic_totp_secret", @"TOTP Secret");
+    
+    __weak LargeTextViewController* weakSelf = self;
+    
+    CGFloat width = self.qrCodeImageView.frame.size.width;
+    
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0), ^{
+        [weakSelf loadQrCode:width];
+    });
+}
+
+- (void)loadSwiftUIView {
+    BOOL colorBlind = AppPreferences.sharedInstance.colorizeUseColorBlindPalette; 
+    
+    self.swiftUILargeTextView = [SwiftUIViewFactory getLargeTextDisplayViewWithText:self.string
+                                                                               font:FontManager.sharedInstance.easyReadFontForTotp
+                                                                           colorize:self.colorize
+                                                                         colorBlind:colorBlind
+                                                                           onTapped:^{
+        [self labelTapped];
+    }];
+
+    [self addChildViewController:self.swiftUILargeTextView];
+    self.swiftUILargeTextView.view.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.view addSubview:self.swiftUILargeTextView.view];
+    [self.swiftUILargeTextView didMoveToParentViewController:self];
+    
+    [NSLayoutConstraint activateConstraints:@[
+        [self.swiftUILargeTextView.view.leftAnchor constraintEqualToAnchor:self.view.leftAnchor constant:20],
+        [self.swiftUILargeTextView.view.rightAnchor constraintEqualToAnchor:self.view.rightAnchor constant:-20],
+        [self.swiftUILargeTextView.view.topAnchor constraintEqualToAnchor:self.topStackView.bottomAnchor constant:20],
+        [self.swiftUILargeTextView.view.bottomAnchor constraintGreaterThanOrEqualToAnchor:self.view.bottomAnchor constant:20],
+    ]];
+    
+    [self.view layoutIfNeeded];
+}
+
+- (void)loadQrCode:(CGFloat)width {
+    UIImage* img = [Utils getQrCode:self.string
+                          pointSize:width];
+    
+    dispatch_async(dispatch_get_main_queue(), ^{
+        self.qrCodeImageView.image = img;
+        
+        self.qrCodeImageView.hidden = NO;
+    });
 }
 
 - (IBAction)onDismiss:(id)sender {
@@ -68,10 +108,23 @@
 }
 
 - (void)labelTapped {
+    [self copyToClipboard:self.string];
+}
+    
+- (void)subtextTapped {
+    [self copyToClipboard:self.labelSubtext.text];
 }
 
-- (IBAction)onShowQrCode:(id)sender {
-    self.qrCodeImageView.hidden = !self.qrCodeImageView.hidden;
+- (void)copyToClipboard:(NSString *)value {
+    if (value.length == 0) {
+        return;
+    }
+    
+    [ClipboardManager.sharedInstance copyStringWithDefaultExpiration:value];
+    
+#ifndef IS_APP_EXTENSION
+    [StrongboxToastMessages showSlimWithTitle:NSLocalizedString(@"generic_copied", @"Copied")];
+#endif
 }
 
 @end

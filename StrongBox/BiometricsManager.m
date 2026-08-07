@@ -57,7 +57,7 @@
     [localAuthContext canEvaluatePolicy:LAPolicyDeviceOwnerAuthenticationWithBiometrics error:&error];
     
     if (error) {
-        NSLog(@"isBiometricIdAvailable: NO -> ");
+        slog(@"isBiometricIdAvailable: NO -> ");
         [BiometricsManager logBiometricError:error];
         return NO;
     }
@@ -91,7 +91,7 @@
     [localAuthContext canEvaluatePolicy:LAPolicyDeviceOwnerAuthenticationWithBiometrics error:&error];
     
     if (error) {
-        NSLog(@"isBiometricIdChangedSinceEnrolment: NO -> ");
+        slog(@"isBiometricIdChangedSinceEnrolment: NO -> ");
         [BiometricsManager logBiometricError:error];
         return;
     }
@@ -121,47 +121,51 @@
     }
 
     NSError *error;
-    [localAuthContext canEvaluatePolicy:LAPolicyDeviceOwnerAuthenticationWithBiometrics error:&error];
-    
-    if (error) {
-        NSLog(@"isBiometricIdChangedSinceEnrolment: NO -> ");
+    BOOL canEval = [localAuthContext canEvaluatePolicy:LAPolicyDeviceOwnerAuthenticationWithBiometrics error:&error];
+    if (!canEval) {
+        slog(@"isBiometricIdChangedSinceEnrolment: NO -> ");
         [BiometricsManager logBiometricError:error];
         return NO;
     }
     
-    NSLog(@"Biometrics State: [%@] vs Last Good: [%@]",
-          [localAuthContext.evaluatedPolicyDomainState base64EncodedStringWithOptions:kNilOptions],
-          [self.lastKnownGoodDatabaseState base64EncodedStringWithOptions:kNilOptions]);
+    NSData* currentState = localAuthContext.evaluatedPolicyDomainState;
+    NSData* lastGood = [self getLastKnownGoodDatabaseState:autoFill];
 
-    return ![localAuthContext.evaluatedPolicyDomainState isEqualToData:[self getLastKnownGoodDatabaseState:autoFill]];
+    slog(@"Biometrics State: [%@] vs Last Good: [%@]",
+          currentState ? [currentState base64EncodedStringWithOptions:kNilOptions] : @"<nil>",
+          lastGood ? [lastGood base64EncodedStringWithOptions:kNilOptions] : @"<nil>");
+
+    if (!currentState || !lastGood) {
+        return NO;
+    }
+
+    return ![currentState isEqualToData:lastGood];
 }
 
 + (void)logBiometricError:(NSError*)error {
     if (error.code == LAErrorAuthenticationFailed) {
-        NSLog(@"BIOMETRIC: Auth Failed %@", error);
+        slog(@"BIOMETRIC: Auth Failed %@", error);
     }
     else if (error.code == LAErrorUserFallback) {
-        NSLog(@"BIOMETRIC: User Choose Fallback %@", error);
+        slog(@"BIOMETRIC: User Choose Fallback %@", error);
     }
     else if (error.code == LAErrorUserCancel) {
-        NSLog(@"BIOMETRIC: User Cancelled %@", error);
+        slog(@"BIOMETRIC: User Cancelled %@", error);
     }
-    else if (@available(iOS 11.0, *)) {
-        if (error.code == LAErrorBiometryNotAvailable) {
-            NSLog(@"BIOMETRIC: LAErrorBiometryNotAvailable %@", error);
-        }
-        else if (error.code == LAErrorSystemCancel) {
-            NSLog(@"BIOMETRIC: LAErrorSystemCancel %@", error);
-        }
-        else if (error.code == LAErrorBiometryNotEnrolled) {
-            NSLog(@"BIOMETRIC: LAErrorBiometryNotEnrolled %@", error);
-        }
-        else if (error.code == LAErrorBiometryLockout) {
-            NSLog(@"BIOMETRIC: LAErrorBiometryLockout %@", error);
-        }
+    else if (error.code == LAErrorBiometryNotAvailable) {
+        slog(@"BIOMETRIC: LAErrorBiometryNotAvailable %@", error);
+    }
+    else if (error.code == LAErrorSystemCancel) {
+        slog(@"BIOMETRIC: LAErrorSystemCancel %@", error);
+    }
+    else if (error.code == LAErrorBiometryNotEnrolled) {
+        slog(@"BIOMETRIC: LAErrorBiometryNotEnrolled %@", error);
+    }
+    else if (error.code == LAErrorBiometryLockout) {
+        slog(@"BIOMETRIC: LAErrorBiometryLockout %@", error);
     }
     else {
-        NSLog(@"BIOMETRIC: Unknown Error: [%@]", error);
+        slog(@"BIOMETRIC: Unknown Error: [%@]", error);
     }
 }
 
@@ -211,16 +215,16 @@
         localAuthContext.localizedFallbackTitle = fallbackTitle;
     }
     
-    NSLog(@"REQUEST-BIOMETRIC: %d", AppPreferences.sharedInstance.suppressAppBackgroundTriggers);
     
     
     
     
     
+    slog(@"REQUEST-BIOMETRIC: %d", AppPreferences.sharedInstance.suppressAppBackgroundTriggers);
     
-    if(self.requestInProgress) {
+    if ( self.requestInProgress ) {
         
-        NSLog(@"WARN: WARN: Biometric Request is already in Progress - Not launching again...");
+        slog(@"WARN: WARN: Biometric Request is already in Progress - Not launching again...");
         return NO;
     }
     
@@ -234,15 +238,15 @@
                                    AppPreferences.sharedInstance.suppressAppBackgroundTriggers = NO;
 
                                    if(!success) {
-                                       NSLog(@"requestBiometricId: NO -> ");
+                                       slog(@"requestBiometricId: Fail -> [%@]", error);
                                        [BiometricsManager logBiometricError:error];
                                    }
                                    else {
-                                       NSLog(@"REQUEST-BIOMETRIC DONE SUCCESS");
+                                       slog(@"REQUEST-BIOMETRIC DONE SUCCESS");
                                    }
                                    completion(success, error);
                                }];
-    
+
     return YES;
 }
 

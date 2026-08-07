@@ -13,13 +13,14 @@
 #import "SVProgressHUD.h"
 #import "UIImage+FixOrientation.h"
 #import "NSDate+Extensions.h"
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
 const int kMaxRecommendedAttachmentSize = 512 * 1024; 
 
 @interface AddAttachmentHelper () <UIImagePickerControllerDelegate, UIDocumentPickerDelegate, UINavigationControllerDelegate>
 
 @property UIViewController* parentViewController;
-@property (nonatomic, copy) void (^onAdd)(NSString* filename, DatabaseAttachment* databaseAttachment);
+@property (nonatomic, copy) void (^onAdd)(NSString* filename, KeePassAttachmentAbstractionLayer* databaseAttachment);
 @property NSSet<NSString*>* usedFilenames;
 
 @end
@@ -38,11 +39,13 @@ const int kMaxRecommendedAttachmentSize = 512 * 1024;
 }
 
 - (void)beginAddAttachmentUi:(UIViewController *)vc
-               usedFilenames:(NSArray<NSString *> *)usedFilenames
-                       onAdd:(void (^)(NSString* filename, DatabaseAttachment* databaseAttachment))onAdd {
+               usedFilenames:(NSSet<NSString *> *)usedFilenames
+                       onAdd:(void (^)(NSString* filename, KeePassAttachmentAbstractionLayer* databaseAttachment))onAdd {
     self.parentViewController = vc;
     self.onAdd = onAdd;
-    self.usedFilenames = [NSSet setWithArray:usedFilenames]; 
+    
+    
+    self.usedFilenames = usedFilenames;
     
     UIAlertController *alertController =
     [UIAlertController alertControllerWithTitle:NSLocalizedString(@"add_attachment_vc_prompt_title", @"Attachment Location")
@@ -78,7 +81,10 @@ const int kMaxRecommendedAttachmentSize = 512 * 1024;
 
 - (void)onAddAttachmentLocationResponse:(int)response {
     if(response == 3) {
-        UIDocumentPickerViewController *vc = [[UIDocumentPickerViewController alloc] initWithDocumentTypes:@[(NSString*)kUTTypeItem] inMode:UIDocumentPickerModeImport];
+        UTType* type = [UTType typeWithIdentifier:(NSString*)kUTTypeItem];
+        UIDocumentPickerViewController *vc = [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[type]];
+
+
         vc.delegate = self;
         vc.modalPresentationStyle = UIModalPresentationFormSheet;
         
@@ -111,27 +117,28 @@ const int kMaxRecommendedAttachmentSize = 512 * 1024;
 }
 
 - (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
-    NSLog(@"didPickDocumentsAtURLs: %@", urls);
+    slog(@"didPickDocumentsAtURLs: %@", urls);
     
     NSURL* url = [urls objectAtIndex:0];
 
-    #pragma GCC diagnostic push
-    #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-
-    [self documentPicker:controller didPickDocumentAtURL:url];
     
-    #pragma GCC diagnostic pop
-}
-
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-implementations"
-
-- (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentAtURL:(NSURL *)url { 
+    
+    if (! [url startAccessingSecurityScopedResource] ) {
+        slog(@"🔴 Could not securely access URL!");
+    }
+    
     NSError* error;
-    NSData* data = [NSData dataWithContentsOfURL:url options:kNilOptions error:&error];
+    __block NSData *data;
+    __block NSError *err;
+    NSFileCoordinator *coordinator = [[NSFileCoordinator alloc] init];
+    [coordinator coordinateReadingItemAtURL:url options:0 error:&error byAccessor:^(NSURL *newURL) {
+        data = [NSData dataWithContentsOfURL:newURL options:NSDataReadingUncached error:&err];
+    }];
+    
+    [url stopAccessingSecurityScopedResource];
     
     if(!data) {
-        NSLog(@"Error: %@", error);
+        slog(@"Error: %@", error);
         [Alerts warn:self.parentViewController
                title:NSLocalizedString(@"add_attachment_vc_error_reading_title", @"Error Reading")
              message:NSLocalizedString(@"add_attachment_vc_error_reading_message", @"Could not read the data for this item.")];
@@ -142,10 +149,8 @@ const int kMaxRecommendedAttachmentSize = 512 * 1024;
     [self addAttachment:filename data:data];
 }
 
-#pragma GCC diagnostic pop
-
 - (void)imagePickerController:(UIImagePickerController *)picker didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *)info {
-    NSLog(@"Image Pick did finish: [%@]", info);
+    slog(@"Image Pick did finish: [%@]", info);
     NSString* mediaType = [info objectForKey:UIImagePickerControllerMediaType];
     BOOL isImage = UTTypeConformsTo((__bridge CFStringRef)mediaType, kUTTypeImage) != 0;
     
@@ -183,7 +188,7 @@ const int kMaxRecommendedAttachmentSize = 512 * 1024;
     }
     
     if(!data) {
-        NSLog(@"Error: %@", error);
+        slog(@"Error: %@", error);
         
         [picker dismissViewControllerAnimated:YES completion:^{
             [Alerts warn:self.parentViewController
@@ -321,9 +326,9 @@ const int kMaxRecommendedAttachmentSize = 512 * 1024;
                                   else {
                                       if(self.onAdd) {
                                           NSInputStream* inputStream = [NSInputStream inputStreamWithData:data];
-                                          DatabaseAttachment *dbAttachment = [[DatabaseAttachment alloc] initWithStream:inputStream protectedInMemory:YES compressed:YES];
+                                          KeePassAttachmentAbstractionLayer *dbAttachment = [[KeePassAttachmentAbstractionLayer alloc] initWithStream:inputStream length:data.length protectedInMemory:YES compressed:YES];
                                           
-                                          NSLog(@"Adding Attachment: [%@]-[%@]", text, dbAttachment.digestHash);
+                                          slog(@"Adding Attachment: [%@]-[%@]", text, dbAttachment.digestHash);
                                           
                                           self.onAdd(text, dbAttachment);
                                       }

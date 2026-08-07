@@ -19,7 +19,7 @@ class WordListsController: NSViewController, NSTableViewDataSource, NSTableViewD
     }
 
     func numberOfRows(in _: NSTableView) -> Int {
-        return sortedWordListKeys.count
+        sortedWordListKeys.count
     }
 
     func tableView(_ tableView: NSTableView, viewFor _: NSTableColumn?, row: Int) -> NSView? {
@@ -33,7 +33,7 @@ class WordListsController: NSViewController, NSTableViewDataSource, NSTableViewD
         result.checkbox!.title = wl!.name
 
         result.onClicked = { checked in
-            NSLog("%@ - %d", wordListKey, checked)
+            swlog("%@ - %d", wordListKey, checked)
 
             let immutable = Settings.sharedInstance().passwordGenerationConfig.wordLists
             var set = immutable

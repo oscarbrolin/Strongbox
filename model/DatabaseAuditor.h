@@ -31,9 +31,10 @@ typedef NS_ENUM (unsigned int, AuditFlag) {
     kAuditFlagPwned,
     kAuditFlagLowEntropy,
     kAuditFlagTwoFactorAvailable,
+    kAuditFlagBreachedAccount,
 };
 
-typedef void (^AuditCompletionBlock)(BOOL userStopped);
+typedef void (^AuditCompletionBlock)(BOOL userStopped, NSTimeInterval duration);
 typedef void (^AuditProgressBlock)(double progress);
 typedef void (^AuditNodesChangedBlock)(void);
 typedef void (^SaveConfigurationBlock)(DatabaseAuditorConfiguration* config);
@@ -49,6 +50,7 @@ typedef BOOL (^IsExcludedBlock)(Node* item);
                  saveConfig:(SaveConfigurationBlock _Nullable)saveConfig NS_DESIGNATED_INITIALIZER;
 
 @property AuditState state;
+@property (readonly) CGFloat calculatedProgress;
 
 - (BOOL)start:(DatabaseModel*)database
        config:(DatabaseAuditorConfiguration*)config
@@ -76,8 +78,12 @@ typedef BOOL (^IsExcludedBlock)(Node* item);
 - (NSSet<NSUUID*>*)getDuplicatedPasswordNodeSet:(NSUUID*)nodeId;
 
 @property (readonly) NSUInteger haveIBeenPwnedErrorCount;
+@property (readonly) NSArray<NSString*>* haveIBeenPwnedErrorReasons;
+@property (nonatomic, strong) NSString *deviceCheckToken;
 
 - (void)oneTimeHibpCheck:(NSString*)password completion:(void(^)(BOOL pwned, NSError* error))completion;
+- (void)oneTimeAccountBreachCheck:(NSString*)email completion:(void(^)(BOOL breached, NSArray<NSString*>* _Nullable breachedSites, NSError* _Nullable error))completion;
+- (void)fetchAndStoreDeviceCheckToken;
 
 @end
 

@@ -57,11 +57,11 @@
              formatAsIntervals:NO
                   currentValue:AppPreferences.sharedInstance.deleteDataAfterFailedUnlockCount
                     completion:^(BOOL success, NSInteger selectedValue) {
-                        if (success) {
-                            AppPreferences.sharedInstance.deleteDataAfterFailedUnlockCount = selectedValue;
-                        }
-                        [self bindAppLock];
-                    }];
+            if (success) {
+                AppPreferences.sharedInstance.deleteDataAfterFailedUnlockCount = selectedValue;
+            }
+            [self bindAppLock];
+        }];
     }
     else if (cell == self.cellAppLockDelay) {
         [self promptForInteger:NSLocalizedString(@"prefs_vc_app_lock_delay", @"App Lock Delay")
@@ -80,8 +80,14 @@
 }
 
 - (IBAction)onAppLockChanged:(id)sender {
-    if(self.segmentAppLock.selectedSegmentIndex == kPinCode || self.segmentAppLock.selectedSegmentIndex == kBoth) {
+    if ( self.segmentAppLock.selectedSegmentIndex == kPinCode ) {
         [self requestAppLockPinCodeAndConfirm];
+    }
+    else if ( self.segmentAppLock.selectedSegmentIndex == kBiometric ) {
+        [self requestBiometric:NO];
+    }
+    else if ( self.segmentAppLock.selectedSegmentIndex == kBoth) {
+        [self requestBiometric:YES];
     }
     else {
         AppPreferences.sharedInstance.appLockMode = self.segmentAppLock.selectedSegmentIndex;
@@ -121,19 +127,14 @@
     self.labelAppLockDelay.text = effectiveMode == kNoLock ?
     NSLocalizedString(@"prefs_vc_setting_disabled", @"Disabled") : [Utils formatTimeInterval:seconds.integerValue];
     
-    if (@available(iOS 13.0, *)) {
-        self.labelAppLockDelay.textColor = effectiveMode == kNoLock ? UIColor.tertiaryLabelColor : UIColor.labelColor;
-    }
-    else {
-        self.labelAppLockDelay.textColor = effectiveMode == kNoLock ? UIColor.lightGrayColor : UIColor.darkTextColor;
-    }
+    self.labelAppLockDelay.textColor = effectiveMode == kNoLock ? UIColor.tertiaryLabelColor : UIColor.labelColor;
     
     self.cellAppLockDelay.userInteractionEnabled = effectiveMode != kNoLock;
     
     self.appLockOnPreferences.enabled = effectiveMode != kNoLock;
     self.appLockPasscodeFallback.enabled = effectiveMode == kBiometric || effectiveMode == kBoth;
 
-    NSLog(@"AppLock: [%ld] - [%@]", (long)mode, seconds);
+    slog(@"AppLock: [%ld] - [%@]", (long)mode, seconds);
     
     BOOL deleteOnOff = AppPreferences.sharedInstance.deleteDataAfterFailedUnlockCount > 0;
     BOOL deleteEnabled = (effectiveMode == kPinCode || effectiveMode == kBoth);
@@ -145,13 +146,8 @@
     NSString* str = @(AppPreferences.sharedInstance.deleteDataAfterFailedUnlockCount).stringValue;
     
     self.labelDeleteDataAttemptCount.text = deleteOnOff && deleteEnabled ? str : NSLocalizedString(@"prefs_vc_setting_disabled", @"Disabled");
-    
-    if (@available(iOS 13.0, *)) {
-        self.labelDeleteDataAttemptCount.textColor = !(deleteOnOff && deleteEnabled) ? UIColor.tertiaryLabelColor : UIColor.labelColor;
-    }
-    else {
-        self.labelDeleteDataAttemptCount.textColor = !(deleteOnOff && deleteEnabled) ? UIColor.lightGrayColor : UIColor.darkTextColor;
-    }
+        
+    self.labelDeleteDataAttemptCount.textColor = !(deleteOnOff && deleteEnabled) ? UIColor.tertiaryLabelColor : UIColor.labelColor;
     
     NSString* fmt = NSLocalizedString(@"app_lock_allow_device_passcode_fallback_for_biometric_fmt", @"Passcode Fallback for %@");
     self.labelAppLockPasscodeFallback.text = [NSString stringWithFormat:fmt, BiometricsManager.sharedInstance.biometricIdName];
@@ -178,11 +174,10 @@
 }
 
 - (IBAction)onAppLock2PreferencesChanged:(id)sender {
-    NSLog(@"Generic Preference Changed: [%@]", sender);
+    slog(@"Generic Preference Changed: [%@]", sender);
 
     AppPreferences.sharedInstance.appLockAppliesToPreferences = self.appLockOnPreferences.on;
     AppPreferences.sharedInstance.appLockAllowDevicePasscodeFallbackForBio = self.appLockPasscodeFallback.on;
-    
     AppPreferences.sharedInstance.coalesceAppLockAndQuickLaunchBiometrics = self.switchCoalesceBiometrics.on;
     
     [self bindAppLock];
@@ -254,6 +249,27 @@
     vc.title = title;
     
     [self.navigationController pushViewController:vc animated:YES];
+}
+
+- (void)requestBiometric:(BOOL)requestPinCodeAfterwards {
+    [BiometricsManager.sharedInstance requestBiometricId:NSLocalizedString(@"open_sequence_biometric_unlock_prompt_title", @"Identify to Unlock Database")
+                                           fallbackTitle:@""
+                                              completion:^(BOOL success, NSError * _Nullable error) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if ( success ) {
+                if ( requestPinCodeAfterwards ) {
+                    [self requestAppLockPinCodeAndConfirm];
+                }
+                else {
+                    AppPreferences.sharedInstance.appLockMode = self.segmentAppLock.selectedSegmentIndex;
+                    [self bindAppLock];
+                }
+            }
+            else {
+                [self bindAppLock];
+            }
+        });
+    }];
 }
 
 @end

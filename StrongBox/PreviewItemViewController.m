@@ -13,23 +13,33 @@
 #import "MutableOrderedDictionary.h"
 #import "Utils.h"
 
+#ifndef IS_APP_EXTENSION
+#import "Strongbox-Swift.h"
+#else
+#import "Strongbox_Auto_Fill-Swift.h"
+#endif
+
 @interface PreviewItemViewController ()
 
 @property UILabel *totpLabel;
 @property OTPToken* otpToken;
 @property NSTimer* timerRefreshOtp;
 
+@property Model* model;
+@property Node* item;
+@property UIFont* twoFactorEasyReadSeparatorFont;
+
 @end
 
 @implementation PreviewItemViewController
 
-+ (instancetype)forItem:(Node *)item andModel:(Model *)model {
-    return [[PreviewItemViewController alloc] initForItem:item andModel:model];
-}
-
-- (instancetype)initForItem:(Node *)item andModel:(Model *)model API_AVAILABLE(ios(13.0)) {
+- (instancetype)initForItem:(Node *)item andModel:(Model *)model  {
     self = [super initWithNibName:nil bundle:nil];
     if (self) {
+        self.item = item;
+        self.model = model;
+        self.twoFactorEasyReadSeparatorFont = [UIFont monospacedSystemFontOfSize:30 weight:UIFontWeightRegular];
+
         UIImage* icon = [NodeIconHelper getIconForNode:item predefinedIconSet:model.metadata.keePassIconSet format:model.database.originalFormat];
 
         UIImageView *imageView = [[UIImageView alloc] init];
@@ -37,7 +47,7 @@
         imageView.contentMode = UIViewContentModeScaleAspectFit;
         
         UILabel *labelTitle = [[UILabel alloc] init];
-        labelTitle.text = item.title;
+        labelTitle.text = [self maybeDereference:item.title];
         labelTitle.font = FontManager.sharedInstance.title3Font;
         
         UIStackView* stackViewTitle = [[UIStackView alloc] initWithArrangedSubviews:@[imageView, labelTitle]];
@@ -58,8 +68,12 @@
         
         MutableOrderedDictionary<NSString*, NSString*> *orderedFields = [[MutableOrderedDictionary alloc] init];
         
-        if (item.fields.username.length) [orderedFields addKey:NSLocalizedString(@"generic_fieldname_username", @"Username") andValue:item.fields.username];
-        if (item.fields.email.length) [orderedFields addKey:NSLocalizedString(@"generic_fieldname_email", @"Email") andValue:item.fields.email];
+        if (item.fields.username.length) {
+            [orderedFields addKey:NSLocalizedString(@"generic_fieldname_username", @"Username") andValue:[self maybeDereference:item.fields.username]];
+        }
+        if (item.fields.email.length) {
+            [orderedFields addKey:NSLocalizedString(@"generic_fieldname_email", @"Email") andValue:[self maybeDereference:item.fields.email]];
+        }
 
         
         
@@ -67,16 +81,20 @@
         for(NSString* key in sortedKeys) {
             if ( ![NodeFields isTotpCustomFieldKey:key] ) {
                 StringValue* sv = item.fields.customFields[key];
-                if ( !sv.protected && sv.value.length ) {
-                    [orderedFields addKey:key andValue:sv.value];
+                NSString* derefed = [self maybeDereference:sv.value];
+                
+                if ( !sv.protected && derefed.length ) {
+                    [orderedFields addKey:key andValue:derefed];
                 }
             }
         }
 
         
         
-        if (item.fields.notes.length) [orderedFields addKey:NSLocalizedString(@"generic_fieldname_notes", @"Notes") andValue:item.fields.notes];
-
+        if (item.fields.notes.length) {
+            [orderedFields addKey:NSLocalizedString(@"generic_fieldname_notes", @"Notes") andValue:[self maybeDereference:item.fields.notes]];
+        }
+        
         
 
         NSMutableArray<UIView*>* fieldViews = [NSMutableArray array];
@@ -132,7 +150,7 @@
     return self;
 }
 
-- (UILabel*)createFieldLabel:(NSString*)value API_AVAILABLE(ios(13.0)) {
+- (UILabel*)createFieldLabel:(NSString*)value  {
     UILabel *ret = [[UILabel alloc] init];
     
     ret.font = FontManager.sharedInstance.regularFont;
@@ -144,7 +162,7 @@
     return ret;
 }
 
-- (UILabel*)createHeaderLabel:(NSString*)heading API_AVAILABLE(ios(13.0)) {
+- (UILabel*)createHeaderLabel:(NSString*)heading  {
     UILabel *ret = [[UILabel alloc] init];
     
     ret.font = FontManager.sharedInstance.caption2Font;
@@ -156,7 +174,7 @@
     return ret;
 }
 
-- (void)createTotpLabel API_AVAILABLE(ios(13.0)) {
+- (void)createTotpLabel  {
     self.totpLabel = [[UILabel alloc] init];
     
     self.totpLabel.font = FontManager.sharedInstance.easyReadFontForTotp;
@@ -168,8 +186,36 @@
 
 - (void)updateTotpLabel {
     uint64_t remainingSeconds = self.otpToken.period - ((uint64_t)([NSDate date].timeIntervalSince1970) % (uint64_t)self.otpToken.period);
-    self.totpLabel.text = [NSString stringWithFormat:@"%@", self.otpToken.password];
-    self.totpLabel.textColor = (remainingSeconds < 5) ? UIColor.systemRedColor : (remainingSeconds < 9) ? UIColor.systemOrangeColor : UIColor.systemBlueColor;
+    
+    NSArray<NSString*>* codes = self.otpToken.codeSeparated;
+    if ( codes && codes.count == 2 && AppPreferences.sharedInstance.twoFactorEasyReadSeparator ) {
+        NSMutableAttributedString* mut = [[NSMutableAttributedString alloc] init];
+        [mut beginEditing];
+        
+        UIColor *color = (remainingSeconds < 5) ? UIColor.systemRedColor : (remainingSeconds < 9) ? UIColor.systemOrangeColor : UIColor.labelColor;
+        
+        [mut appendAttributedString:[[NSAttributedString alloc] initWithString:codes[0] attributes:@{
+            NSForegroundColorAttributeName : color,
+        }]];
+        
+        [mut appendAttributedString:[[NSAttributedString alloc] initWithString:@"•" attributes:@{
+            NSForegroundColorAttributeName : UIColor.tertiaryLabelColor,
+            NSFontAttributeName: self.twoFactorEasyReadSeparatorFont,
+        }]];
+        
+        [mut appendAttributedString:[[NSAttributedString alloc] initWithString:codes[1] attributes:@{
+            NSForegroundColorAttributeName : color,
+        }]];
+        
+        [mut endEditing];
+        
+        self.totpLabel.attributedText = mut.copy;
+    }
+    else {
+        self.totpLabel.text = [NSString stringWithFormat:@"%@", self.otpToken.password];
+        self.totpLabel.textColor = (remainingSeconds < 5) ? UIColor.systemRedColor : (remainingSeconds < 9) ? UIColor.systemOrangeColor : UIColor.labelColor;
+    }
+    
     self.totpLabel.alpha = 1;
     
     if(remainingSeconds < 16) {
@@ -193,7 +239,7 @@
 
 - (void)killOtpTimer {
     if(self.timerRefreshOtp) {
-        NSLog(@"Kill Preview OTP Timer");
+        slog(@"Kill Preview OTP Timer");
         [self.timerRefreshOtp invalidate];
         self.timerRefreshOtp = nil;
     }
@@ -204,13 +250,17 @@
         return;
     }
     
-    NSLog(@"Starting Preview OTP Timer");
+    slog(@"Starting Preview OTP Timer");
 
     self.timerRefreshOtp =  [NSTimer scheduledTimerWithTimeInterval:1.0f repeats:YES block:^(NSTimer * _Nonnull timer) {
         [self updateTotpLabel];
     }];
     
     [[NSRunLoop mainRunLoop] addTimer:self.timerRefreshOtp forMode:NSRunLoopCommonModes];
+}
+
+- (NSString*)maybeDereference:(NSString*)text {
+    return self.model.metadata.viewDereferencedFields ? [self.model.database dereference:text node:self.item] : text;
 }
 
 @end

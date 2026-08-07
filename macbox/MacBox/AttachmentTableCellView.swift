@@ -30,8 +30,8 @@ class AttachmentTableCellView: NSTableCellView, DetailTableCellViewPopupButton, 
         self.popupMenuUpdater = popupMenuUpdater
         popupButton.menu?.delegate = self
 
-        guard let attachment = field.object as? DatabaseAttachment else {
-            NSLog("🔴 Couldn't get attachment from field")
+        guard let attachment = field.object as? KeePassAttachmentAbstractionLayer else {
+            swlog("🔴 Couldn't get attachment from field")
             return
         }
 
@@ -44,7 +44,7 @@ class AttachmentTableCellView: NSTableCellView, DetailTableCellViewPopupButton, 
     }
 
     func showPopupButtonMenu() {
-        NSLog("✅ showPopupButton")
+        swlog("✅ showPopupButton")
 
         popupButton.performClick(nil)
     }
@@ -52,7 +52,7 @@ class AttachmentTableCellView: NSTableCellView, DetailTableCellViewPopupButton, 
     func menuNeedsUpdate(_ menu: NSMenu) {
 
 
-        guard let field = field else {
+        guard let field else {
             return
         }
 

@@ -91,14 +91,14 @@ NSComparator reverseFinderStyleNodeComparator = ^(id obj1, id obj2)
     }
     else {
         if(![title length]) {
-            NSLog(@"Cannot create group with empty title. [%@-%@]", parent.title, title);
+            slog(@"Cannot create group with empty title. [%@-%@]", parent.title, title);
             return nil;
         }
     }
     
     for (Node* child in parent.children) {
         if (child.isGroup && !keePassGroupTitleRules && [child.title compare:title] == NSOrderedSame) {
-            NSLog(@"Cannot create group as parent already has a group with this title. [%@-%@]", parent.title, title);
+            slog(@"Cannot create group as parent already has a group with this title. [%@-%@]", parent.title, title);
             return nil;
         }
     }
@@ -270,7 +270,7 @@ keePassGroupTitleRules:(BOOL)allowDuplicateGroupTitle
     Node* newParent = parentNode ? parentNode : self.parent;
     NSUUID* newUuid = cloneUuid ? self.uuid : nil;
     
-    if (newParent == nil) {
+    if ( newParent == nil ) {
         
         newUuid = nil;
     }
@@ -284,7 +284,10 @@ keePassGroupTitleRules:(BOOL)allowDuplicateGroupTitle
     
     ret.icon = self.icon;
 
-    ret.linkedData = self.linkedData;
+    if ( cloneUuid ) { 
+        
+        ret.linkedData = self.linkedData;
+    }
     
     if ( ret.isGroup && cloneRecursive ) {
         for (Node* child in self.children) {
@@ -304,9 +307,12 @@ keePassGroupTitleRules:(BOOL)allowDuplicateGroupTitle
 
 
 
-- (BOOL)mergePropertiesInFromNode:(Node *)mergeNode mergeLocationChangedDate:(BOOL)mergeLocationChangedDate includeHistory:(BOOL)includeHistory keePassGroupTitleRules:(BOOL)keePassGroupTitleRules {
+- (BOOL)mergePropertiesInFromNode:(Node *)mergeNode 
+         mergeLocationChangedDate:(BOOL)mergeLocationChangedDate
+                   includeHistory:(BOOL)includeHistory
+           keePassGroupTitleRules:(BOOL)keePassGroupTitleRules {
     if (self.isGroup != mergeNode.isGroup) {
-        NSLog(@"WARNWARN: mergePropertiesInFromNode - group not group");
+        slog(@"WARNWARN: mergePropertiesInFromNode - group not group");
         return NO;
     }
 
@@ -316,7 +322,7 @@ keePassGroupTitleRules:(BOOL)allowDuplicateGroupTitle
     
     self.icon = mergeNode.icon;
     
-    self.linkedData = self.linkedData;
+    self.linkedData = self.linkedData; 
     
     [self.fields mergePropertiesInFromNode:mergeNode.fields mergeLocationChangedDate:mergeLocationChangedDate includeHistory:includeHistory];
     
@@ -451,7 +457,7 @@ keePassGroupTitleRules:(BOOL)allowDuplicateGroupTitle
     }
     else if (self.isGroup) {
         if(![title length]) {
-            NSLog(@"setTitle: Cannot have empty group title in non KeePass database.");
+            slog(@"setTitle: Cannot have empty group title in non KeePass database.");
             return NO;
         }
     }
@@ -459,7 +465,7 @@ keePassGroupTitleRules:(BOOL)allowDuplicateGroupTitle
     if(self.isGroup) {
         for (Node* child in self.parent.children) {
             if (child.isGroup && !keePassGroupTitleRules && [child.title compare:title] == NSOrderedSame) {
-                NSLog(@"Cannot create group as parent already has a group with this title. [%@-%@]", self.parent.title, title);
+                slog(@"Cannot create group as parent already has a group with this title. [%@-%@]", self.parent.title, title);
                 return NO;
             }
         }
@@ -472,7 +478,7 @@ keePassGroupTitleRules:(BOOL)allowDuplicateGroupTitle
 
 - (BOOL)validateAddChild:(Node *)node keePassGroupTitleRules:(BOOL)keePassGroupTitleRules {
     if ( !node ) {
-        NSLog(@"🔴 Cannot Add: Node is nil.");
+        slog(@"🔴 Cannot Add: Node is nil.");
         return NO;
     }
         
@@ -494,7 +500,7 @@ keePassGroupTitleRules:(BOOL)allowDuplicateGroupTitle
     if ( !keePassGroupTitleRules) {
         for (Node* child in self.children) {
             if (child.isGroup && [child.title compare:node.title] == NSOrderedSame) {
-                NSLog(@"🔴 Cannot add child group as we already have a group with this title. [%@-%@]", self.title, node.title);
+                slog(@"🔴 Cannot add child group as we already have a group with this title. [%@-%@]", self.title, node.title);
                 return NO;
             }
         }
@@ -513,7 +519,7 @@ keePassGroupTitleRules:(BOOL)allowDuplicateGroupTitle
     }
 
     if ( node.parent != self ) {
-        NSLog(@"🔴 Node parent field is not correctly set to this node. Patching parent, please fix whatever broken code led here...");
+        slog(@"🔴 Node parent field is not correctly set to this node. Patching parent, please fix whatever broken code led here...");
         [node internalPatchParent:self];
     }
     
@@ -568,10 +574,18 @@ keePassGroupTitleRules:(BOOL)allowDuplicateGroupTitle
 
 - (BOOL)validateChangeParent:(Node*)parent keePassGroupTitleRules:(BOOL)keePassGroupTitleRules {
     return
-        parent != self &&
+        parent != self && 
         self.parent != nil && 
-        self.parent != parent &&
-        ![parent isChildOf:self] && [parent validateAddChild:self keePassGroupTitleRules:keePassGroupTitleRules];
+    
+        
+        
+        
+        
+        
+
+        ![parent isChildOf:self] && 
+    
+        [parent validateAddChild:self keePassGroupTitleRules:keePassGroupTitleRules]; 
 }
 
 
@@ -583,7 +597,7 @@ keePassGroupTitleRules:(BOOL)allowDuplicateGroupTitle
     if(![self validateChangeParent:parent keePassGroupTitleRules:keePassGroupTitleRules]) {
         return NO;
     }
-    
+        
     [self.parent removeChild:self];
     
     Node* rollbackParent = self.parent;
@@ -697,6 +711,40 @@ keePassGroupTitleRules:(BOOL)allowDuplicateGroupTitle
     }
     
     return YES;
+}
+
+- (BOOL)isCreditCard {
+    static NSSet<NSString *> *creditCardFieldKeys;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        creditCardFieldKeys = [NSSet setWithArray:@[
+            @"CreditCardName",
+            @"CardholderName",
+            @"CardType",
+            @"CardNumber",
+            @"ExpiryDate",
+            @"ValidFrom",
+            @"CVV",
+            @"PIN",
+            @"CreditLimit",
+            @"CashWithdrawalLimit",
+            @"InterestRate",
+            @"IssueNumber"
+        ]];
+    });
+
+    NSUInteger matches = 0;
+
+    for (NSString *fieldName in creditCardFieldKeys) {
+        if ([self.fields.customFields objectForKey:fieldName] != nil) {
+            matches++;
+            if (matches >= 2) {
+                return YES;
+            }
+        }
+    }
+
+    return NO;
 }
 
 - (BOOL)preOrderTraverse:(BOOL (^)(Node*))function {
@@ -816,7 +864,7 @@ keePassGroupTitleRules:(BOOL)allowDuplicateGroupTitle
             if(child.fields.attachments.count == 1) {
                 NSString* filename = child.fields.attachments.allKeys.firstObject;
                 
-                DatabaseAttachment* a = child.fields.attachments[filename];
+                KeePassAttachmentAbstractionLayer* a = child.fields.attachments[filename];
 
                 attachmentString = [NSString stringWithFormat:@"(attachment: [%@] length: [%@] digestHash: %@)", filename, friendlyFileSizeString(a.length), a.digestHash];
             }
@@ -851,9 +899,7 @@ keePassGroupTitleRules:(BOOL)allowDuplicateGroupTitle
           addLegacyFields:(BOOL)addLegacyFields
             addOtpAuthUrl:(BOOL)addOtpAuthUrl {
     OTPToken* token = [NodeFields getOtpTokenFromString:string
-                                             forceSteam:forceSteam
-                                                 issuer:self.title
-                                               username:self.fields.username];
+                                             forceSteam:forceSteam];
     
     if(token) {
         [self.fields setTotp:token appendUrlToNotes:appendUrlToNotes addLegacyFields:addLegacyFields addOtpAuthUrl:addOtpAuthUrl];
@@ -896,7 +942,7 @@ keePassGroupTitleRules:(BOOL)allowDuplicateGroupTitle
         
         
         for (NSString* filename in self.fields.attachments.allKeys) {
-            DatabaseAttachment* dbA = self.fields.attachments[filename];
+            KeePassAttachmentAbstractionLayer* dbA = self.fields.attachments[filename];
             binariesSize += dbA == nil ? 0 : dbA.estimatedStorageBytes;
         }
         
@@ -916,8 +962,6 @@ keePassGroupTitleRules:(BOOL)allowDuplicateGroupTitle
 
     return ret;
 }
-
-
 
 - (NSString *)description {
     if(self.isGroup) {

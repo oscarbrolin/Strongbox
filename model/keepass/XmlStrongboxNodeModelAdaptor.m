@@ -9,7 +9,7 @@
 #import "XmlStrongboxNodeModelAdaptor.h"
 #import "Utils.h"
 #import "KeePassConstants.h"
-#import "DatabaseAttachment.h"
+#import "KeePassAttachmentAbstractionLayer.h"
 #import "NSArray+Extensions.h"
 #import "MinimalPoolHelper.h"
 #import "NSData+Extensions.h"
@@ -28,7 +28,7 @@
 
 - (KeePassGroup*)toKeePassModel:(Node*)rootNode
                         context:(XmlProcessingContext*)context
-          minimalAttachmentPool:(NSArray<DatabaseAttachment*>**)minimalAttachmentPool
+          minimalAttachmentPool:(NSArray<KeePassAttachmentAbstractionLayer*>**)minimalAttachmentPool
                        iconPool:(nonnull NSDictionary<NSUUID *,NodeIcon *> *)iconPool
                           error:(NSError *__autoreleasing  _Nullable * _Nullable)error {
     self.xmlParsingContext = context;
@@ -41,11 +41,11 @@
             *error = [Utils createNSError:@"Unexpected root group. More/Less than 1 child at root or non group at root" errorCode:-1];
         }
         
-        NSLog(@"Unexpected root group. More/Less than 1 child at root or non group at root");
+        slog(@"Unexpected root group. More/Less than 1 child at root or non group at root");
         return nil;
     }
 
-    NSArray<DatabaseAttachment*>* attachmentsPool = [MinimalPoolHelper getMinimalAttachmentPool:rootNode];
+    NSArray<KeePassAttachmentAbstractionLayer*>* attachmentsPool = [MinimalPoolHelper getMinimalAttachmentPool:rootNode];
     if (minimalAttachmentPool) {
         *minimalAttachmentPool = attachmentsPool;
     }
@@ -60,7 +60,7 @@
 }
 
 - (Node*)toStrongboxModel:(KeePassGroup*)existingXmlRoot
-          attachmentsPool:(NSArray<DatabaseAttachment *> *)attachmentsPool
+          attachmentsPool:(NSArray<KeePassAttachmentAbstractionLayer *> *)attachmentsPool
            customIconPool:(NSDictionary<NSUUID *, NodeIcon *> *)customIconPool
                     error:(NSError**)error {
     Node* rootNode = [[Node alloc] initAsRoot:nil];
@@ -70,7 +70,7 @@
             if(error) {
                 *error = [Utils createNSError:@"Problem building Strongbox Node model from KeePass Xml" errorCode:-1];
             }
-            NSLog(@"ERROR: building groups.");
+            slog(@"ERROR: building groups.");
             return nil;
         }
     }
@@ -83,18 +83,9 @@
     return rootNode;
 }
 
-- (KeePassGroup*)buildXmlGroup:(Node*)group attachmentsPool:(NSArray<DatabaseAttachment *> *)attachmentsPool iconPool:(NSDictionary<NSUUID*, NodeIcon*>*)iconPool {
+- (KeePassGroup*)buildXmlGroup:(Node*)group attachmentsPool:(NSArray<KeePassAttachmentAbstractionLayer *> *)attachmentsPool iconPool:(NSDictionary<NSUUID*, NodeIcon*>*)iconPool {
     KeePassGroup *ret = [[KeePassGroup alloc] initWithContext:self.xmlParsingContext];
     
-    if ( group.linkedData && [ group.linkedData isKindOfClass:NSArray.class ] ) { 
-        NSArray<id<XmlParsingDomainObject>> *unmanagedChildren = (NSArray<id<XmlParsingDomainObject>>*)group.linkedData;
-        if ( unmanagedChildren && unmanagedChildren.count ) {
-            for (id<XmlParsingDomainObject> unmanagedChild in unmanagedChildren) {
-                [ret addUnknownChildObject:unmanagedChild];
-            }
-        }
-    }
-
     
     
     ret.times.lastAccessTime = group.fields.accessed;
@@ -111,7 +102,7 @@
         if ( group.icon.isCustom ) {
             
             if ( group.icon.uuid == nil || !iconPool[group.icon.uuid] ) {
-                NSLog(@"WARNWARN - Custom Icon is not in pool or is custom but nil UUID - [%@]", group.icon.uuid);
+                slog(@"WARNWARN - Custom Icon is not in pool or is custom but nil UUID - [%@]", group.icon.uuid);
             }
             else {
                 ret.customIcon = group.icon.uuid;
@@ -149,26 +140,16 @@
     return ret;
 }
 
-- (Entry*)buildXmlEntry:(Node*)node stripHistory:(BOOL)stripHistory attachmentsPool:(NSArray<DatabaseAttachment *> *)attachmentsPool iconPool:(NSDictionary<NSUUID*, NodeIcon*>*)iconPool {
+- (Entry*)buildXmlEntry:(Node*)node stripHistory:(BOOL)stripHistory attachmentsPool:(NSArray<KeePassAttachmentAbstractionLayer *> *)attachmentsPool iconPool:(NSDictionary<NSUUID*, NodeIcon*>*)iconPool {
     Entry *ret = [[Entry alloc] initWithContext:self.xmlParsingContext];
-  
-    if ( node.linkedData && [node.linkedData isKindOfClass:NSArray.class] ) { 
-        NSArray<id<XmlParsingDomainObject>> *unmanagedChildren = (NSArray<id<XmlParsingDomainObject>>*)node.linkedData;
-    
-        if ( unmanagedChildren && unmanagedChildren.count ) {
-            for (id<XmlParsingDomainObject> unmanagedChild in unmanagedChildren) {
-                [ret addUnknownChildObject:unmanagedChild];
-            }
-        }
-    }
-    
+      
     ret.uuid = node.uuid;
 
     if ( node.icon ) {
         if ( node.icon.isCustom ) {
             
             if ( node.icon.uuid == nil || !iconPool[node.icon.uuid] ) {
-                NSLog(@"WARNWARN - Custom Icon is not in pool or is custom but nil UUID - [%@]", node.icon.uuid);
+                slog(@"WARNWARN - Custom Icon is not in pool or is custom but nil UUID - [%@]", node.icon.uuid);
             }
             else {
                 ret.customIcon = node.icon.uuid;
@@ -245,10 +226,10 @@
     [ret.binaries removeAllObjects];
     
     for (NSString* filename in node.fields.attachments) {
-        DatabaseAttachment* attachment = node.fields.attachments[filename];
+        KeePassAttachmentAbstractionLayer* attachment = node.fields.attachments[filename];
         NSInteger index = [self getIndexOfAttachmentInPool:attachmentsPool attachment:attachment];
         if (index == -1) {
-            NSLog(@"WARNWARN: Attachment not found in pool!");
+            slog(@"WARNWARN: Attachment not found in pool!");
             continue;
         }
         
@@ -277,12 +258,12 @@
 
 - (BOOL)buildGroup:(KeePassGroup*)group
         parentNode:(Node*)parentNode
-   attachmentsPool:(NSArray<DatabaseAttachment *> *)attachmentsPool
+   attachmentsPool:(NSArray<KeePassAttachmentAbstractionLayer *> *)attachmentsPool
     customIconPool:(NSDictionary<NSUUID *, NodeIcon *> *)customIconPool
            usedIds:(NSMutableSet<NSUUID*>*)usedIds {
     BOOL alreadyUsedId = [usedIds containsObject:group.uuid];
     if ( alreadyUsedId ) {
-        NSLog(@"WARNWARN: %@", group.uuid);
+        slog(@"WARNWARN: %@", group.uuid);
     }
     NSUUID* nodeId = ( alreadyUsedId || group.uuid == nil ) ? NSUUID.UUID : group.uuid; 
     [usedIds addObject:nodeId];
@@ -307,7 +288,7 @@
             groupNode.icon = ni;
         }
         else {
-            NSLog(@"WARNWARN: Custom Icon referenced by node not present in pool [%@]-[%@]", group.uuid, group.customIcon);
+            slog(@"WARNWARN: Custom Icon referenced by node not present in pool [%@]-[%@]", group.uuid, group.customIcon);
         }
     }
     else if ( group.icon != nil ) {
@@ -329,7 +310,7 @@
     for (id<KeePassGroupOrEntry> child in group.groupsAndEntries) {
         if (child.isGroup) {
             if(![self buildGroup:(KeePassGroup*)child parentNode:groupNode attachmentsPool:attachmentsPool customIconPool:customIconPool usedIds:usedIds]) {
-                NSLog(@"Error Builing Child Group: [%@]", child);
+                slog(@"Error Builing Child Group: [%@]", child);
                 return NO;
             }
         }
@@ -337,7 +318,7 @@
             Node * entryNode = [self nodeFromEntry:(Entry*)child groupNode:groupNode attachmentsPool:attachmentsPool customIconPool:customIconPool usedIds:usedIds historical:NO]; 
             
             if( entryNode == nil ) {
-                NSLog(@"Error building node from Entry: [%@]", child);
+                slog(@"Error building node from Entry: [%@]", child);
                 return NO;
             }
             
@@ -347,14 +328,12 @@
     
     [parentNode addChild:groupNode keePassGroupTitleRules:YES];
 
-    
-
     return YES;
 }
 
 - (Node*)nodeFromEntry:(Entry *)childEntry
              groupNode:(Node*)groupNode
-       attachmentsPool:(NSArray<DatabaseAttachment *> *)attachmentsPool
+       attachmentsPool:(NSArray<KeePassAttachmentAbstractionLayer *> *)attachmentsPool
         customIconPool:(NSDictionary<NSUUID*, NodeIcon*>*)customIconPool
                usedIds:(NSMutableSet<NSUUID*>*)usedIds
             historical:(BOOL)historical {
@@ -375,11 +354,11 @@
     for ( Binary* binary in childEntry.binaries ) {
         NSInteger index = binary.index;
         if ( index < 0 || index >= attachmentsPool.count || binary.filename == nil ) {
-            NSLog(@"WARNWARN: Node pointed to no existing attachment in attachments pool [%ld] not in %lu", (long)index, (unsigned long)attachmentsPool.count);
+            slog(@"WARNWARN: Node pointed to no existing attachment in attachments pool [%ld] not in %lu", (long)index, (unsigned long)attachmentsPool.count);
             continue;
         }
             
-        DatabaseAttachment *dbAttachment = attachmentsPool[index];
+        KeePassAttachmentAbstractionLayer *dbAttachment = attachmentsPool[index];
         fields.attachments[binary.filename] = dbAttachment;
     }
     
@@ -428,7 +407,7 @@
     
     BOOL alreadyUsedId = [usedIds containsObject:childEntry.uuid];
     if ( alreadyUsedId && !historical ) {
-        NSLog(@"WARNWARN: Duplicated ID: %@", childEntry.uuid);
+        slog(@"WARNWARN: Duplicated ID: %@", childEntry.uuid);
     }
     NSUUID* nodeId = ((alreadyUsedId && !historical) || childEntry.uuid == nil) ? NSUUID.UUID : childEntry.uuid; 
     [usedIds addObject:nodeId];
@@ -445,7 +424,7 @@
             entryNode.icon = ni;
         }
         else {
-            NSLog(@"WARNWARN: Custom Icon referenced by node not present in pool [%@]-[%@]", childEntry.uuid, childEntry.customIcon);
+            slog(@"WARNWARN: Custom Icon referenced by node not present in pool [%@]-[%@]", childEntry.uuid, childEntry.customIcon);
         }
     }
     else if ( childEntry.icon != nil ) {
@@ -458,16 +437,14 @@
             [fields.keePassHistory addObject:historicalEntryNode];
         }
     }
-
-    
     
     return entryNode;
 }
 
-- (NSInteger)getIndexOfAttachmentInPool:(NSArray<DatabaseAttachment*>*)attachments attachment:(DatabaseAttachment*)attachment {
+- (NSInteger)getIndexOfAttachmentInPool:(NSArray<KeePassAttachmentAbstractionLayer*>*)attachments attachment:(KeePassAttachmentAbstractionLayer*)attachment {
     int i = 0;
     
-    for (DatabaseAttachment* a in attachments) {
+    for (KeePassAttachmentAbstractionLayer* a in attachments) {
         if ([a.digestHash isEqualToString:attachment.digestHash]) {
             return i;
         }

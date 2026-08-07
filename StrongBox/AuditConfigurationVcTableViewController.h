@@ -13,10 +13,9 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface AuditConfigurationVcTableViewController : StaticDataTableViewController
 
-@property Model* model;
-@property BOOL hideShowAllAuditIssues;
++ (instancetype)fromStoryboard;
 
-@property (nonatomic, copy) void (^onDone)(BOOL showAllAuditIssues, UIViewController* viewControllerToDismiss);
+@property Model* model;
 @property (nonatomic, copy) void (^updateDatabase)(void);
 
 @end

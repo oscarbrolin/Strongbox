@@ -28,28 +28,18 @@
 @property (weak, nonatomic) IBOutlet UIProgressView *progressStrength;
 @property (weak, nonatomic) IBOutlet UILabel *labelStrength;
 
+@property UIButton *checkbox;
+
 @end
 
 @implementation WelcomeMasterPasswordViewController
 
 - (BOOL)shouldAutorotate {
-    if ( UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad )
-    {
-        return YES; /* Device is iPad */
-    }
-    else {
-        return NO;
-    }
+    return UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad;
 }
 
 - (UIInterfaceOrientationMask)supportedInterfaceOrientations {
-    if ( UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad )
-    {
-        return UIInterfaceOrientationMaskAll; /* Device is iPad */
-    }
-    else {
-        return UIInterfaceOrientationMaskPortrait;
-    }
+    return UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad ? UIInterfaceOrientationMaskAll : UIInterfaceOrientationMaskPortrait;
 }
 
 - (void)viewWillAppear:(BOOL)animated {
@@ -62,26 +52,37 @@
     self.navigationController.toolbar.hidden = YES;
     
     [self.navigationItem setPrompt:nil];
+    
+    
+    [self toggleShowHidePasswordText:self.checkbox];
 }
 
 - (void)viewDidAppear:(BOOL)animated {
     [super viewDidAppear:animated];
     
     [self.textFieldPw becomeFirstResponder];
+    
+    
+    
+
 }
 
 - (void)viewDidLoad {
     [super viewDidLoad];
     
     self.buttonCreate.layer.cornerRadius = 5.0f;
-    
+
+    [self addShowHideToTextField:self.textFieldPw tag:100 show:NO];
+
     PasswordGenerationConfig* config = [PasswordGenerationConfig defaults];
     config.algorithm = kPasswordGenerationAlgorithmDiceware; 
-    
-    [self addShowHideToTextField:self.textFieldPw tag:100 show:NO];
-    
-    self.textFieldPw.text = @""; 
-    
+    config.wordCount = 5;
+
+#ifdef DEBUG
+    self.textFieldPw.text = @"a";
+#else
+    self.textFieldPw.text = [PasswordMaker.sharedInstance generateForConfigOrDefault:config];
+#endif
     [self.textFieldPw addTarget:self
                          action:@selector(textFieldPasswordDidChange:)
                forControlEvents:UIControlEventEditingChanged];
@@ -117,7 +118,7 @@
         }
         else if ( error ) {
             if ( error.code == StrongboxErrorCodes.couldNotCreateICloudFile ) {
-                NSLog(@"WARNWARN: Could not create an iCloud File, switching to Local only because we are in App Onboarding.");
+                slog(@"WARNWARN: Could not create an iCloud File, switching to Local only because we are in App Onboarding.");
                 [self create:YES];
             }
             else {
@@ -131,8 +132,14 @@
         }
         else {
             self.database = metadata;
-            [self.database addWithDuplicateCheck:initialSnapshot initialCacheModDate:NSDate.date];
-            [self performSegueWithIdentifier:@"segueToDone" sender:nil];
+            
+            NSError* addError;
+            if ( ![self.database addWithDuplicateCheck:initialSnapshot initialCacheModDate:NSDate.date error:&addError] ) {
+                [Alerts error:self error:addError];
+            }
+            else {
+                [self performSegueWithIdentifier:@"segueToDone" sender:nil];
+            }
         }
     }];
 }
@@ -167,8 +174,9 @@
 }
 
 - (void)addShowHideToTextField:(UITextField*)textField tag:(NSInteger)tag show:(BOOL)show {
+    self.checkbox = [UIButton buttonWithType:UIButtonTypeCustom];
+    UIButton* checkbox = self.checkbox;
     
-    UIButton *checkbox = [UIButton buttonWithType:UIButtonTypeCustom];
     [checkbox setFrame:CGRectMake(2 , 2, 24, 24)];  
     [checkbox setTag:tag]; 
     
@@ -183,16 +191,8 @@
     UIImage *concealed;
     UIImage *revealed;
     
-    if (@available(iOS 13.0, *)) {
-        concealed = [UIImage systemImageNamed:@"eye"];
-        revealed = [UIImage systemImageNamed:@"eye.slash"];
-    }
-    else {
-        concealed = [UIImage imageNamed:@"visible"];
-        revealed = [UIImage imageNamed:@"invisible"];
-
-        [checkbox setAdjustsImageWhenHighlighted:TRUE];
-    }
+    concealed = [UIImage systemImageNamed:@"eye"];
+    revealed = [UIImage systemImageNamed:@"eye.slash"];
     
     [checkbox setImage:concealed forState:UIControlStateNormal];
     [checkbox setImage:revealed forState:UIControlStateSelected];
@@ -223,9 +223,9 @@
 
 - (void)toggleShowHidePasswordText:(UIButton*)sender {
     if(sender.selected){
-        [sender setSelected:FALSE];
+        [sender setSelected:NO];
     } else {
-        [sender setSelected:TRUE];
+        [sender setSelected:YES];
     }
     
     self.textFieldPw.secureTextEntry = !sender.selected;

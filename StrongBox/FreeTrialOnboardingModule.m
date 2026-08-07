@@ -10,6 +10,7 @@
 #import "FreeTrialOnboardingViewController.h"
 #import "AppPreferences.h"
 #import "ProUpgradeIAPManager.h"
+#import "Strongbox-Swift.h"
 
 @implementation FreeTrialOnboardingModule
 
@@ -44,23 +45,28 @@
                                                             toDate:AppPreferences.sharedInstance.lastFreeTrialNudge
                                                            options:kNilOptions];
     
-    NSLog(@"Nudge Due: [%@] - Nudge Count: [%lu]", dueDate, (unsigned long)AppPreferences.sharedInstance.freeTrialNudgeCount);
+    slog(@"Nudge Due: [%@] - Nudge Count: [%lu]", dueDate, (unsigned long)AppPreferences.sharedInstance.freeTrialNudgeCount);
     
     BOOL nudgeDue = dueDate.timeIntervalSinceNow < 0; 
 
     return nudgeDue;
 }
 
-- (nonnull UIViewController *)instantiateViewController:(nonnull OnboardingModuleDoneBlock)onDone {
-    UIStoryboard* storyboard = [UIStoryboard storyboardWithName:@"FreemiumOnboarding" bundle:nil];
-    FreeTrialOnboardingViewController* vc = [storyboard instantiateInitialViewController];
-    
+- (UIViewController *)instantiateViewController:(nonnull OnboardingModuleDoneBlock)onDone {
+    #ifdef SUBSCRIPTIONS
+    SuperwallOnboardingViewController* vc = [SuperwallOnboardingViewController makeOnDone:^{
+        
+        onDone(NO, NO);
+    }];
+
     AppPreferences.sharedInstance.freeTrialNudgeCount++;
     AppPreferences.sharedInstance.lastFreeTrialNudge = NSDate.date;
-    
-    vc.onDone = onDone;
-    
+
     return vc;
+    #else
+    UIViewController* vc = [UIViewController init];
+    return vc;
+    #endif
 }
 
 @end

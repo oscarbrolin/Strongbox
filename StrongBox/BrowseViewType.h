@@ -13,6 +13,16 @@ typedef NS_ENUM (NSUInteger, BrowseViewType) {
     kBrowseViewTypeHierarchy,
     kBrowseViewTypeList,
     kBrowseViewTypeTotpList,
+    kBrowseViewTypeFavourites,
+    kBrowseViewTypeTags,
+    kBrowseViewTypeHome,
+    
+    kBrowseViewTypePasskeys,
+    kBrowseViewTypeSshKeys,
+    kBrowseViewTypeAttachments,
+    kBrowseViewTypeExpiredAndExpiring,
+    kBrowseViewTypeAuditIssues,
+    kBrowseViewTypeWatchEntries,
 };
 
 #endif /* BrowseViewType_h */

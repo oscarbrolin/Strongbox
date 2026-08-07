@@ -11,9 +11,15 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+@protocol SimplePinModalDelegate;
+
 @interface OnboardingWelcomeViewController : NSViewController
 
-@property (nonatomic, copy) void (^onNext)(void);
+@property (nonatomic, copy) void (^onNext)(BOOL userCancelled, BOOL enableTouchID, BOOL enableAutoFill, NSString* _Nullable pin);
+
+@property BOOL showTouchID;
+@property BOOL showAutoFill;
+@property BOOL enableAutoFill;
 
 @end
 

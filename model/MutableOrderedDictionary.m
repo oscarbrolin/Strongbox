@@ -9,6 +9,7 @@
 #import "MutableOrderedDictionary.h"
 #import "NSDictionary+Extensions.h"
 #import "NSArray+Extensions.h"
+#import "SBLog.h"
 
 @interface MutableOrderedDictionary ()
 
@@ -51,6 +52,22 @@
     self[key] = nil;
 }
 
+- (id)removeObjectAtIndex:(NSUInteger)atIndex {
+    if ( atIndex >= 0 && atIndex < self.orderedKeys.count ) {
+        id key = self.orderedKeys[atIndex];
+        id value = self.kvps[key];
+        
+        [self.orderedKeys removeObjectAtIndex:atIndex];
+        [self.kvps removeObjectForKey:key];
+        
+        return value;
+    }
+    else {
+        slog(@"⚠️ WARN attempt to remove object at non existent index");
+        return nil;
+    }
+}
+
 - (void)removeObjectForKey:(id)key {
     self[key] = nil;
 }
@@ -91,7 +108,7 @@
 
 - (void)insertKey:(id)key withValue:(id)value atIndex:(NSUInteger)atIndex {
     if ( self.kvps[key] ) {
-        NSLog(@"🔴 insertKey - Key already exists");
+        slog(@"🔴 insertKey - Key already exists");
         return;
     }
 

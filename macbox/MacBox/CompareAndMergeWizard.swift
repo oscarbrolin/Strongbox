@@ -14,81 +14,80 @@ class CompareAndMergeWizard: NSViewController {
         let storyboard = NSStoryboard(name: "CompareAndMergeWizard", bundle: nil)
         return storyboard.instantiateInitialController() as! Self
     }
-    
+
     @objc var firstModel: ViewModel!
-    @objc var onSelectedSecondDatabase: ((_ secondDatabase: DatabaseModel, _ secondModelMetadata : MacDatabasePreferences?, _ secondModelFileUrl : URL? ) -> Void)?
-    
-    @IBAction func onCancel(_ sender: Any) {
+    @objc var onSelectedSecondDatabase: ((_ secondDatabase: DatabaseModel, _ secondModelMetadata: MacDatabasePreferences?, _ secondModelFileUrl: URL?) -> Void)?
+
+    @IBAction func onCancel(_: Any) {
         dismiss(nil)
     }
 
-    @IBAction func onSelectFile(_ sender: Any) {
+    @IBAction func onSelectFile(_: Any) {
         let openPanel = NSOpenPanel()
-    
+
         if openPanel.runModal() == .OK {
-            NSLog("%@", String(describing: openPanel.url))
+            swlog("%@", String(describing: openPanel.url))
 
             guard let url = openPanel.url else {
                 return
             }
- 
+
             onSelectedFileUrl(url: url)
         }
     }
-    
+
     func onSelectedFileUrl(url: URL) {
         let ckfs = firstModel.compositeKeyFactors!
-        
+
         tryUnlockFileUrlWithCkfs(url: url, ckfs: ckfs) { [weak self] model, error in
-            if let error = error {
+            if let error {
                 MacAlerts.error(error, window: self?.view.window)
-            }
-            else if let model = model {
+            } else if let model {
                 self?.onSelectedDatabaseModel(secondModel: model, secondModelMetadata: nil, secondModelFileUrl: url)
             }
         }
     }
-    
+
     func tryUnlockFileUrlWithCkfs(url: URL,
                                   ckfs: CompositeKeyFactors,
                                   completion: @escaping (_ model: DatabaseModel?, _ error: Error?) -> Void)
     {
-        Serializator.fromUrl(url, ckf: ckfs) { userCancelled, model, innerStreamError, error in
-            if error != nil || innerStreamError != nil {
+        Serializator.fromUrl(url, ckf: ckfs) { userCancelled, model, _, error in
+            if error != nil {
                 completion(nil, error)
-            }
-            else if !userCancelled, let model = model {
+            } else if !userCancelled, let model {
                 completion(model, nil)
             }
         }
     }
 
-    @IBAction func onSelectDatabase(_ sender: Any) {
+    @IBAction func onSelectDatabase(_: Any) {
         let vc = SelectDatabaseViewController.fromStoryboard()
         vc.disabledDatabases = Set([firstModel.databaseUuid])
-        
+
         vc.onDone = { [weak self] userCancelled, database in
-            if !userCancelled, let database = database {
-                self?.onSelectedSecond (database)
+            if !userCancelled, let database {
+                self?.onSelectedSecond(database)
             }
         }
-        
+
         presentAsSheet(vc)
     }
 
-    func onSelectedSecond ( _ database : MacDatabasePreferences ) {
-        if  let ckfs = firstModel.compositeKeyFactors,
-            let express = DatabaseUnlocker.expressTryUnlock(withKey: database, key: ckfs) {
-            self.onSelectedDatabaseModel(secondModel: express.database, secondModelMetadata: database, secondModelFileUrl: nil)
+    func onSelectedSecond(_ database: MacDatabasePreferences) {
+        if let ckfs = firstModel.compositeKeyFactors,
+           let express = DatabaseUnlocker.expressTryUnlock(withKey: database, key: ckfs)
+        {
+            onSelectedDatabaseModel(secondModel: express.database, secondModelMetadata: database, secondModelFileUrl: nil)
             return
         }
-        
-        let keyDeterminer = MacCompositeKeyDeterminer(viewController: self, database: database, isAutoFillOpen: false)
+
+        let keyDeterminer = MacCompositeKeyDeterminer(viewController: self, database: database, isNativeAutoFillAppExtensionOpen: false)
         keyDeterminer.getCkfs { [weak self] result, ckfs, fromConvenience, error in
             switch result {
             case .success:
-                if let ckfs = ckfs {
-                    self?.onSuccessfulSecondDatabaseGotKeys( database, ckfs, fromConvenience )
+                if let ckfs {
+                    self?.onSuccessfulSecondDatabaseGotKeys(database, ckfs, fromConvenience)
                 }
             case .error:
                 MacAlerts.error(error, window: self?.view.window)
@@ -100,13 +99,13 @@ class CompareAndMergeWizard: NSViewController {
             }
         }
     }
-    
-    func onSuccessfulSecondDatabaseGotKeys ( _ database : MacDatabasePreferences, _ ckfs : CompositeKeyFactors, _ fromConvenience : Bool ) {
-        let unlocker = DatabaseUnlocker(forDatabase: database, viewController: self, forceReadOnly: true, isAutoFillOpen: false, offlineMode: true)
-        unlocker.unlockLocal(withKey: ckfs, keyFromConvenience: fromConvenience) { [weak self] unlockResult, model, innerError, error in
+
+    func onSuccessfulSecondDatabaseGotKeys(_ database: MacDatabasePreferences, _ ckfs: CompositeKeyFactors, _ fromConvenience: Bool) {
+        let unlocker = DatabaseUnlocker(forDatabase: database, viewController: self, forceReadOnly: true, isNativeAutoFillAppExtensionOpen: false, offlineMode: true)
+        unlocker.unlockLocal(withKey: ckfs, keyFromConvenience: fromConvenience) { [weak self] unlockResult, model, error in
             switch unlockResult {
             case .success:
-                if let model = model {
+                if let model {
                     self?.onSelectedDatabaseModel(secondModel: model.database, secondModelMetadata: database, secondModelFileUrl: nil)
                 }
             case .error:
@@ -121,15 +120,14 @@ class CompareAndMergeWizard: NSViewController {
             @unknown default:
                 break
             }
-            
         }
     }
-    
-    func onSelectedDatabaseModel(secondModel: DatabaseModel, secondModelMetadata : MacDatabasePreferences?, secondModelFileUrl : URL?) {
-        NSLog("✅ Second Database Loaded")
-        
+
+    func onSelectedDatabaseModel(secondModel: DatabaseModel, secondModelMetadata: MacDatabasePreferences?, secondModelFileUrl: URL?) {
+        swlog("✅ Second Database Loaded")
+
         dismiss(nil)
-        
-        onSelectedSecondDatabase?(secondModel, secondModelMetadata, secondModelFileUrl )
+
+        onSelectedSecondDatabase?(secondModel, secondModelMetadata, secondModelFileUrl)
     }
 }

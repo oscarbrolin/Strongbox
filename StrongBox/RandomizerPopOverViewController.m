@@ -12,7 +12,7 @@
 #import "ColoredStringHelper.h"
 #import "FontManager.h"
 #import "ClipboardManager.h"
-#import "ISMessages/ISMessages.h"
+#import "Strongbox-Swift.h"
 
 @interface RandomizerPopOverViewController ()
 
@@ -30,15 +30,9 @@
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    
-    if (@available(iOS 13.0, *)) { 
-        [self.barButtonConfig setImage:[UIImage systemImageNamed:@"gear"] forState:UIControlStateNormal];
-        [self.barButtonRefresh setImage:[UIImage systemImageNamed:@"arrow.clockwise"] forState:UIControlStateNormal];
-    }
-    
-    if (@available(iOS 14.0, *)) { 
-        [self.barButtonRefresh setImage:[UIImage systemImageNamed:@"arrow.triangle.2.circlepath"] forState:UIControlStateNormal];
-    }
+
+    [self.barButtonConfig setImage:[UIImage systemImageNamed:@"gear"] forState:UIControlStateNormal];
+    [self.barButtonRefresh setImage:[UIImage systemImageNamed:@"arrow.triangle.2.circlepath"] forState:UIControlStateNormal];
 
     [self makeButtonLabelAdjustForLength:self.button1];
     [self makeButtonLabelAdjustForLength:self.button2];
@@ -104,10 +98,7 @@
 }
 
 - (NSAttributedString*)getAttributedString:(NSString*)str {
-    BOOL dark = NO;
-    if (@available(iOS 12.0, *)) {
-        dark = self.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark;
-    }
+    BOOL dark = self.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark;
     BOOL colorBlind = AppPreferences.sharedInstance.colorizeUseColorBlindPalette;
 
     return [ColoredStringHelper getColorizedAttributedString:str
@@ -118,25 +109,20 @@
     
 }
 
-- (IBAction)onButton1:(id)sender {
+- (IBAction)onCopyText:(id)sender {
     UIButton* button = sender;
     NSString* text= button.titleLabel.text;
-    
-    NSLog(@"%@", text);
     
     [ClipboardManager.sharedInstance copyStringWithNoExpiration:text];
     
     UINotificationFeedbackGenerator* gen = [[UINotificationFeedbackGenerator alloc] init];
     [gen notificationOccurred:UINotificationFeedbackTypeSuccess];
 
-    [ISMessages showCardAlertWithTitle:NSLocalizedString(@"generic_copied", @"Copied")
-                               message:nil
-                              duration:3.f
-                           hideOnSwipe:YES
-                             hideOnTap:YES
-                             alertType:ISAlertTypeSuccess
-                         alertPosition:ISAlertPositionTop
-                               didHide:nil];
+    [StrongboxToastMessages showToastWithTitle:NSLocalizedString(@"generic_copied", @"Copied")
+                                          body:@""
+                                      duration:1.5
+                                      category:ToastMessageCategoryInfo
+                                          icon:ToastIconInfo];
 }
 
 

@@ -11,13 +11,11 @@ import Cocoa
 class AdvancedDatabasePreferences: NSViewController {
     @IBOutlet var checkboxConcealEmptyProtected: NSButton!
     @IBOutlet var checkboxTitleIsEditable: NSButton!
-    @IBOutlet var checkboxOtherFieldsAreEditable: NSButton!
-    @IBOutlet var checkboxShowRecycleBinInBrowse: NSButton!
     @IBOutlet var checkboxShowRecycleBinInSearch: NSButton!
-    @IBOutlet var checkboxKeePassSortItems: NSButton!
     @IBOutlet var checkboxShowAutoCompleteSuggestions: NSButton!
     @IBOutlet var checkboxSortCustomFields: NSButton!
     @IBOutlet var checkboxAlwaysAutoMerge: NSButton!
+    @IBOutlet var checkboxMarkDirtyOnExpandCollapseGroups: NSButton!
 
     @objc
     var model: ViewModel!
@@ -26,29 +24,21 @@ class AdvancedDatabasePreferences: NSViewController {
         super.viewDidLoad()
 
         if model.format == .passwordSafe {
-            checkboxShowRecycleBinInBrowse.isHidden = true
-            checkboxKeePassSortItems.isHidden = true
             checkboxShowRecycleBinInSearch.isHidden = true
             checkboxSortCustomFields.isHidden = true
-        }
-
-        if Settings.sharedInstance().nextGenUI {
-            checkboxOtherFieldsAreEditable.isHidden = true
         }
 
         bindUI()
     }
 
     func bindUI() {
-        checkboxKeePassSortItems.state = model.sortKeePassNodes ? .on : .off
-        checkboxShowRecycleBinInBrowse.state = !model.showRecycleBinInBrowse ? .off : .on
         checkboxShowRecycleBinInSearch.state = model.showRecycleBinInSearchResults ? .on : .off
         checkboxShowAutoCompleteSuggestions.state = !model.showAutoCompleteSuggestions ? .off : .on
         checkboxTitleIsEditable.state = !model.outlineViewTitleIsReadonly ? .on : .off
-        checkboxOtherFieldsAreEditable.state = model.outlineViewEditableFieldsAreReadonly ? .off : .on
         checkboxConcealEmptyProtected.state = model.concealEmptyProtectedFields ? .on : .off
         checkboxSortCustomFields.state = !model.customSortOrderForFields ? .on : .off
-        checkboxAlwaysAutoMerge.state = model.conflictResolutionStrategy == .autoMerge ?  .on : .off
+        checkboxAlwaysAutoMerge.state = model.conflictResolutionStrategy == .autoMerge ? .on : .off
+        checkboxMarkDirtyOnExpandCollapseGroups.state = model.databaseMetadata.markDirtyOnExpandCollapseGroups ? .on : .off
     }
 
     @IBAction func onClose(_: Any) {
@@ -57,17 +47,18 @@ class AdvancedDatabasePreferences: NSViewController {
 
     @IBAction func onChanged(_: Any) {
         model.concealEmptyProtectedFields = checkboxConcealEmptyProtected.state == .on
-        model.sortKeePassNodes = checkboxKeePassSortItems.state == .on
-        model.showRecycleBinInBrowse = checkboxShowRecycleBinInBrowse.state == .on
         model.showRecycleBinInSearchResults = checkboxShowRecycleBinInSearch.state == .on
         model.showAutoCompleteSuggestions = checkboxShowAutoCompleteSuggestions.state == .on
         model.outlineViewTitleIsReadonly = checkboxTitleIsEditable.state == .off
-        model.outlineViewEditableFieldsAreReadonly = checkboxOtherFieldsAreEditable.state == .off
         model.customSortOrderForFields = checkboxSortCustomFields.state == .off
         model.conflictResolutionStrategy = checkboxAlwaysAutoMerge.state == .on ? .autoMerge : .ask
 
+        model.databaseMetadata.markDirtyOnExpandCollapseGroups = checkboxMarkDirtyOnExpandCollapseGroups.state == .on
+
         bindUI()
 
-        NotificationCenter.default.post(name: .preferencesChanged, object: nil)
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: .settingsChanged, object: nil)
+        }
     }
 }

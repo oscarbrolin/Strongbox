@@ -9,29 +9,51 @@
 #import "ClipboardManager.h"
 #import <Cocoa/Cocoa.h>
 #import "Settings.h"
+#import "AppDelegate.h"
 
 @implementation ClipboardManager
 
 + (instancetype)sharedInstance {
     static ClipboardManager *sharedInstance = nil;
     static dispatch_once_t onceToken;
-
+    
     dispatch_once(&onceToken, ^{
         sharedInstance = [[ClipboardManager alloc] init];
     });
     return sharedInstance;
 }
 
-- (void)copyConcealedString:(NSString *)string {
+- (void)copyNoneConcealedString:(NSString *)string {
     [NSPasteboard.generalPasteboard clearContents]; 
     
-    if (@available(macOS 10.12, *)) {
-        if (!Settings.sharedInstance.clipboardHandoff) {
-            [NSPasteboard.generalPasteboard prepareForNewContentsWithOptions:NSPasteboardContentsCurrentHostOnly];
-        }
+    [NSPasteboard.generalPasteboard setString:(string ? string : @"") forType:NSPasteboardTypeString];
+}
+
+- (void)copyConcealedString:(NSString *)string {
+
+    
+    [NSPasteboard.generalPasteboard clearContents]; 
+    
+    if (!Settings.sharedInstance.clipboardHandoff) {
+        [NSPasteboard.generalPasteboard prepareForNewContentsWithOptions:NSPasteboardContentsCurrentHostOnly];
+    }
+    
+    if ( Settings.sharedInstance.concealClipboardFromMonitors ) {
+        [NSPasteboard.generalPasteboard setString:@"" forType:@"org.nspasteboard.ConcealedType"];
     }
     
     [NSPasteboard.generalPasteboard setString:(string ? string : @"") forType:NSPasteboardTypeString];
+
+    [self scheduleClipboardClearingTask];
+}
+
+- (void)scheduleClipboardClearingTask {
+    if ( Settings.sharedInstance.clearClipboardEnabled ) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            AppDelegate* delegate = NSApplication.sharedApplication.delegate;
+            [delegate onStrongboxDidChangeClipboard];
+        });
+    }
 }
 
 @end

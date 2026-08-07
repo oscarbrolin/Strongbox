@@ -50,7 +50,12 @@ static NSString* const kColumnLog = @"log";
 }
 
 - (void)cancel:(id)sender { 
-    [self.view.window orderOut:self];
+    if ( self.view.window.sheetParent ) {
+        [self.view.window.sheetParent endSheet:self.view.window returnCode:NSModalResponseCancel];
+    }
+    else {
+        [self.view.window orderOut:self];
+    }
 }
 
 - (IBAction)onClose:(id)sender {
@@ -158,7 +163,7 @@ static NSString* const kColumnLog = @"log";
             return result;
         }
         else {
-            NSString* log = entry.error ? entry.error.description : (entry.message ? entry.message : @"");
+            NSString* log = entry.error ? entry.error.localizedDescription : (entry.message ? entry.message : @"");
         
             NSTableCellView *result = [tableView makeViewWithIdentifier:@"SyncLogLogCellId" owner:self];
 

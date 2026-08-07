@@ -47,7 +47,6 @@
     [self unobserveClipboardChangeNotifications];
 #endif
     
-    
     [pasteboard setItems:@[@{ ((NSString*)kUTTypeUTF8PlainText) : value }]
                  options: @{ UIPasteboardOptionLocalOnly : @(!AppPreferences.sharedInstance.clipboardHandoff) }];
     
@@ -60,14 +59,13 @@
 - (void)copyStringWithDefaultExpiration:(NSString *)value {
     UIPasteboard *pasteboard = [UIPasteboard generalPasteboard];
     
-
-    if(AppPreferences.sharedInstance.clearClipboardEnabled && AppPreferences.sharedInstance.clearClipboardAfterSeconds > 0) {
+    if( AppPreferences.sharedInstance.clearClipboardEnabled && AppPreferences.sharedInstance.clearClipboardAfterSeconds > 0) {
         
         
         
         NSDate* expirationTime = [NSDate.date dateByAddingTimeInterval:AppPreferences.sharedInstance.clearClipboardAfterSeconds];
         
-        NSLog(@"Expiration: %@", expirationTime);
+        
         
         [pasteboard setItems:@[@{ ((NSString*)kUTTypeUTF8PlainText) : value }]
                      options: @{ UIPasteboardOptionLocalOnly : @(!AppPreferences.sharedInstance.clipboardHandoff) ,
@@ -82,7 +80,7 @@
 #ifndef IS_APP_EXTENSION
 
 - (void)onClipboardChangedNotification:(NSNotification*)note {
-    NSLog(@"onClipboardChangedNotification: [%@]", note);
+    slog(@"onClipboardChangedNotification: [%@]", note);
     
     if(![UIPasteboard.generalPasteboard hasStrings] &&
        ![UIPasteboard.generalPasteboard hasImages] &&
@@ -93,7 +91,7 @@
         
     UIApplication* app = [UIApplication sharedApplication];
     if(self.clearClipboardTask) {
-        NSLog(@"Clearing existing clear clipboard tasks");
+        slog(@"Clearing existing clear clipboard tasks");
         dispatch_block_cancel(self.clearClipboardTask);
         self.clearClipboardTask = nil;
         if(self.clearClipboardAppBackgroundTask != UIBackgroundTaskInvalid) {
@@ -107,7 +105,7 @@
         self.clearClipboardAppBackgroundTask = UIBackgroundTaskInvalid;
     }];
     
-    NSLog(@"Creating New Clear Clipboard Background Task... with timeout = [%ld]", (long)AppPreferences.sharedInstance.clearClipboardAfterSeconds);
+    slog(@"Creating New Clear Clipboard Background Task... with timeout = [%ld]", (long)AppPreferences.sharedInstance.clearClipboardAfterSeconds);
 
     NSInteger clipboardChangeCount = UIPasteboard.generalPasteboard.changeCount;
     self.clearClipboardTask = dispatch_block_create(0, ^{
@@ -126,7 +124,7 @@
     }
     
     if(clipboardChangeCount == UIPasteboard.generalPasteboard.changeCount) {
-        NSLog(@"Clearing Clipboard...");
+        slog(@"Clearing Clipboard...");
         
         [self unobserveClipboardChangeNotifications];
         
@@ -137,7 +135,7 @@
         [self observeClipboardChangeNotifications];
     }
     else {
-        NSLog(@"Not clearing clipboard as change count does not match.");
+        slog(@"Not clearing clipboard as change count does not match.");
     }
     
     UIApplication* app = [UIApplication sharedApplication];

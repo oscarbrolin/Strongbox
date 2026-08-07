@@ -16,9 +16,24 @@
 @implementation MacCustomizationManager
 
 + (void)applyCustomizations {
-    if ( [self isAProBundle] ) {
-        NSLog(@"Pro Bundle... customizing...");
+    if ( [self isAProBundle] || [self isSetapp] ) {
+        slog(@"Pro Bundle... customizing...");
         [Settings.sharedInstance setPro:YES];
+    } else {
+        slog(@"Not Pro Bundle");
+    }
+
+    if ( StrongboxProductBundle.isZeroEdition ) {
+        slog(@"Graphene Edition... customizing...");
+        
+        Settings.sharedInstance.disableWiFiSyncClientMode = YES;
+        Settings.sharedInstance.disableNetworkBasedFeatures = YES;
+        Settings.sharedInstance.databasesAreAlwaysReadOnly = NO;
+    }
+    else {
+        Settings.sharedInstance.disableWiFiSyncClientMode = NO;
+        Settings.sharedInstance.databasesAreAlwaysReadOnly = NO;
+        Settings.sharedInstance.disableNetworkBasedFeatures = NO;
     }
 }
 
@@ -34,8 +49,16 @@
     return StrongboxProductBundle.isAProBundle;
 }
 
++ (BOOL)isSetapp {
+    return StrongboxProductBundle.isSetapp;
+}
+
 + (BOOL)isUnifiedFreemiumBundle {
     return StrongboxProductBundle.isUnifiedFreemiumBundle;
+}
+
++ (BOOL)supportsTipJar {
+    return StrongboxProductBundle.supportsTipJar;
 }
 
 @end

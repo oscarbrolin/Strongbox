@@ -81,7 +81,7 @@ static UpgradeWindowController *sharedInstance = nil;
 }
 
 - (void)startNoThanksCountdown {
-    NSLog(@"Starting No Thanks Countdown with %ld delay", (long)self.cancelDelay);
+    slog(@"Starting No Thanks Countdown with %ld delay", (long)self.cancelDelay);
     
     [self.buttonNoThanks setEnabled:NO];
     
@@ -139,7 +139,7 @@ static UpgradeWindowController *sharedInstance = nil;
                          completion:^(int response) {
         dispatch_async(dispatch_get_main_queue(), ^{
             if ( response == 0 ) {
-                [NSWorkspace.sharedWorkspace openURL:[NSURL URLWithString:@"itms-apps:
+                [NSWorkspace.sharedWorkspace openURL:[NSURL URLWithString:@"itms-apps://apps.apple.com/app/strongbox-pro/id897283731"]];
                 [self onNoThanks:nil];
             }
             else if ( response == 1 ) {
@@ -155,13 +155,13 @@ static UpgradeWindowController *sharedInstance = nil;
     self.buttonNoThanks.enabled = NO;
     [self showProgressIndicator];
 
-    [[SKPaymentQueue defaultQueue] restoreCompletedTransactions];
+    [[SKPaymentQueue defaultQueue] restoreCompletedTransactions];    
 }
 
 #pragma mark StoreKit Delegate
 
 - (void)paymentQueue:(SKPaymentQueue *)queue restoreCompletedTransactionsFailedWithError:(NSError *)error {
-    NSLog(@"restoreCompletedTransactionsFailedWithError: %@", error);
+    slog(@"restoreCompletedTransactionsFailedWithError: %@", error);
     
     dispatch_async(dispatch_get_main_queue(), ^{
         [MacAlerts error:@"Error in restoreCompletedTransactionsFailedWithError" error:error window:self.window completion:^{
@@ -171,7 +171,7 @@ static UpgradeWindowController *sharedInstance = nil;
  }
 
 - (void)paymentQueueRestoreCompletedTransactionsFinished:(SKPaymentQueue *)queue {
-    NSLog(@"paymentQueueRestoreCompletedTransactionsFinished: %@", queue);
+    slog(@"paymentQueueRestoreCompletedTransactionsFinished: %@", queue);
     
     if(queue.transactions.count == 0) {
         dispatch_async(dispatch_get_main_queue(), ^{
@@ -211,7 +211,7 @@ updatedTransactions:(NSArray *)transactions {
     for (SKPaymentTransaction *transaction in transactions) {
         switch (transaction.transactionState) {
             case SKPaymentTransactionStatePurchasing:
-                NSLog(@"Purchasing");
+                slog(@"Purchasing");
                 break;
             case SKPaymentTransactionStatePurchased:
             {
@@ -231,7 +231,7 @@ updatedTransactions:(NSArray *)transactions {
                 break;
             case SKPaymentTransactionStateRestored:
             {
-                NSLog(@"updatedTransactions: Restored");
+                slog(@"updatedTransactions: Restored");
                 [[SKPaymentQueue defaultQueue] finishTransaction:transaction];
                 
                 if(self.isPurchasing) {
@@ -241,7 +241,7 @@ updatedTransactions:(NSArray *)transactions {
                 break;
             case SKPaymentTransactionStateFailed:
             {
-                NSLog(@"Purchase failed %@", transaction.error);
+                slog(@"Purchase failed %@", transaction.error);
                 
                 [[SKPaymentQueue defaultQueue] finishTransaction:transaction];
                 
@@ -258,7 +258,7 @@ updatedTransactions:(NSArray *)transactions {
              }
                 break;
             default:
-                NSLog(@"Purchase State %ld", (long)transaction.transactionState);
+                slog(@"Purchase State %ld", (long)transaction.transactionState);
                 break;
         }
     }

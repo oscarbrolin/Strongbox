@@ -28,7 +28,7 @@ const NSInteger kPwSafeDefaultVersionMinor = 0x0D;
 + (void)open:(NSData *)data ckf:(CompositeKeyFactors *)ckf completion:(OpenCompletionBlock)completion {
     NSError* error;
     if (![PwSafeDatabase isValidDatabase:data error:&error]) {
-        NSLog(@"Not a valid safe!");
+        slog(@"Not a valid safe!");
         error = [Utils createNSError:@"This is not a valid Password Safe 3 File (Invalid Format)." errorCode:-1];
         completion(NO, nil,  nil, error);
         return;
@@ -49,7 +49,7 @@ const NSInteger kPwSafeDefaultVersionMinor = 0x0D;
     
     Node* rootGroup = [PwSafeDatabase buildModel:records headers:headerFields];
     if(!rootGroup) {
-        NSLog(@"Could not build model from records and headers?!");
+        slog(@"Could not build model from records and headers?!");
         error = [Utils createNSError:@"Could not parse this Password Safe File." errorCode:-1];
         completion(NO, nil, nil, error);
         return;
@@ -96,7 +96,10 @@ const NSInteger kPwSafeDefaultVersionMinor = 0x0D;
     [self open:mutableData ckf:ckf completion:completion];
 }
 
-+ (void)save:(DatabaseModel *)database outputStream:(NSOutputStream *)outputStream completion:(SaveCompletionBlock)completion {
++ (void)save:(DatabaseModel *)database
+outputStream:(NSOutputStream *)outputStream
+      params:(id _Nullable)params
+  completion:(SaveCompletionBlock)completion {
     if(!database.ckfs.password) {
         NSError* error = [Utils createNSError:@"Master Password not set." errorCode:-3];
         completion(NO, nil, error);
@@ -166,10 +169,6 @@ const NSInteger kPwSafeDefaultVersionMinor = 0x0D;
     }
 }
 
-+ (NSData *_Nullable)getYubiKeyChallenge:(nonnull NSData *)candidate error:(NSError * _Nullable __autoreleasing * _Nullable)error {
-    return nil;
-}
-
 
 
 
@@ -235,7 +234,7 @@ const NSInteger kPwSafeDefaultVersionMinor = 0x0D;
     NSUUID* uniqueId = record.uuid ? record.uuid : [NSUUID UUID];
     BOOL alreadyUsedId = [usedIds containsObject:uniqueId];
     if ( alreadyUsedId ) {
-        NSLog(@"WARNWARN: Duplicated ID: %@", uniqueId);
+        slog(@"WARNWARN: Duplicated ID: %@", uniqueId);
         uniqueId = NSUUID.UUID;
     }
     [usedIds addObject:uniqueId];
@@ -269,7 +268,7 @@ const NSInteger kPwSafeDefaultVersionMinor = 0x0D;
         if(!foo) {
             foo = [[Node alloc] initAsGroup:component parent:node keePassGroupTitleRules:NO uuid:nil];
             if(![node addChild:foo keePassGroupTitleRules:NO]) {
-                NSLog(@"Problem adding child group [%@] to node [%@]", component, node.title);
+                slog(@"Problem adding child group [%@] to node [%@]", component, node.title);
                 return nil;
             }
         }
@@ -288,7 +287,7 @@ const NSInteger kPwSafeDefaultVersionMinor = 0x0D;
     
     NSData *pBar;
     if (![PwSafeSerialization checkPassword:&header password:password pBar:&pBar]) {
-        NSLog(@"Invalid password!");
+        slog(@"Invalid password!");
         
         if (ppError != nil) {
             *ppError = [Utils createNSError:@"The password is incorrect." errorCode:StrongboxErrorCodes.incorrectCredentials];
@@ -319,7 +318,7 @@ const NSInteger kPwSafeDefaultVersionMinor = 0x0D;
     NSData *actHmac = [[NSData alloc] initWithBytes:actualHmac length:CC_SHA256_DIGEST_LENGTH];
     
     if (![actHmac isEqualToData:computedHmac]) {
-        NSLog(@"HMAC is no good! Corrupted Safe!");
+        slog(@"HMAC is no good! Corrupted Safe!");
         
         if (ppError != nil) {
             *ppError = [Utils createNSError:@"The data is corrupted (HMAC incorrect)." errorCode:-3];

@@ -10,9 +10,9 @@ import Cocoa
 
 class NextGenWindow: NSWindow {
     override func doCommand(by selector: Selector) {
-//        NSLog("NextGenWindow::doCommand: [%@]", NSStringFromSelector(selector))
+        
 
-        if selector == NSSelectorFromString("noop:") { // Weird selector for events that arent handled by the search field
+        if selector == NSSelectorFromString("noop:") { 
             if checkEventForCmdNumberDown() {
                 return
             }
@@ -22,7 +22,7 @@ class NextGenWindow: NSWindow {
     }
 
     override func keyDown(with event: NSEvent) {
-
+        
 
         if checkEventForCmdNumberDown() {
             return
@@ -32,32 +32,47 @@ class NextGenWindow: NSWindow {
     }
 
     func checkEventForCmdNumberDown() -> Bool {
-        if let event = currentEvent, event.modifierFlags.contains(.command), let key = event.charactersIgnoringModifiers?.first?.asciiValue {
-            if key > 48, key < 58 {
-                let number = key - 48
+        if let event = currentEvent,
+           event.type == .keyDown,
+           event.modifierFlags.contains(.command),
+           let key = event.charactersIgnoringModifiers?.first?.asciiValue,
+           key > 48, key < 58
+        {
+            let number = key - 48
 
+            
 
-
-                onCmdPlusNumberPressed(number: Int(number))
-                return true
-            }
+            onCmdPlusNumberPressed(number: Int(number))
+            return true
         }
 
         return false
     }
 
     func onCmdPlusNumberPressed(number: Int) {
+        
 
-
-        if #available(macOS 10.13, *) {
-            if let group = tabGroup,
-               let tabbedWindows = tabbedWindows,
-               number <= tabbedWindows.count
-            {
-
-
-                group.selectedWindow = tabbedWindows[number - 1]
-            }
+        
+        
+        if copySelectedEntryCustomField(displayIndex: number - 1) {
+            return
         }
+
+        if let group = tabGroup,
+           let tabbedWindows,
+           number <= tabbedWindows.count
+        {
+            
+
+            group.selectedWindow = tabbedWindows[number - 1]
+        }
+    }
+
+    func copySelectedEntryCustomField(displayIndex: Int) -> Bool {
+        guard let split = windowController?.contentViewController as? NextGenSplitViewController else {
+            return false
+        }
+
+        return split.detailView.copyCustomField(displayIndex: displayIndex)
     }
 }

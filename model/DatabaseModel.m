@@ -12,13 +12,32 @@
 #import "NSString+Extensions.h"
 #import "FastMaps.h"
 #import "CrossPlatform.h"
+#import "Node+KeeAgentSSH.h"
+#import "Constants.h"
+#import "Node+Passkey.h"
 
-#if TARGET_OS_IPHONE
+#if TARGET_OS_IOS
 #import "KissXML.h" 
+#endif
+
+#ifndef IS_APP_EXTENSION
+#import "Strongbox-Swift.h"
+#else
+#import "Strongbox_Auto_Fill-Swift.h"
 #endif
 
 static NSString* const kKeePass1BackupGroupName = @"Backup";
 static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
+static NSString* const kPrintingStylesheet = @"<head><style type=\"text/css\"> \
+    body { width: 800px; } \
+    .database-title { font-size: 36pt; text-align: center; } \
+    .group-title { font-size: 20pt; margin-top:20px; margin-bottom: 5px; text-align: center; font-weight: bold; } \
+    .entry-table {  border-collapse: collapse; margin-bottom: 10px; width: 800px; border: 1px solid black; } \
+    .entry-title { font-weight: bold; font-size: 16pt; padding: 5px; } \
+    table td, table th { border: 1px solid black; } \
+    .entry-field-label { width: 100px; padding: 2px; } \
+    .entry-field-value { font-family: Menlo; padding: 2px; max-width: 700px; word-wrap: break-word; } \
+    </style></head>";
 
 @interface DatabaseModel ()
 
@@ -71,7 +90,7 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
 - (instancetype)initWithFormat:(DatabaseFormat)format
            compositeKeyFactors:(CompositeKeyFactors *)compositeKeyFactors
                       metadata:(UnifiedDatabaseMetadata*)metadata
-            {
+{
     return [self initWithFormat:format
             compositeKeyFactors:compositeKeyFactors
                        metadata:metadata
@@ -89,7 +108,7 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
                  deletedObjects:@{}
                        iconPool:@{}];
 }
-    
+
 - (instancetype)initWithFormat:(DatabaseFormat)format
            compositeKeyFactors:(CompositeKeyFactors *)compositeKeyFactors
                       metadata:(UnifiedDatabaseMetadata*)metadata
@@ -103,7 +122,7 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
         
         _rootNode = root ? root : [self initializeRoot];
         [self rebuildFastMaps];
- 
+        
         _mutableDeletedObjects = deletedObjects.mutableCopy;
         _backingIconPool = iconPool.mutableCopy;
     }
@@ -112,13 +131,13 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
 
 
 
-- (Node*)initializeRoot {
+- (Node*)   initializeRoot {
     Node* rootGroup = [[Node alloc] initAsRoot:nil childRecordsAllowed:self.format != kKeePass1];
-
+    
     if (self.format != kPasswordSafe) {
         
         
-
+        
         NSString *rootGroupName = NSLocalizedString(@"generic_database", @"Database");
         if ([rootGroupName isEqualToString:@"generic_database"]) { 
             rootGroupName = kDefaultRootGroupName;
@@ -139,41 +158,46 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
 
 
 
-- (NSArray<DatabaseAttachment *> *)attachmentPool {
+- (NSArray<KeePassAttachmentAbstractionLayer *> *)attachmentPool {
     return [MinimalPoolHelper getMinimalAttachmentPool:self.rootNode];
 }
 
 - (NSDictionary<NSUUID *,NodeIcon *> *)iconPool {
-    NSArray<Node*>* allNodes = [self getAllNodesReferencingCustomIcons:self.rootNode];
-
-    
-
-
-            
     const BOOL stripUnusedIcons = self.preferences.stripUnusedIconsOnSave;
+    const BOOL stripUnusedHistoricalIcons = self.preferences.stripUnusedIconsOnSave;
+    
+    NSArray<Node*>* allNodes = [self getAllNodesReferencingCustomIcons:self.rootNode includeHistorical:!stripUnusedHistoricalIcons];
+    
+    
+    
+    
     
     NSMutableDictionary<NSUUID*, NodeIcon*>* newIconPool = stripUnusedIcons ? @{}.mutableCopy : self.backingIconPool.mutableCopy;
     
     for (Node* node in allNodes) {
         NodeIcon* icon = node.icon;
-
+        
         if ( newIconPool[icon.uuid] == nil ) {
-
+            
             newIconPool[icon.uuid] = icon;
         }
     }
-
-    NSLog(@"New Icon Pool count = %lu", (unsigned long)newIconPool.count);
+    
+    
     
     self.backingIconPool = newIconPool.copy;
     
     return self.backingIconPool.copy;
 }
 
-- (NSArray<Node*>*)getAllNodesReferencingCustomIcons:(Node *)root {
+- (NSArray<Node*>*)getAllNodesReferencingCustomIcons:(Node *)root includeHistorical:(BOOL)includeHistorical {
     NSArray<Node*>* currentCustomIconNodes = [root filterChildren:YES predicate:^BOOL(Node * _Nonnull node) {
         return node.icon != nil && node.icon.isCustom;
     }];
+    
+    if ( !includeHistorical ) {
+        return currentCustomIconNodes;
+    }
     
     NSArray<Node*>* allNodesWithHistoryAndCustomIcons = [root filterChildren:YES predicate:^BOOL(Node * _Nonnull node) {
         return !node.isGroup && [node.fields.keePassHistory anyMatch:^BOOL(Node * _Nonnull obj) {
@@ -189,7 +213,7 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
     
     NSMutableArray *customIconNodes = [NSMutableArray arrayWithArray:currentCustomIconNodes];
     [customIconNodes addObjectsFromArray:allHistoricalNodesWithCustomIcons];
-
+    
     return customIconNodes;
 }
 
@@ -233,7 +257,7 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
 
 - (NSURL *)launchableUrlForItem:(Node *)item {
     NSString *urlString = [self dereference:item.fields.url node:item];
-
+    
     return [self launchableUrlForUrlString:urlString];
 }
 
@@ -250,7 +274,7 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
     NSURLComponents* components = [NSURLComponents componentsWithURL:url resolvingAgainstBaseURL:NO];
     
     if ( !components.scheme.length ) { 
-        urlString = [NSString stringWithFormat:@"https:
+        urlString = [NSString stringWithFormat:@"https://%@", urlString];
         url = urlString.urlExtendedParse;
     }
     
@@ -259,6 +283,11 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
 
 
 
+
+- (void)addHistoricalNode:(Node *)item {
+    Node* cloneForHistory = [item cloneForHistory];
+    [self addHistoricalNode:item originalNodeForHistory:cloneForHistory];
+}
 
 - (void)addHistoricalNode:(Node*)item originalNodeForHistory:(Node*)originalNodeForHistory {
     BOOL shouldAddHistory = YES; 
@@ -274,13 +303,13 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
 
 - (BOOL)setItemTitle:(Node *)item title:(NSString *)title {
     Node* originalNodeForHistory = [item cloneForHistory];
-
+    
     BOOL ret = [item setTitle:title keePassGroupTitleRules:self.isUsingKeePassGroupTitleRules];
-
+    
     if (ret) {
         [self addHistoricalNode:item originalNodeForHistory:originalNodeForHistory];
         [item touch:YES touchParents:NO];
-
+        
         [self rebuildFastMaps];
     }
     
@@ -288,31 +317,74 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
 }
 
 - (BOOL)addTag:(NSUUID*)itemId tag:(NSString*)tag {
-    Node* node = [self getItemById:itemId];
-    
-    if ( node ) {
-        if ( ![node.fields.tags containsObject:tag] ) {
-            [node.fields.tags addObject:tag];
-            [self rebuildFastMaps];
-            return YES;
-        }
-    }
-    
-    return NO;
+    return [self addTagToItems:@[itemId] tag:tag];
 }
 
 - (BOOL)removeTag:(NSUUID*)itemId tag:(NSString*)tag {
-    Node* node = [self getItemById:itemId];
+    return [self removeTagFromItems:@[itemId] tag:tag];
+}
+
+- (void)deleteTag:(NSString*)tag {
+    NSArray<NSUUID*>* ids = [self getItemIdsForTag:tag];
     
-    if ( node ) {
-        if ( [node.fields.tags containsObject:tag] ) {
-            [node.fields.tags removeObject:tag];
-            [self rebuildFastMaps];
-            return YES;
+    [self removeTagFromItems:ids tag:tag];
+}
+
+- (void)renameTag:(NSString*)from to:(NSString*)to {
+    NSArray<NSUUID*>* ids = [self getItemIdsForTag:from];
+    
+    [self removeTagFromItems:ids tag:from touchAndAddHistory:NO];
+    
+    [self addTagToItems:ids tag:to];
+}
+
+- (BOOL)addTagToItems:(NSArray<NSUUID *> *)ids tag:(NSString *)tag {
+    BOOL modifiedSomething = NO;
+    
+    NSArray<Node*>* items = [self getItemsById:ids];
+    
+    for (Node* item in items) {
+        if ( [item.fields.tags containsObject:tag] ) {
+            continue;
         }
+        
+        [self addHistoricalNode:item];
+        [item touch:YES touchParents:NO];
+        modifiedSomething = YES;
+        
+        [item.fields.tags addObject:tag];
     }
     
-    return NO;
+    [self rebuildFastMaps];
+    
+    return modifiedSomething;
+}
+
+- (BOOL)removeTagFromItems:(NSArray<NSUUID *> *)ids tag:(NSString *)tag {
+    return [self removeTagFromItems:ids tag:tag touchAndAddHistory:YES];
+}
+
+- (BOOL)removeTagFromItems:(NSArray<NSUUID *> *)ids tag:(NSString *)tag touchAndAddHistory:(BOOL)touchAndAddHistory {
+    BOOL modifiedSomething = NO;
+    NSArray<Node*>* items = [self getItemsById:ids];
+    
+    for (Node* item in items) {
+        if ( ![item.fields.tags containsObject:tag] ) {
+            continue;
+        }
+        
+        if ( touchAndAddHistory ) {
+            [self addHistoricalNode:item];
+            [item touch:YES touchParents:NO];
+            modifiedSomething = YES;
+        }
+        
+        [item.fields.tags removeObject:tag];
+    }
+    
+    [self rebuildFastMaps];
+    
+    return modifiedSomething;
 }
 
 
@@ -352,7 +424,7 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
     if (undoData) {
         *undoData = [self getHierarchyCloneForReconstruction:items];
     }
-
+    
     
     
     
@@ -364,7 +436,7 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
         
         if(![itemToMove changeParent:destination keePassGroupTitleRules:self.isUsingKeePassGroupTitleRules]) {
             rollback = YES;
-            NSLog(@"Error Changing Parents. [%@]", itemToMove);
+            slog(@"Error Changing Parents. [%@]", itemToMove);
             break;
         }
     }
@@ -380,7 +452,7 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
             [itemToMove touchLocationChanged:date]; 
         }
     }
-        
+    
     [self rebuildFastMaps]; 
     
     return !rollback;
@@ -393,13 +465,13 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
     
     for (NodeHierarchyReconstructionData* reconItem in undoData) {
         Node* originalMovedItem = [self getItemById:reconItem.clonedNode.uuid];
-    
+        
         if (originalMovedItem && originalMovedItem.parent ) {
             [originalMovedItem.parent removeChild:originalMovedItem];
         }
         else {
             
-            NSLog(@"WARNWARN: Could not find original moved item! [%@]", reconItem);
+            slog(@"WARNWARN: Could not find original moved item! [%@]", reconItem);
         }
     }
     
@@ -450,21 +522,21 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
     if ( ![self validateAddChildren:items destination:destination] ) {
         return NO;
     }
-
+    
     if ( items == nil || destination == nil ) {
         return NO;
     }
     
     for ( Node* item in items ) {
         if ( ![destination insertChild:item keePassGroupTitleRules:self.isUsingKeePassGroupTitleRules atPosition:position] ) {
-            NSLog(@"🔴 Error inserting child item!");
+            slog(@"🔴 Error inserting child item!");
         }
     }
     
     if ( !suppressFastMapsRebuild ) {
         [self rebuildFastMaps];
     }
-
+    
     return YES;
 }
 
@@ -472,14 +544,14 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
     if ( itemIds == nil ) {
         return;
     }
-
+    
     NSArray<Node*>* items = [self getItemsById:itemIds];
     for ( Node* item in items ) {
         if ( item && item.parent ) {
             [item.parent removeChild:item];
         }
         else {
-            NSLog(@"🔴 WARN: Not removing Node from Parent (at least one is nil) [node=%@, parent=%@]", item, item.parent);
+            slog(@"🔴 WARN: Not removing Node from Parent (at least one is nil) [node=%@, parent=%@]", item, item.parent);
         }
     }
     
@@ -490,18 +562,18 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
 
 - (NSInteger)reorderItem:(NSUUID*)nodeId idx:(NSInteger)idx {
     Node* node = [self getItemById:nodeId];
-
+    
     if ( node ) {
         return [self reorderItem:node to:idx];
     }
     
-    NSLog(@"🔴 reorderItem - failed could not find item");
+    slog(@"🔴 reorderItem - failed could not find item");
     
     return -1;
 }
 
 - (NSInteger)reorderChildFrom:(NSUInteger)from to:(NSInteger)to parentGroup:(Node *)parentGroup {
-
+    
     
     if (from < 0 || from >= parentGroup.children.count) {
         return -1;
@@ -510,34 +582,34 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
         return from;
     }
     
-
-
+    
+    
     Node* item = parentGroup.children[from];
     
     return [self reorderItem:item to:to];
 }
 
 - (NSInteger)reorderItem:(Node *)item to:(NSInteger)to {
-
-
+    
+    
     if (item.parent == nil) {
-        NSLog(@"WARNWARN: Cannot change order of item, parent is nil");
+        slog(@"WARNWARN: Cannot change order of item, parent is nil");
         return -1;
     }
-
+    
     NSInteger currentIndex = [item.parent.children indexOfObject:item];
     if (currentIndex == NSNotFound) {
-        NSLog(@"WARNWARN: Cannot change order of item, item not found in parent!");
+        slog(@"WARNWARN: Cannot change order of item, item not found in parent!");
         return -1;
     }
-
+    
     if (to >= item.parent.children.count || to < -1) {
         to = -1;
     }
     
     
     BOOL ret = [item.parent reorderChild:item to:to keePassGroupTitleRules:self.isUsingKeePassGroupTitleRules];
-
+    
     if (ret) {
         [item touchLocationChanged];
     }
@@ -570,7 +642,7 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
         NSUInteger currentIndex = parent.children.count - 1;
         if (currentIndex != recon.index) {
             if (! [parent reorderChildAt:currentIndex to:recon.index keePassGroupTitleRules:self.isUsingKeePassGroupTitleRules] ) {
-                NSLog(@"WARNWARN: Could not reorder child from %lu to %lu during reconstruction.", (unsigned long)currentIndex, (unsigned long)recon.index);
+                slog(@"WARNWARN: Could not reorder child from %lu to %lu during reconstruction.", (unsigned long)currentIndex, (unsigned long)recon.index);
             }
         }
     }
@@ -602,10 +674,10 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
             self.mutableDeletedObjects[entry.uuid] = deletionDate;
         }
         else {
-            NSLog(@"🔴 WARN: Not removing Node from Parent (at least one is nil) [node=%@, parent=%@]", entry, entry.parent);
+            slog(@"🔴 WARN: Not removing Node from Parent (at least one is nil) [node=%@, parent=%@]", entry, entry.parent);
         }
     }
-
+    
     for (Node* subgroup in group.childGroups) {
         if ([self deleteAllGroupItems:subgroup deletionDate:deletionDate] ) {
             deletedSomething = YES;
@@ -633,22 +705,22 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
     
     for (Node* item in minimalNodeSet) {
         if (item.parent == nil || ![item.parent contains:item]) { 
-            NSLog(@"WARNWARN: Attempt to delete item with no parent");
+            slog(@"WARNWARN: Attempt to delete item with no parent");
             return;
         }
-
+        
         if ( item.isGroup ) {
             if ( [self deleteAllGroupItems:item deletionDate:now] ) {
                 deletedSomething = YES;
             }
         }
-
+        
         if ( item && item.parent ) {
             [item.parent removeChild:item];
             deletedSomething = YES;
         }
         else {
-            NSLog(@"🔴 WARN: Not removing Node from Parent (at least one is nil) [node=%@, parent=%@]", item, item.parent);
+            slog(@"🔴 WARN: Not removing Node from Parent (at least one is nil) [node=%@, parent=%@]", item, item.parent);
         }
         
         self.mutableDeletedObjects[item.uuid] = now;
@@ -665,7 +737,7 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
 
 - (BOOL)recycleItems:(const NSArray<Node *> *)items undoData:(NSArray<NodeHierarchyReconstructionData*>**)undoData {
     if (!self.recycleBinEnabled) {
-        NSLog(@"🔴 WARNWARN: Attempt to recycle item when recycle bin disabled!");
+        slog(@"🔴 WARNWARN: Attempt to recycle item when recycle bin disabled!");
         return NO;
     }
     
@@ -675,7 +747,7 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
     
     NSDate* now = NSDate.date;
     NSSet<Node*> *minimalNodeSet = [self getMinimalNodeSet:items];
-
+    
     BOOL ret = [self moveItems:minimalNodeSet.allObjects destination:self.recycleBinNode date:now undoData:undoData];
     
     if (ret) {
@@ -683,7 +755,7 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
             [item touchAt:now]; 
         }
     }
-
+    
     return ret;
 }
 
@@ -722,7 +794,7 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
     recycleBin.fields.enableAutoType = @(NO);
     
     [self addChildren:@[recycleBin] destination:self.effectiveRootGroup];
-
+    
     self.recycleBinNodeUuid = recycleBin.uuid;
     self.recycleBinChanged = [NSDate date];
     
@@ -760,7 +832,7 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
         if (!includeGroups && node.isGroup) {
             return NO;
         }
-
+        
         if (!includeEntries && !node.isGroup) {
             return NO;
         }
@@ -787,95 +859,243 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
     }];
 }
 
-- (BOOL)isTitleMatches:(NSString*)searchText node:(Node*)node dereference:(BOOL)dereference checkPinYin:(BOOL)checkPinYin {
+- (StringSearchMatchType)isTitleMatches:(NSString*)searchText
+                                   node:(Node*)node
+                            dereference:(BOOL)dereference
+                            checkPinYin:(BOOL)checkPinYin {
     NSString* foo = [self maybeDeref:node.title node:node maybe:dereference];
-    return [foo containsSearchString:searchText checkPinYin:checkPinYin];
+    return [foo isSearchMatch:searchText checkPinYin:checkPinYin];
 }
 
-- (BOOL)isUsernameMatches:(NSString*)searchText node:(Node*)node dereference:(BOOL)dereference  checkPinYin:(BOOL)checkPinYin {
+- (StringSearchMatchType)isUsernameMatches:(NSString*)searchText node:(Node*)node dereference:(BOOL)dereference  checkPinYin:(BOOL)checkPinYin {
     NSString* foo = [self maybeDeref:node.fields.username node:node maybe:dereference];
-    return [foo containsSearchString:searchText checkPinYin:checkPinYin];
+    return [foo isSearchMatch:searchText checkPinYin:checkPinYin];
 }
 
-- (BOOL)isPasswordMatches:(NSString*)searchText node:(Node*)node dereference:(BOOL)dereference checkPinYin:(BOOL)checkPinYin {
+- (StringSearchMatchType)isPasswordMatches:(NSString*)searchText node:(Node*)node dereference:(BOOL)dereference checkPinYin:(BOOL)checkPinYin {
     NSString* foo = [self maybeDeref:node.fields.password node:node maybe:dereference];
-    return [foo containsSearchString:searchText checkPinYin:checkPinYin];
+    return [foo isSearchMatch:searchText checkPinYin:checkPinYin];
 }
 
-- (BOOL)isEmailMatches:(NSString*)searchText node:(Node*)node dereference:(BOOL)dereference checkPinYin:(BOOL)checkPinYin {
+- (StringSearchMatchType)isEmailMatches:(NSString*)searchText node:(Node*)node dereference:(BOOL)dereference checkPinYin:(BOOL)checkPinYin {
     NSString* email = node.fields.email;
-
+    
     NSString* foo = [self maybeDeref:email node:node maybe:dereference];
-    return [foo containsSearchString:searchText checkPinYin:checkPinYin];
+    return [foo isSearchMatch:searchText checkPinYin:checkPinYin];
 }
 
-- (BOOL)isNotesMatches:(NSString*)searchText node:(Node*)node dereference:(BOOL)dereference checkPinYin:(BOOL)checkPinYin {
+- (StringSearchMatchType)isNotesMatches:(NSString*)searchText node:(Node*)node dereference:(BOOL)dereference checkPinYin:(BOOL)checkPinYin {
     NSString* foo = [self maybeDeref:node.fields.notes node:node maybe:dereference];
-    return [foo containsSearchString:searchText checkPinYin:checkPinYin];
+    return [foo isSearchMatch:searchText checkPinYin:checkPinYin];
 }
 
-- (BOOL)isTagsMatches:(NSString*)searchText node:(Node*)node checkPinYin:(BOOL)checkPinYin {
-    return [node.fields.tags.allObjects anyMatch:^BOOL(NSString * _Nonnull obj) {
-        return [obj containsSearchString:searchText checkPinYin:checkPinYin];
-    }];
-}
-
-- (BOOL)isUrlMatches:(NSString*)searchText node:(Node*)node dereference:(BOOL)dereference checkPinYin:(BOOL)checkPinYin {
-    NSString* foo = [self maybeDeref:node.fields.url node:node maybe:dereference];
-    if ( [foo containsSearchString:searchText checkPinYin:checkPinYin] ) {
-        return YES;
-    }
-
-    for (NSString* altUrl in node.fields.alternativeUrls) {
-        NSString* foo = [self maybeDeref:altUrl node:node maybe:dereference];
-        if([foo containsSearchString:searchText checkPinYin:checkPinYin]) {
-            return YES;
+- (StringSearchMatchType)isTagsMatches:(NSString*)searchText node:(Node*)node checkPinYin:(BOOL)checkPinYin {
+    for ( NSString* tag in node.fields.tags ) {
+        StringSearchMatchType matchType = [tag isSearchMatch:searchText checkPinYin:checkPinYin];
+        if ( matchType != kStringSearchMatchTypeNoMatch ) {
+            return matchType;
         }
+    }
+    
+    return kStringSearchMatchTypeNoMatch;
+}
+
+- (StringSearchMatchType)isPathMatches:(NSString*)searchText node:(Node*)node checkPinYin:(BOOL)checkPinYin {
+    Node* current = node;
+    while (current != nil && current != self.effectiveRootGroup) {
+        StringSearchMatchType matchType = [current.title isSearchMatch:searchText checkPinYin:checkPinYin];
+        
+        if ( matchType != kStringSearchMatchTypeNoMatch  ) {
+            return matchType;
+        }
+        
+        current = current.parent;
     }
     
     return NO;
 }
 
-- (BOOL)isAllFieldsMatches:(NSString*)searchText node:(Node*)node dereference:(BOOL)dereference checkPinYin:(BOOL)checkPinYin {
-    BOOL simple =   [self isTitleMatches:searchText node:node dereference:dereference checkPinYin:checkPinYin] ||
-                    [self isUsernameMatches:searchText node:node dereference:dereference checkPinYin:checkPinYin] ||
-                    [self isPasswordMatches:searchText node:node dereference:dereference checkPinYin:checkPinYin] ||
-                    [self isEmailMatches:searchText node:node dereference:dereference checkPinYin:checkPinYin] ||
-                    [self isUrlMatches:searchText node:node dereference:dereference checkPinYin:checkPinYin] ||
-                    [self isNotesMatches:searchText node:node dereference:dereference checkPinYin:checkPinYin] ||
-                    [self isTagsMatches:searchText node:node checkPinYin:checkPinYin];
-        
-    if(simple) {
-        return YES;
+- (StringSearchMatchType)isUrlMatches:(NSString*)searchText
+                                 node:(Node*)node
+                          dereference:(BOOL)dereference
+                          checkPinYin:(BOOL)checkPinYin
+             includeAssociatedDomains:(BOOL)includeAssociatedDomains {
+    NSString* foo = [self maybeDeref:node.fields.url node:node maybe:dereference];
+    
+    StringSearchMatchType matchType = [self isDiscreteUrlMatch:foo searchText:searchText checkPinYin:checkPinYin includeAssociatedDomains:includeAssociatedDomains];
+    
+    if ( matchType != kStringSearchMatchTypeNoMatch  ) {
+        return matchType;
     }
-    else {
-        if (self.format == kKeePass4 || self.format == kKeePass) {
+    
+    for (NSString* altUrl in node.fields.alternativeUrls) {
+        NSString* foo = [self maybeDeref:altUrl node:node maybe:dereference];
+        
+        StringSearchMatchType matchType = [self isDiscreteUrlMatch:foo searchText:searchText checkPinYin:checkPinYin includeAssociatedDomains:includeAssociatedDomains];
+        
+        if ( matchType != kStringSearchMatchTypeNoMatch  ) {
+            return matchType;
+        }
+        
+    }
+    
+    return kStringSearchMatchTypeNoMatch;
+}
+
+- (StringSearchMatchType)isDiscreteUrlMatch:(NSString*)url searchText:(NSString*)searchText checkPinYin:(BOOL)checkPinYin includeAssociatedDomains:(BOOL)includeAssociatedDomains {
+    if ( [url.lowercaseString hasPrefix:kOtpAuthScheme] ) {
+        
+        
+        
+        return kStringSearchMatchTypeNoMatch;
+    }
+    
+    StringSearchMatchType matchType = [url isSearchMatch:searchText checkPinYin:checkPinYin];
+    
+    if ( matchType != kStringSearchMatchTypeNoMatch  ) {
+        return matchType;
+    }
+    
+    if ( includeAssociatedDomains ) {
+        NSSet<NSString*>* associateds = [BrowserAutoFillManager getAssociatedDomainsWithUrl:url];
+        for ( NSString* associated in associateds ) {
+            StringSearchMatchType matchType = [associated isSearchMatch:searchText checkPinYin:checkPinYin];
+            if ( matchType != kStringSearchMatchTypeNoMatch  ) {
+                return matchType;
+            }
+        }
+    }
+    
+    return kStringSearchMatchTypeNoMatch;
+}
+
+- (StringSearchMatchType)isAllFieldsMatches:(NSString*)searchText
+                                       node:(Node*)node
+                                dereference:(BOOL)dereference
+                                checkPinYin:(BOOL)checkPinYin
+                   includeAssociatedDomains:(BOOL)includeAssociatedDomains {
+    return [self isAllFieldsMatches:searchText node:node dereference:dereference checkPinYin:checkPinYin includeAssociatedDomains:includeAssociatedDomains matchField:nil];
+}
+
+- (StringSearchMatchType)isAllFieldsMatches:(NSString *)searchText
+                                       node:(Node *)node
+                                dereference:(BOOL)dereference
+                                checkPinYin:(BOOL)checkPinYin
+                   includeAssociatedDomains:(BOOL)includeAssociatedDomains
+                                 matchField:(DatabaseSearchMatchField *)matchField {
+    StringSearchMatchType matchType = [self isTitleMatches:searchText node:node dereference:dereference checkPinYin:checkPinYin];
+    if ( matchType != kStringSearchMatchTypeNoMatch  ) {
+        if ( matchField ) {
+            *matchField = kDatabaseSearchMatchFieldTitle;
+        }
+        return matchType;
+    }
+    matchType = [self isUsernameMatches:searchText node:node dereference:dereference checkPinYin:checkPinYin];
+    if ( matchType != kStringSearchMatchTypeNoMatch  ) {
+        if ( matchField ) {
+            *matchField = kDatabaseSearchMatchFieldUsername;
+        }
+        return matchType;
+    }
+    matchType = [self isPasswordMatches:searchText node:node dereference:dereference checkPinYin:checkPinYin];
+    if ( matchType != kStringSearchMatchTypeNoMatch  ) {
+        if ( matchField ) {
+            *matchField = kDatabaseSearchMatchFieldPassword;
+        }
+        
+        return matchType;
+    }
+    matchType = [self isEmailMatches:searchText node:node dereference:dereference checkPinYin:checkPinYin];
+    if ( matchType != kStringSearchMatchTypeNoMatch  ) {
+        if ( matchField ) {
+            *matchField = kDatabaseSearchMatchFieldEmail;
+        }
+        
+        return matchType;
+    }
+    matchType = [self isUrlMatches:searchText node:node dereference:dereference checkPinYin:checkPinYin includeAssociatedDomains:includeAssociatedDomains];
+    if ( matchType != kStringSearchMatchTypeNoMatch  ) {
+        if ( matchField ) {
+            *matchField = kDatabaseSearchMatchFieldUrl;
+        }
+        
+        return matchType;
+    }
+    matchType = [self isNotesMatches:searchText node:node dereference:dereference checkPinYin:checkPinYin];
+    if ( matchType != kStringSearchMatchTypeNoMatch  ) {
+        if ( matchField ) {
+            *matchField = kDatabaseSearchMatchFieldNotes;
+        }
+        
+        return matchType;
+    }
+    matchType = [self isTagsMatches:searchText node:node checkPinYin:checkPinYin];
+    if ( matchType != kStringSearchMatchTypeNoMatch  ) {
+        if ( matchField ) {
+            *matchField = kDatabaseSearchMatchFieldTag;
+        }
+        
+        return matchType;
+    }
+    
+    if (self.format == kKeePass4 || self.format == kKeePass) {
+        
+        
+        for (NSString* key in node.fields.customFields.allKeys) {
             
-            
-            for (NSString* key in node.fields.customFields.allKeys) {
+            if ( ![NodeFields isAlternativeURLCustomFieldKey:key] && ![NodeFields isTotpCustomFieldKey:key]) {
                 NSString* value = node.fields.customFields[key].value;
                 NSString* derefed = [self maybeDeref:value node:node maybe:dereference];
                 
-                if ([key containsSearchString:searchText checkPinYin:checkPinYin] || [derefed containsSearchString:searchText checkPinYin:checkPinYin]) {
-                    return YES;
-                }
-            }
-        }
                 
-        if (self.format != kPasswordSafe) {
-            BOOL attachmentMatch = [node.fields.attachments.allKeys anyMatch:^BOOL(NSString * _Nonnull obj) {
-                return [obj containsSearchString:searchText checkPinYin:checkPinYin];
-            }];
-            
-            if (attachmentMatch) {
-                return YES;
+                StringSearchMatchType matchType = [key isSearchMatch:searchText checkPinYin:checkPinYin];
+                
+                if ( matchType != kStringSearchMatchTypeNoMatch  ) {
+                    if ( matchField ) {
+                        *matchField = kDatabaseSearchMatchFieldCustomField;
+                    }
+                    
+                    return matchType;
+                }
+                
+                matchType = [derefed isSearchMatch:searchText checkPinYin:checkPinYin];
+                if ( matchType != kStringSearchMatchTypeNoMatch  ) {
+                    if ( matchField ) {
+                        *matchField = kDatabaseSearchMatchFieldCustomField;
+                    }
+                    
+                    return matchType;
+                }
+                
             }
         }
-        
-        
     }
     
-    return NO;
+    if (self.format != kPasswordSafe) {
+        for ( NSString* obj in node.fields.attachments.allKeys ) {
+            StringSearchMatchType matchType = [obj isSearchMatch:searchText checkPinYin:checkPinYin];
+            if ( matchType != kStringSearchMatchTypeNoMatch ) {
+                if ( matchField ) {
+                    *matchField = kDatabaseSearchMatchFieldAttachment;
+                }
+                
+                return matchType;
+            }
+        }
+    }
+    
+    
+    
+    matchType = [self isPathMatches:searchText node:node checkPinYin:checkPinYin];
+    if ( matchType != kStringSearchMatchTypeNoMatch  ) {
+        if ( matchField ) {
+            *matchField = kDatabaseSearchMatchFieldPath;
+        }
+        
+        return matchType;
+    }
+    
+    return kStringSearchMatchTypeNoMatch;
 }
 
 - (NSArray<NSString*>*)getSearchTerms:(NSString *)searchText {
@@ -890,13 +1110,23 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
     }];
 }
 
+- (BOOL)isKeePass2Format {
+    return self.format == kKeePass || self.format == kKeePass4;
+}
+
 
 
 
 - (void)rebuildFastMaps {
+    
+    
     NSMutableDictionary<NSUUID*, Node*>* uuidMap = NSMutableDictionary.dictionary;
+    
     NSMutableSet<NSUUID*> *expirySet = NSMutableSet.set;
+    NSMutableSet<NSUUID*> *excludedFromAuditSet = NSMutableSet.set;
     NSMutableSet<NSUUID*> *attachmentSet = NSMutableSet.set;
+    NSMutableSet<NSUUID*> *keeAgentSshKeysSet = NSMutableSet.set;
+    NSMutableSet<NSUUID*> *passkeysSet = NSMutableSet.set;
     NSMutableSet<NSUUID*> *totpSet = NSMutableSet.set;
     NSMutableDictionary<NSString*, NSMutableSet<NSUUID*>*>* tagMap = NSMutableDictionary.dictionary;
     NSCountedSet<NSString*> *usernameSet = NSCountedSet.set;
@@ -904,44 +1134,72 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
     NSCountedSet<NSString*> *urlSet = NSCountedSet.set;
     NSCountedSet<NSString*> *customFieldKeySet = NSCountedSet.set;
     
+    NSInteger entryTotalCount = 0;
+    NSInteger groupTotalCount = 0;
+    
     if ( self.rootNode ) {
         uuidMap[self.rootNode.uuid] = self.rootNode;
-
+        
         
         
         for (Node* node in self.rootNode.allChildren) { 
             Node* existing = uuidMap[node.uuid];
             
             if ( existing ) {
-                NSLog(@"🔴 WARNWARN: Duplicate ID in database => [%@] - [%@] - [%@]", existing, node, node.uuid);
+                slog(@"🔴 WARNWARN: Duplicate ID in database => [%@] - [%@] - [%@]", existing, node, node.uuid);
             }
             else {
                 uuidMap[node.uuid] = node;
+            }
+            
+            if ( node.isGroup ) {
+                groupTotalCount++;
+            }
+            else {
+                entryTotalCount++;
             }
         }
         
         FastMaps* newMaps = [[FastMaps alloc] initWithUuidMap:uuidMap
                                               withExpiryDates:expirySet
                                               withAttachments:attachmentSet
+                                          withKeeAgentSshKeys:keeAgentSshKeysSet
+                                                 withPasskeys:passkeysSet
                                                     withTotps:totpSet
                                                        tagMap:tagMap
                                                   usernameSet:usernameSet
                                                      emailSet:emailSet
                                                        urlSet:urlSet
-                                            customFieldKeySet:customFieldKeySet];
-
+                                            customFieldKeySet:customFieldKeySet
+                                              entryTotalCount:entryTotalCount
+                                              groupTotalCount:groupTotalCount
+                                            excludedFromAudit:excludedFromAuditSet];
+        
         _fastMaps = newMaps;
         
         
-
+        
         DatabaseFormat format = self.format;
         Node* keePass1BackupNode = (format == kKeePass1) ? self.keePass1BackupNode : nil;
         Node* kp2RecycleBin = (format == kKeePass || format == kKeePass4 ) ? self.recycleBinNode : nil;
         Node* recycler = kp2RecycleBin ? kp2RecycleBin : keePass1BackupNode;
-
+        
         for (Node* node in self.rootNode.allChildren) { 
             if ( recycler != nil && (node == recycler || [recycler contains:node]) ) {
                 continue;
+            }
+            
+            
+            
+            for ( NSString* tag in node.fields.tags ) {
+                NSMutableSet<NSUUID*>* set = tagMap[tag];
+                
+                if ( set == nil ) {
+                    tagMap[tag] = NSMutableSet.set;
+                    set = tagMap[tag];
+                }
+                
+                [set addObject:node.uuid];
             }
             
             if ( self.format == kKeePass || self.format == kKeePass4 ) {
@@ -958,8 +1216,26 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
             
             
             
+            if ( !node.fields.qualityCheck || [node isCreditCard] ) {
+                [excludedFromAuditSet addObject:node.uuid];
+            }
+            
+            
+            
             if ( node.fields.attachments.count > 0 ) {
                 [attachmentSet addObject:node.uuid];
+            }
+            
+            
+            
+            if ( node.keeAgentSshKeyViewModel ) {
+                [keeAgentSshKeysSet addObject:node.uuid];
+            }
+            
+            
+            
+            if ( node.passkey ) {
+                [passkeysSet addObject:node.uuid];
             }
             
             
@@ -970,37 +1246,24 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
             
             
             
-            for ( NSString* tag in node.fields.tags ) {
-                NSMutableSet<NSUUID*>* set = tagMap[tag];
-                
-                if ( set == nil ) {
-                    tagMap[tag] = NSMutableSet.set;
-                    set = tagMap[tag];
-                }
-                                
-                [set addObject:node.uuid];
-            }
-            
-            
-
             NSString* username = [Utils trim:node.fields.username];
             if ( username.length ) {
                 [usernameSet addObject:username];
             }
-
+            
             
             
             NSString* email = [Utils trim:node.fields.email];
             if ( email.length ) {
                 [emailSet addObject:email];
             }
-
+            
             
             
             for (NSString* key in node.fields.customFields.allKeys) {
                 [customFieldKeySet addObject:key];
             }
-
+            
             
             
             NSString* url = [Utils trim:node.fields.url];
@@ -1013,19 +1276,27 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
     FastMaps* newMaps = [[FastMaps alloc] initWithUuidMap:uuidMap
                                           withExpiryDates:expirySet
                                           withAttachments:attachmentSet
+                                      withKeeAgentSshKeys:keeAgentSshKeysSet
+                                             withPasskeys:passkeysSet
                                                 withTotps:totpSet
                                                    tagMap:tagMap
                                               usernameSet:usernameSet
                                                  emailSet:emailSet
                                                    urlSet:urlSet
-                                        customFieldKeySet:customFieldKeySet];
-
+                                        customFieldKeySet:customFieldKeySet
+                                          entryTotalCount:entryTotalCount
+                                          groupTotalCount:groupTotalCount
+                                        excludedFromAudit:excludedFromAuditSet];
+    
     _fastMaps = newMaps;
+    
+    
+    
 }
 
 - (NSArray<NSUUID *> *)getItemIdsForTag:(NSString *)tag {
     NSSet<NSUUID*> *ret = self.fastMaps.tagMap[tag];
-
+    
     return ret ? ret.allObjects : @[];
 }
 
@@ -1035,7 +1306,7 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
         return ret ? ret.firstObject : nil;
     }
     else {
-        NSLog(@"🔴 getItemById called with nil!");
+        slog(@"🔴 getItemById called with nil!");
         return nil;
     }
 }
@@ -1054,7 +1325,7 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
     if (serializationId.length < 1) {
         return nil;
     }
-        
+    
     NSString* prefix = [serializationId substringToIndex:1];
     NSString* suffix = [serializationId substringFromIndex:1];
     
@@ -1083,12 +1354,12 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
     if (!node) {
         return nil;
     }
-
     
     
     
     
-
+    
+    
     BOOL groupCanUseUuid = self.format != kPasswordSafe;
     
     NSString *identifier;
@@ -1135,11 +1406,11 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
     return [self orderedByMostFrequentDescending:self.fastMaps.usernameSet];
 }
 
-- (NSSet<NSString*> *)tagSet {
+- (NSSet<NSString*> *)tagSet { 
     NSArray<NSString*>* trimmed = [self.fastMaps.tagMap.allKeys map:^id _Nonnull(NSString * _Nonnull obj, NSUInteger idx) {
         return [Utils trim:obj];
     }];
-
+    
     NSArray* filtered = [trimmed filter:^BOOL(NSString * _Nonnull obj) {
         return obj.length > 0;
     }];
@@ -1148,8 +1419,10 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
 }
 
 - (NSArray<NSString*>*)mostPopularTags {
-    NSArray<NSString*>* tags = self.fastMaps.tagMap.allKeys;
+    NSMutableArray<NSString*>* tags = self.fastMaps.tagMap.allKeys.mutableCopy;
     
+    [tags removeObject:kCanonicalFavouriteTag]; 
+
     NSArray<NSString*>* sorted = [tags sortedArrayUsingComparator:^(id obj1, id obj2) {
         NSString* tag1 = obj1;
         NSString* tag2 = obj2;
@@ -1165,46 +1438,73 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
         
         return (n <= m) ? (n < m)? NSOrderedDescending : NSOrderedSame : NSOrderedAscending;
     }];
+    
+    return sorted;
+}
 
-    return sorted; 
+- (NSArray<Node *> *)expirySetEntries {
+    return [self getItemsById:self.fastMaps.withExpiryDates.allObjects];
 }
 
 - (NSArray<Node *> *)expiredEntries {
-    __weak DatabaseModel* weakSelf = self;
-    
-    NSArray<Node *> * withExpiries = [self.fastMaps.withExpiryDates.allObjects map:^id _Nonnull(NSUUID * _Nonnull obj, NSUInteger idx) {
-        return [weakSelf getItemById:obj];
-    }];
-    
-    return [withExpiries filter:^BOOL(Node * _Nonnull obj) {
+    return [self.expirySetEntries filter:^BOOL(Node * _Nonnull obj) {
         return obj.fields.expired;
     }];
 }
 
 - (NSArray<Node *> *)nearlyExpiredEntries {
-    __weak DatabaseModel* weakSelf = self;
-    
-    NSArray<Node *> * withExpiries = [self.fastMaps.withExpiryDates.allObjects map:^id _Nonnull(NSUUID * _Nonnull obj, NSUInteger idx) {
-        return [weakSelf getItemById:obj];
-    }];
-    
-    return [withExpiries filter:^BOOL(Node * _Nonnull obj) {
+    return [self.expirySetEntries filter:^BOOL(Node * _Nonnull obj) {
         return obj.fields.nearlyExpired;
     }];
 }
 
 - (NSArray<Node *> *)totpEntries {
-    __weak DatabaseModel* weakSelf = self;
-    
-    return [self.fastMaps.withTotps.allObjects map:^id _Nonnull(NSUUID * _Nonnull obj, NSUInteger idx) {
-        return [weakSelf getItemById:obj];
-    }];
+    return [self getItemsById:self.fastMaps.withTotps.allObjects];
 }
 
 - (NSArray<Node *> *)attachmentEntries {
+    return [self getItemsById:self.fastMaps.withAttachments.allObjects];
+}
+
+- (NSArray<Node *> *)keeAgentSSHKeyEntries {
+    return [self getItemsById:self.fastMaps.withKeeAgentSshKeys.allObjects];
+}
+
+- (NSArray<Node *> *)passkeyEntries {
+    return [self getItemsById:self.fastMaps.withPasskeys.allObjects];
+}
+
+- (void)excludeFromAudit:(NSUUID *)nodeId exclude:(BOOL)exclude {
+    Node* node = [self getItemById:nodeId];
+    
+    BOOL shouldQualityCheck = !exclude;
+    
+    if ( node && node.fields.qualityCheck != shouldQualityCheck ) { 
+        node.fields.qualityCheck = shouldQualityCheck;
+        
+        [self rebuildFastMaps];
+    }
+    else {
+        slog(@"⚠️ Could not find item or item is already in this audit exclusion state. WARNWARN");
+    }
+}
+
+- (BOOL)isExcludedFromAudit:(NSUUID *)nodeId {
+    Node* node = [self getItemById:nodeId];
+    return !node.fields.qualityCheck;
+
+    
+}
+
+- (BOOL)isCreditCard:(NSUUID *)nodeID {
+    Node* node = [self getItemById:nodeID];
+    return [node isCreditCard];
+}
+
+- (NSArray<Node *> *)excludedFromAuditItems {
     __weak DatabaseModel* weakSelf = self;
     
-    return [self.fastMaps.withAttachments.allObjects map:^id _Nonnull(NSUUID * _Nonnull obj, NSUInteger idx) {
+    return [self.fastMaps.excludedFromAudit.allObjects map:^id _Nonnull(NSUUID * _Nonnull obj, NSUInteger idx) {
         return [weakSelf getItemById:obj];
     }];
 }
@@ -1253,12 +1553,12 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
     return [self filterItems:YES includeEntries:YES searchableOnly:NO];
 }
 
-- (NSInteger)numberOfRecords {
-    return self.effectiveRootGroup.allChildRecords.count;
+- (NSInteger)fastEntryTotalCount {
+    return self.fastMaps.entryTotalCount;
 }
 
-- (NSInteger)numberOfGroups {
-    return self.effectiveRootGroup.allChildGroups.count;
+- (NSInteger)fastGroupTotalCount {
+    return self.fastMaps.groupTotalCount - (self.rootNode == self.effectiveRootGroup ? 0 : 1); 
 }
 
 - (NSArray*)orderedByMostFrequentDescending:(NSCountedSet<NSString*>*)bag {
@@ -1321,10 +1621,70 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
     NSString* compiled = isCompilable ? [SprCompilation.sharedInstance sprCompile:text node:node database:self error:&error] : text;
     
     if(error) {
-        NSLog(@"WARN: SPR Compilation ERROR: [%@]", error);
+        slog(@"WARN: SPR Compilation ERROR: [%@]", error);
     }
     
     return compiled ? compiled : @""; 
+}
+
+- (BOOL)mergeNode:(Node *)source
+         intoNode:(Node *)destination
+mergeLocationChangedDate:(BOOL)mergeLocationChangedDate
+   includeHistory:(BOOL)includeHistory
+    allowOverwrite:(BOOL)allowOverwrite {
+    if (source == nil || destination == nil) {
+        return NO;
+    }
+
+    BOOL merged = [destination mergePropertiesInFromNode:source
+                               mergeLocationChangedDate:mergeLocationChangedDate
+                                         includeHistory:includeHistory
+                                keePassGroupTitleRules:self.isUsingKeePassGroupTitleRules];
+
+    if (!merged && allowOverwrite) {
+        merged = [self overwriteNode:destination withNode:source];
+    }
+
+    if (merged) {
+        [self rebuildFastMaps];
+    }
+
+    return merged;
+}
+
+- (BOOL)overwriteNode:(Node *)existing withNode:(Node *)replacement {
+    if (existing == nil || replacement == nil) {
+        return NO;
+    }
+
+    if (existing.parent == nil) {
+        return NO;
+    }
+
+    Node *parent = existing.parent;
+    NSInteger index = [parent.children indexOfObject:existing];
+    if (index == NSNotFound) {
+        return NO;
+    }
+
+    Node *replacementClone = [replacement cloneOrDuplicate:YES
+                                                   cloneUuid:YES
+                                              cloneRecursive:YES
+                                                    newTitle:nil
+                                                  parentNode:parent];
+
+    if (replacementClone == nil) {
+        return NO;
+    }
+
+    [parent removeChild:existing];
+
+    if (![parent insertChild:replacementClone keePassGroupTitleRules:self.isUsingKeePassGroupTitleRules atPosition:index]) {
+        [parent insertChild:existing keePassGroupTitleRules:self.isUsingKeePassGroupTitleRules atPosition:index];
+        return NO;
+    }
+
+    return YES;
 }
 
 - (BOOL)preOrderTraverse:(BOOL (^)(Node * _Nonnull))function {
@@ -1332,7 +1692,7 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
 }
 
 - (NSString *)getPathDisplayString:(Node *)vm {
-    return [self getPathDisplayString:vm includeRootGroup:NO rootGroupNameInsteadOfSlash:NO includeFolderEmoji:NO joinedBy:@"/"];
+    return [self getPathDisplayString:vm includeRootGroup:NO rootGroupNameInsteadOfSlash:NO includeFolderEmoji:NO joinedBy:@" ▸ "];
 }
 
 - (NSString *)getPathDisplayString:(Node *)vm
@@ -1348,7 +1708,6 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
         [hierarchy insertObject:title atIndex:0];
         current = current.parent;
     }
-
     
     if ( includeRootGroup ) {
         NSString* rootGroupName = (rootGroupNameInsteadOfSlash && self.effectiveRootGroup) ? self.effectiveRootGroup.title : @"/";
@@ -1361,7 +1720,6 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
     }
     
     return [hierarchy componentsJoinedByString:joinedBy];
-        
 }
 
 - (NSString *)getSearchParentGroupPathDisplayString:(Node *)vm {
@@ -1374,7 +1732,7 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
     }
     
     NSMutableArray<NSString*> *hierarchy = [NSMutableArray array];
-        
+    
     Node* current = vm;
     while (current.parent != nil && current.parent != self.effectiveRootGroup) {
         [hierarchy insertObject:current.parent.title atIndex:0];
@@ -1386,7 +1744,7 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
     if ( prependSlash ) {
         return [NSString stringWithFormat:@"/%@", path];
     }
-
+    
     return path;
 }
 
@@ -1406,6 +1764,12 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
     return self.metadata.recycleBinChanged;
 }
 
+- (void)emptyRecycleBin {
+    if ( self.isKeePass2Format && self.recycleBinNode && self.recycleBinEnabled ) {
+        [self deleteItems:self.recycleBinNode.children];
+    }
+}
+
 - (Node*)keePass1BackupNode {
     return [self.effectiveRootGroup firstOrDefault:NO predicate:^BOOL(Node * _Nonnull node) {
         return [node.title isEqualToString:kKeePass1BackupGroupName];
@@ -1414,6 +1778,18 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
 
 - (NSDictionary<NSUUID *,NSDate *> *)deletedObjects {
     return self.mutableDeletedObjects.copy;
+}
+
+- (BOOL)isInRecycled:(NSUUID *)itemId {
+    Node* item = [self getItemById:itemId];
+    
+    if ( item && self.recycleBinNode ) {
+        if([self.recycleBinNode contains:item] || [self.recycleBinNode.uuid isEqual:itemId]) {
+            return YES;
+        }
+    }
+    
+    return NO;
 }
 
 - (BOOL)canRecycle:(NSUUID *)itemId {
@@ -1425,7 +1801,7 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
             willRecycle = NO;
         }
     }
-
+    
     return willRecycle;
 }
 
@@ -1442,21 +1818,27 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
 
 
 
+- (NSString*)getHtmlPrintStringForItems:(NSString*)databaseName items:(NSArray<Node*>*)items {
+    
+    
+    NSMutableString* ret = [NSMutableString stringWithFormat:@"<html>%@\n<body>\n    <h1 class=\"database-title\">%@</h1>\n<h4>Printed: %@</h6>    ", kPrintingStylesheet, [self htmlStringFromString:databaseName], NSDate.date.iso8601DateString];
+    
+    NSArray<Node*>* sorted = [items sortedArrayUsingComparator:finderStyleNodeComparator];
+
+    for(Node* node in sorted) {
+        if ( node.isGroup ) {
+            continue;
+        }
+        
+        [ret appendString:[self getHtmlStringForNode:node]];
+        [ret appendString:@"    </tr>\n"];
+    }
+    
+    [ret appendString:@"</body>\n</html>"];
+    return ret.copy;
+}
+
 - (NSString*)getHtmlPrintString:(NSString*)databaseName {
-    
-    NSString* stylesheet = @"<head><style type=\"text/css\"> \
-    body { width: 800px; } \
-    .database-title { font-size: 36pt; text-align: center; } \
-    .group-title { font-size: 20pt; margin-top:20px; margin-bottom: 5px; text-align: center; font-weight: bold; } \
-    .entry-table {  border-collapse: collapse; margin-bottom: 10px; width: 800px; border: 1px solid black; } \
-    .entry-title { font-weight: bold; font-size: 16pt; padding: 5px; } \
-    table td, table th { border: 1px solid black; } \
-    .entry-field-label { width: 100px; padding: 2px; } \
-    .entry-field-value { font-family: Menlo; padding: 2px; max-width: 700px; word-wrap: break-word; } \
-    </style></head>";
-    
-    NSMutableString* ret = [NSMutableString stringWithFormat:@"<html>%@\n<body>\n    <h1 class=\"database-title\">%@</h1>\n<h6>Printed: %@</h6>    ", stylesheet, [self htmlStringFromString:databaseName], NSDate.date.iso8601DateString];
-    
     NSArray<Node*>* sortedGroups = [self.effectiveRootGroup.allChildGroups sortedArrayUsingComparator:^NSComparisonResult(id  _Nonnull obj1, id  _Nonnull obj2) {
         NSString* path1 = [self getPathDisplayString:obj1];
         NSString* path2 = [self getPathDisplayString:obj2];
@@ -1465,8 +1847,21 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
     
     NSMutableArray* allGroups = sortedGroups.mutableCopy;
     [allGroups addObject:self.effectiveRootGroup];
+    if ( self.recycleBinNode ) {
+        [allGroups removeObject:self.recycleBinNode];
+    }
+    
+    
+    
+    
+    
+    NSMutableString* ret = [NSMutableString stringWithFormat:@"<html>%@\n<body>\n    <h1 class=\"database-title\">%@</h1>\n<h4>Printed: %@</h6>    ", kPrintingStylesheet, [self htmlStringFromString:databaseName], NSDate.date.iso8601DateString];
     
     for(Node* group in allGroups) {
+        if ( group.childRecords.count == 0 ) {
+            continue;
+        }
+        
         [ret appendFormat:@"    <div class=\"group-title\">%@</div>\n", [self htmlStringFromString:[self getPathDisplayString:group]]];
         
         NSMutableArray* nodeStrings = @[].mutableCopy;
@@ -1491,18 +1886,20 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
 - (NSString*)getHtmlStringForNode:(Node*)entry {
     NSMutableString* str = [NSMutableString string];
     
-    [str appendFormat:@"        <table class=\"entry-table\"><tr class=\"entry-title\"><td colspan=\"100\">%@</td></tr>\n", entry.title];
+    [str appendFormat:@"        <table class=\"entry-table\"><tr class=\"entry-title\"><td colspan=\"100\">%@</td></tr>\n", [self dereference:entry.title node:entry]];
     
     if(entry.fields.username.length) {
-        [str appendString:[self getHtmlEntryFieldRow:@"Username" value:entry.fields.username]];
+        [str appendString:[self getHtmlEntryFieldRow:@"Username" value: [self dereference:entry.fields.username node:entry]]];
         [str appendString:@"\n"];
     }
     
-    [str appendString:[self getHtmlEntryFieldRow:@"Password" value:entry.fields.password]];
+    
+    
+    [str appendString:[self getHtmlEntryFieldRow:@"Password" value:[self dereference:entry.fields.password node:entry]]];
     [str appendString:@"\n"];
 
     if(entry.fields.url.length) {
-        [str appendString:[self getHtmlEntryFieldRow:@"URL" value:entry.fields.url]];
+        [str appendString:[self getHtmlEntryFieldRow:@"URL" value:[self dereference:entry.fields.url node:entry]]];
         [str appendString:@"\n"];
     }
     
@@ -1512,7 +1909,7 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
     }
     
     if (entry.fields.notes.length) {
-        [str appendString:[self getHtmlEntryFieldRow:@"Notes" value:entry.fields.notes]];
+        [str appendString:[self getHtmlEntryFieldRow:@"Notes" value:[self dereference:entry.fields.notes node:entry]]];
         [str appendString:@"\n"];
     }
     
@@ -1549,8 +1946,27 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
     return [[escapedString stringByReplacingOccurrencesOfString:@"\r\n" withString:@"<br>"] stringByReplacingOccurrencesOfString:@"\n" withString:@"<br>"];
 }
 
-- (void)performPreSerializationTidy {
+
+
+- (void)preSerializationPerformMaintenanceOrMigrations {
+    
+    
+    
+    
+    [self migrateOlderPasskeysForUsernameIssue]; 
+    
     [self trimKeePassHistory];
+}
+
+- (void)migrateOlderPasskeysForUsernameIssue {
+    for ( Node* node in self.passkeyEntries ) {
+        StringValue *usernameSv = node.fields.customFields[@"KPXC_PASSKEY_USERNAME"];
+        
+        if ( usernameSv == nil ) {
+            slog(@"🟢 Migrate older Passkey format for node %@", node.uuid);
+            [node.fields setCustomField:@"KPXC_PASSKEY_USERNAME" value:[StringValue valueWithString:node.fields.username protected:NO]];
+        }
+    }
 }
 
 - (void)trimKeePassHistory {
@@ -1632,7 +2048,7 @@ static const DatabaseFormat kDefaultDatabaseFormat = kKeePass4;
     
     NSUInteger binariesSize = 0;
     for (NSString* filename in node.fields.attachments.allKeys) {
-        DatabaseAttachment* dbA = node.fields.attachments[filename];
+        KeePassAttachmentAbstractionLayer* dbA = node.fields.attachments[filename];
         binariesSize += dbA == nil ? 0 : dbA.estimatedStorageBytes;
     }
     

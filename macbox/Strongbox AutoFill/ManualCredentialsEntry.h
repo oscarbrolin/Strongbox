@@ -13,10 +13,15 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface ManualCredentialsEntry : NSViewController
 
-@property BOOL isAutoFillOpen;
+@property BOOL isNativeAutoFillAppExtensionOpen;
 @property NSString* databaseUuid;
 
-@property (nonatomic, copy) void (^onDone)(BOOL userCancelled, NSString*_Nullable password, NSString*_Nullable keyFileBookmark, YubiKeyConfiguration*_Nullable yubiKeyConfiguration);
+@property BOOL verifyCkfsMode; 
+
+@property NSString* headline;
+@property (nullable) NSString* subheadline;
+
+@property (nonatomic, copy) void (^onDone)(BOOL userCancelled, NSString*_Nullable password, NSString*_Nullable keyFileBookmark, NSURL* _Nullable keyFileUrl, YubiKeyConfiguration*_Nullable yubiKeyConfiguration);
 
 @end
 

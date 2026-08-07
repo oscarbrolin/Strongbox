@@ -11,6 +11,13 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+typedef NS_ENUM(NSInteger, GenericKeyValueTextSemantic) {
+    GenericKeyValueTextSemanticDefault = 0,
+    GenericKeyValueTextSemanticUsername,
+    GenericKeyValueTextSemanticEmailAddress,
+    GenericKeyValueTextSemanticURL,
+};
+
 @interface GenericKeyValueTableViewCell : UITableViewCell
 
 - (void)setKey:(NSString*)key value:(NSString*)value editing:(BOOL)editing useEasyReadFont:(BOOL)useEasyReadFont;
@@ -24,21 +31,38 @@ NS_ASSUME_NONNULL_BEGIN
                 concealed:(BOOL)concealed
                  colorize:(BOOL)colorize
                     audit:(NSString*_Nullable)audit
+             showStrength:(BOOL)showStrength
+        showLargeTextView:(BOOL)showLargeTextView;
+
+- (void)setConcealableKey:(NSString*)key
+                    value:(NSString*)value
+                concealed:(BOOL)concealed
+                 colorize:(BOOL)colorize
+                    audit:(NSString*_Nullable)audit
              showStrength:(BOOL)showStrength;
 
-- (void)setForUrlOrCustomFieldUrl:(NSString*)key value:(NSString*)value formatAsUrl:(BOOL)formatAsUrl rightButtonImage:(UIImage*_Nullable)rightButtonImage useEasyReadFont:(BOOL)useEasyReadFont;
+- (void)setForUrlOrCustomFieldUrl:(NSString*)key 
+                            value:(NSString*)value
+                      formatAsUrl:(BOOL)formatAsUrl
+                 rightButtonImage:(UIImage*_Nullable)rightButtonImage 
+                  useEasyReadFont:(BOOL)useEasyReadFont
+               associatedWebsites:(NSArray<NSString*>*)associatedWebsites;
 
 - (void)pokeValue:(NSString *)value;
+
+- (void)configureTextInputForSemantic:(GenericKeyValueTextSemantic)semantic;
 
 @property (nonatomic, copy, nullable) void (^onEdited)(NSString* text);
 @property (nonatomic, copy, nullable) SuggestionProvider suggestionProvider;
 
 @property (nonatomic, copy, nullable) void (^onRightButton)(void);
+@property (nonatomic, copy, nullable) void (^onShowLargeTextView)(void);
 
 @property (nonatomic, copy, nullable) void (^onAuditTap)(void);
 
 @property BOOL showUiValidationOnEmpty;
 @property BOOL isConcealed;
+@property (nullable) UIMenu* historyMenu;
 
 @end
 

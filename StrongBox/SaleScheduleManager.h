@@ -10,13 +10,19 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+@class Sale;
+
 @interface SaleScheduleManager : NSObject
 
 + (instancetype)sharedInstance;
 
 @property (readonly) BOOL saleNowOn;
 @property BOOL userHasBeenPromptedAboutCurrentSale;
-@property (readonly, nullable) NSDate* currentSaleEndDate;
+@property BOOL saleBannerDismissedForCurrentSale;
+
+@property (readonly, nullable) Sale* currentSale;
+
+@property (readonly, nullable) NSDate* saleAfterNextSaleStartDate;
 
 @end
 

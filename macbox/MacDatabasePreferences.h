@@ -18,6 +18,10 @@
 #import "KeePassIconSet.h"
 #import "NextNavigationConstants.h"
 #import "SearchScope.h"
+#import "SideBarChildCountFormat.h"
+#import "DatabaseMetadata.h"
+#import "SBLog.h"
+#import "MMcGPair.h"
 
 @class HeaderNodeState;
 
@@ -29,6 +33,9 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (instancetype)fromUuid:(NSString*)uuid;
 + (instancetype)fromUrl:(NSURL*)url;
++ (instancetype _Nullable)getById:(NSString *)databaseId;
+
++ (NSArray<MacDatabasePreferences*>*)forAllDatabasesOfProvider:(StorageProvider)provider;
 
 + (NSArray<MacDatabasePreferences*>*)filteredDatabases:(BOOL (^)(MacDatabasePreferences* database))block;
 
@@ -48,7 +55,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)clearSecureItems;
 @property (nonatomic, strong, nullable) YubiKeyConfiguration* yubiKeyConfiguration;
 @property NSArray<NSString*>* visibleColumns;
-@property (nullable) NSArray<NSString*>* favourites;
+@property (nullable) NSArray<NSString*>* legacyFavouritesStore;
 @property DatabaseAuditorConfiguration* auditConfig;
 @property (nullable) NSArray<NSString*>* auditExcludedItems;
 - (void)triggerPasswordExpiry;
@@ -56,6 +63,9 @@ NS_ASSUME_NONNULL_BEGIN
 + (NSString *_Nonnull)trimDatabaseNickName:(NSString *_Nonnull)string;
 + (BOOL)isUnique:(NSString *)nickName;
 + (BOOL)isValid:(NSString *)nickName;
+
++ (NSString*)getSuggestedNewDatabaseName;
++ (NSString*)getUniqueNameFromSuggestedName:(NSString*)suggested;
 
 + (MacDatabasePreferences*)addOrGet:(NSURL *)url;
 
@@ -69,12 +79,12 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, strong, nullable) NSString *autoFillStorageInfo; 
 @property (nonatomic) StorageProvider storageProvider;
 @property (nonatomic, strong, nullable) NSString* conveniencePassword;
-@property (nonatomic, strong, nullable) NSString* keyFileBookmark;
-@property (nonatomic, strong, nullable) NSString* autoFillKeyFileBookmark;
+
 @property (nonatomic) BOOL autoFillEnabled;
+
 @property (nonatomic) BOOL quickTypeEnabled;
 @property (nonatomic) QuickTypeAutoFillDisplayFormat quickTypeDisplayFormat;
-@property (nonatomic) BOOL quickWormholeFillEnabled;
+
 @property (nonatomic) BOOL hasPromptedForAutoFillEnrol;
 @property (nullable) NSUUID* outstandingUpdateId;
 @property (nullable) NSDate* lastSyncRemoteModDate; 
@@ -92,34 +102,35 @@ NS_ASSUME_NONNULL_BEGIN
 @property NSUInteger maxBackupKeepCount;
 @property BOOL makeBackups;
 @property (readonly) BOOL isLocalDeviceDatabase;
-@property BOOL offlineMode; 
+@property BOOL userRequestOfflineOpenEphemeralFlagForDocument; 
 @property BOOL alwaysOpenOffline;
 @property BOOL readOnly;
 @property BOOL showQuickView;
-@property BOOL doNotShowTotp;
+
 @property BOOL noAlternatingRows;
 @property BOOL showHorizontalGrid;
 @property BOOL showVerticalGrid;
 @property BOOL doNotShowAutoCompleteSuggestions;
 @property BOOL doNotShowChangeNotifications;
 @property BOOL outlineViewTitleIsReadonly;
-@property BOOL outlineViewEditableFieldsAreReadonly;
 @property BOOL concealEmptyProtectedFields;
 @property BOOL startWithSearch;
 @property BOOL showAdvancedUnlockOptions;
-@property BOOL lockOnScreenLock;
 @property BOOL expressDownloadFavIconOnNewOrUrlChanged;
 @property BOOL doNotShowRecycleBinInBrowse;
 @property BOOL showRecycleBinInSearchResults;
 @property BOOL uiDoNotSortKeePassNodesInBrowseView;
 
 @property BOOL hasSetInitialWindowPosition;
-@property BOOL autoFillScanAltUrls;
+@property BOOL hasSetInitialUnlockedFrame;
+
 @property BOOL autoFillScanCustomFields;
 @property BOOL autoFillScanNotes;
 @property (nonatomic, strong, nullable) NSString* conveniencePin;
 @property NSUInteger unlockCount;
 @property DatabaseFormat likelyFormat;
+@property NSString* lastKnownEncryptionSettings;
+@property NSString* serializationPerf;
 @property BOOL emptyOrNilPwPreferNilCheckFirst; 
 @property (nonatomic) BOOL isTouchIdEnabled;
 @property (nonatomic) BOOL isWatchUnlockEnabled;
@@ -131,6 +142,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property NSInteger convenienceExpiryPeriod; 
 @property (nonatomic, strong, nullable) NSString* convenienceMasterPassword; 
 @property (nonatomic) BOOL conveniencePasswordHasBeenStored; 
+@property BOOL includeAssociatedDomains;
 @property BOOL autoFillConcealedFieldsAsCreds;
 @property BOOL autoFillUnConcealedFieldsAsCreds;
 @property (nullable) NSUUID* asyncUpdateId; 
@@ -138,8 +150,8 @@ NS_ASSUME_NONNULL_BEGIN
 
 @property (readonly) NSString* exportFileName;
 @property (readonly) NSDictionary<NSString*, NSString *>* debugInfoLines;
-@property KeePassIconSet iconSet;
 
+@property KeePassIconSet keePassIconSet;
 
 
 
@@ -153,13 +165,58 @@ NS_ASSUME_NONNULL_BEGIN
 @property NSString* searchText;
 @property SearchScope searchScope;
 
-@property BOOL showChildCountOnFolderInSidebar;
-
 @property NSArray<HeaderNodeState*>* headerNodes;
-
+@property NSArray<NSNumber*>* detailsViewCollapsedSections;
+- (BOOL)isDetailsViewCollapsedForSection:(DetailsViewCollapsedSection)section;
+- (void)setDetailsViewCollapsed:(BOOL)collapsed forSection:(DetailsViewCollapsedSection)section;
 @property BOOL customSortOrderForFields;
-
 @property BOOL autoFillCopyTotp;
+
+@property BOOL showChildCountOnFolderInSidebar;
+@property SideBarChildCountFormat sideBarChildCountFormat;
+@property NSString* sideBarChildCountGroupPrefix;
+@property NSString* sideBarChildCountSeparator;
+@property BOOL sideBarChildCountShowZero;
+@property BOOL sideBarShowTotalCountOnHierarchy;
+
+@property BOOL searchIncludeGroups;
+
+@property BOOL hidden;
+
+
+
+
+
+@property (nullable) NSArray<NSString*>* autoFillExcludedItems;
+
+@property (readonly) BOOL searchDereferencedFields;
+@property (readonly) BOOL showKeePass1BackupGroup;
+@property (readonly) BOOL showExpiredInSearch;
+
+
+
+@property BOOL isSharedInCloudKit; 
+@property BOOL isOwnedByMeCloudKit;
+
+@property BOOL hardwareKeyCRCaching;
+@property BOOL doNotRefreshChallengeInAF;
+@property BOOL hasOnboardedHardwareKeyCaching;
+@property (nullable) NSDate* lastChallengeRefreshAt;
+@property NSInteger challengeRefreshIntervalSecs;
+@property NSInteger cacheChallengeDurationSecs;
+
+- (void)addCachedChallengeResponse:(MMcGPair<NSData*, NSData*>*)challengeResponse;
+- (void)removeCachedChallenge:(NSData*)challenge;
+- (void)clearCachedChallengeResponses;
+- (NSData*)getCachedChallengeResponse:(NSData*)challenge;
+
+@property BOOL markDirtyOnExpandCollapseGroups;
+
+@property (nullable) NSString* fallbackLastKnownKeyFileUrl;
+@property (nonatomic, strong, nullable) NSString* keyFileBookmark;
+@property (nonatomic, strong, nullable) NSString* autoFillKeyFileBookmark;
+
+@property (readonly, nullable) NSURL* keyFileFallbackUrl;
 
 @end
 

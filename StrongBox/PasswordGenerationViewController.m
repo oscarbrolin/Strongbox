@@ -20,7 +20,9 @@
 #import "PasswordStrengthUIHelper.h"
 
 #ifndef IS_APP_EXTENSION
-#import "ISMessages/ISMessages.h"
+#import "Strongbox-Swift.h"
+#else
+#import "Strongbox_Auto_Fill-Swift.h"
 #endif
 
 @interface PasswordGenerationViewController ()
@@ -62,6 +64,7 @@
 @property (weak, nonatomic) IBOutlet UITableViewCell *cellNumeric;
 @property (weak, nonatomic) IBOutlet UITableViewCell *cellSymbols;
 @property (weak, nonatomic) IBOutlet UITableViewCell *cellLatin1;
+@property (weak, nonatomic) IBOutlet UILabel *labelTapToSetLength;
 
 
 @end
@@ -98,6 +101,10 @@
     
     self.sample1.textLabel.font = FontManager.sharedInstance.easyReadFont;
     
+    UITapGestureRecognizer* tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(onTappedSetLength)];
+    tap.cancelsTouchesInView = YES;
+    [self.labelTapToSetLength addGestureRecognizer:tap];
+    
     [self.segmentAlgorithm setTitle:NSLocalizedString(@"password_gen_vc_mode_basic_title", @"Basic") forSegmentAtIndex:0];
     [self.segmentAlgorithm setTitle:NSLocalizedString(@"password_gen_vc_mode_diceware_xkcd_title", @"Diceware (XKCD)") forSegmentAtIndex:1];
     
@@ -112,7 +119,7 @@
         return;
     }
     
-    NSLog(@"onSampleLongPress");
+    slog(@"onSampleLongPress");
     UITableViewCell* cell = (UITableViewCell*)gr.view;
     [self copyToClipboard:cell.textLabel.text message:NSLocalizedString(@"password_gen_vc_sample_password_copied", @"Sample Password Copied")];
 }
@@ -125,14 +132,7 @@
     [ClipboardManager.sharedInstance copyStringWithDefaultExpiration:value];
     
 #ifndef IS_APP_EXTENSION
-    [ISMessages showCardAlertWithTitle:message
-                               message:nil
-                              duration:3.f
-                           hideOnSwipe:YES
-                             hideOnTap:YES
-                             alertType:ISAlertTypeSuccess
-                         alertPosition:ISAlertPositionTop
-                               didHide:nil];
+    [StrongboxToastMessages showSlimWithTitle:message];
 #endif
 }
 
@@ -151,6 +151,22 @@
     self.wordCountLabel.text = @(self.config.wordCount).stringValue;
 }
 
+- (void)onTappedSetLength {
+    [Alerts OkCancelWithTextField:self
+                    textFieldText:@(self.config.basicLength).stringValue
+                            title:NSLocalizedString(@"alert_enter_password_basic_length", @"Enter Length")
+                          message:@""
+                       completion:^(NSString *text, BOOL response) {
+        if ( response && text.intValue ) {
+            self.basicLengthSlider.value = text.intValue;
+            self.config.basicLength = (NSInteger)self.basicLengthSlider.value;
+            AppPreferences.sharedInstance.passwordGenerationConfig = self.config;
+            [self bindBasicLengthSlider];
+            [self refreshGenerated];
+        }
+    }];
+}
+
 - (IBAction)onBasicLengthChanged:(id)sender {
     UISlider* slider = (UISlider*)sender;
     self.config.basicLength = (NSInteger)slider.value;
@@ -167,11 +183,7 @@
 }
 
 - (void)refreshGenerated {
-    BOOL dark = NO;
-    if (@available(iOS 12.0, *)) {
-        dark = self.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark;
-    }
-    
+    BOOL dark = self.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark;
     BOOL colorBlind = AppPreferences.sharedInstance.colorizeUseColorBlindPalette;
     
     self.sample1.textLabel.attributedText = [ColoredStringHelper getColorizedAttributedString:[self getSamplePassword] colorize:YES darkMode:dark colorBlind:colorBlind font:self.sample1.textLabel.font];
@@ -345,13 +357,13 @@
     }
     else if (cell == self.cellInfoDiceware) {
 #ifndef IS_APP_EXTENSION
-        NSURL* url = [NSURL URLWithString:@"http:
+        NSURL* url = [NSURL URLWithString:@"http://world.std.com/~reinhold/diceware.html"];
         [UIApplication.sharedApplication openURL:url options:@{} completionHandler:nil];
 #endif
     }
     else if (cell == self.cellInfoXkcd) {
 #ifndef IS_APP_EXTENSION
-        NSURL* url = [NSURL URLWithString:@"https:
+        NSURL* url = [NSURL URLWithString:@"https://xkcd.com/936/"];
         [UIApplication.sharedApplication openURL:url options:@{} completionHandler:nil];
 #endif
     }
@@ -563,7 +575,7 @@
         int i = 0;
         for (WordList* wordList in obj) {
             if([self.config.wordLists containsObject:wordList.key]) {
-                NSLog(@"Selecting: %@", wordList.key);
+                slog(@"Selecting: %@", wordList.key);
                 [indexSet addIndex:i];
             }
             

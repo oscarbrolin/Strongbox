@@ -8,83 +8,111 @@
 
 #import "AutoFillCommon.h"
 #import "NSString+Extensions.h"
+#import "CrossPlatform.h"
 
-static NSString* const kOtpAuthScheme = @"otpauth";
+#ifndef IS_APP_EXTENSION
+#import "Strongbox-Swift.h"
+#else
+#import "Strongbox_Auto_Fill-Swift.h"
+#endif
+
 static NSString* const kMailToScheme = @"mailto";
+
+@interface AutoFillCommon ()
+
+@property (class, readonly) id<ApplicationPreferences> appSettings;
+
+@end
 
 @implementation AutoFillCommon
 
-+ (NSSet<NSString*>*)getUniqueUrlsForNode:(DatabaseModel*)database
-                                     node:(Node*)node
-                          alternativeUrls:(BOOL)alternativeUrls
-                             customFields:(BOOL)customFields
-                                    notes:(BOOL)notes {
-    NSMutableSet<NSString*> *uniqueUrls = [NSMutableSet set];
-    NSMutableArray<NSString*> *explicitUrls = [NSMutableArray array];
++ (id<ApplicationPreferences>)appSettings {
+    return CrossPlatformDependencies.defaults.applicationPreferences;
+}
+
++ (NSSet<NSString*>*)getUniqueUrlsForNode:(Model*)model
+                                     node:(Node*)node {
+    NSMutableArray<NSString*> *collectedUrls = [NSMutableArray array];
+    
+    DatabaseModel* database = model.database;
     
     
     
     NSString* urlField = [database dereference:node.fields.url node:node];
     if(urlField.length) {
-        [explicitUrls addObject:urlField];
-    }
-    
-    
-    
-    if ( alternativeUrls ) {
-        for ( NSString* altUrl in node.fields.alternativeUrls) {
-            if(altUrl.length) {
-                NSString* derefed = [database dereference:altUrl node:node];
-                [explicitUrls addObject:derefed];
-            }
-        }
+        [collectedUrls addObject:urlField];
     }
     
     
 
-    for ( NSString* expUrl in explicitUrls ) {
-        NSURL* parsed = expUrl.urlExtendedParse;
-
-        if ( parsed ) {
-            NSURLComponents* components = [NSURLComponents componentsWithURL:parsed resolvingAgainstBaseURL:NO];
-            
-            if ( !components.scheme.length ) { 
-                NSString* urlString = [NSString stringWithFormat:@"https:
-                [uniqueUrls addObject:urlString];
-            }
-            else {
-                [uniqueUrls addObject:expUrl];
-            }
-        }
-        else {
-            [uniqueUrls addObject:expUrl];
+    for ( NSString* altUrl in node.fields.alternativeUrls) {
+        if(altUrl.length) {
+            NSString* derefed = [database dereference:altUrl node:node];
+            [collectedUrls addObject:derefed];
         }
     }
+        
     
     
-    
-    if ( customFields ) {
+    if ( model.metadata.autoFillScanCustomFields ) {
         for(NSString* key in node.fields.customFields.allKeys) {
             if ( ![NodeFields isAlternativeURLCustomFieldKey:key] ) { 
                 StringValue* strValue = node.fields.customFields[key];
                 NSArray<NSString*> *foo = [self findUrlsInString:strValue.value];
-                [uniqueUrls addObjectsFromArray:foo];
+                [collectedUrls addObjectsFromArray:foo];
             }
         }
     }
     
     
 
-    if ( notes) {
+    if ( model.metadata.autoFillScanNotes ) {
         NSString* notesField = [database dereference:node.fields.notes node:node];
 
         if(notesField.length) {
             NSArray<NSString*> *foo = [AutoFillCommon findUrlsInString:notesField];
-            [uniqueUrls addObjectsFromArray:foo];
+            [collectedUrls addObjectsFromArray:foo];
         }
     }
-                                       
-   return uniqueUrls;
+    
+    
+    
+    
+    NSMutableSet<NSString*> *uniqueUrls = [NSMutableSet set];
+    for ( NSString* expUrl in collectedUrls ) {
+        NSURL* parsed = expUrl.urlExtendedParseAddingDefaultScheme;
+        if ( parsed && parsed.absoluteString ) {
+            [uniqueUrls addObject:parsed.absoluteString];
+        }
+    }
+         
+    
+    
+    if ( model.metadata.includeAssociatedDomains && AutoFillCommon.appSettings.associatedWebsites ) {
+        NSMutableArray<NSString*>* additional = NSMutableArray.array;
+        
+        for ( NSString* url in uniqueUrls ) {
+            NSSet<NSString*>* equivs = [BrowserAutoFillManager getAssociatedDomainsWithUrl:url];
+            
+            if ( equivs.anyObject ) {
+
+                [additional addObjectsFromArray:equivs.allObjects];
+            }
+        }
+        
+        if ( additional.count ) {
+
+            
+            for ( NSString* expUrl in additional ) {
+                NSURL* parsed = expUrl.urlExtendedParseAddingDefaultScheme;
+                if ( parsed && parsed.absoluteString ) {
+                    [uniqueUrls addObject:parsed.absoluteString];
+                }
+            }
+        }
+    }
+        
+    return uniqueUrls;
 }
 
 + (NSArray<NSString*>*)findUrlsInString:(NSString*)target {
@@ -111,7 +139,7 @@ static NSString* const kMailToScheme = @"mailto";
         }
     }
     else {
-        NSLog(@"Error finding Urls: %@", error);
+        slog(@"Error finding Urls: %@", error);
     }
     
     return urls;

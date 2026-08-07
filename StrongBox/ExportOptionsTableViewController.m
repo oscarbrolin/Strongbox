@@ -12,11 +12,20 @@
 #import <MessageUI/MessageUI.h>
 #import "CHCSVParser.h"
 #import "Csv.h"
-#import "ISMessages.h"
+
 #import "ClipboardManager.h"
 #import "Utils.h"
 #import "NSDate+Extensions.h"
 #import "Serializator.h"
+#import "WorkingCopyManager.h"
+#import "AppPreferences.h"
+#import "ExportHelper.h"
+
+#ifndef IS_APP_EXTENSION
+#import "Strongbox-Swift.h"
+#else
+#import "Strongbox_Auto_Fill-Swift.h"
+#endif
 
 @interface Delegate : NSObject <CHCSVParserDelegate, UIActivityItemSource>
 
@@ -50,13 +59,15 @@
     
     self.tableView.tableFooterView = [UIView new];
     
+    [self cell:self.cellFiles setHidden:YES];
+    [self cell:self.cellEmail setHidden:YES];
+    [self cell:self.cellXml setHidden:YES];
+    
     if (self.hidePlaintextOptions) {
         [self cell:self.cellEmailCsv setHidden:YES];
         [self cell:self.cellCopy setHidden:YES];
         [self cell:self.cellHtml setHidden:YES];
         [self cell:self.cellXml setHidden:YES];
-
-        [self reloadDataAnimated:YES];
     }
     else {
         if (!( self.viewModel.database.originalFormat == kKeePass || self.viewModel.database.originalFormat == kKeePass4 )) {
@@ -67,6 +78,8 @@
             [self cell:self.cellXml setHidden:YES];
         }
     }
+    
+    [self reloadDataAnimated:YES];
 }
 
 - (void)viewWillAppear:(BOOL)animated {
@@ -88,12 +101,6 @@
     if (cell == self.cellShare) {
         [self onShare];
     }
-    else if(cell == self.cellFiles) {
-        [self onFiles];
-    }
-    else if(cell == self.cellEmail) {
-        [self exportEncryptedSafeByEmail];
-    }
     else if(cell == self.cellEmailCsv) {
         [self exportCsvByEmail];
     }
@@ -103,43 +110,25 @@
     else if(cell == self.cellHtml) {
         [self exportHtmlByEmail];
     }
-    else if(cell == self.cellXml) {
-        [self copyXml];
-    }
 }
 
 - (void)onShare {
-    [self.viewModel encrypt:self completion:^(BOOL userCancelled, NSString * _Nullable file, NSString * _Nullable debugXml, NSError * _Nullable error) {
-        if (userCancelled) {
-            
+    DatabasePreferences* database = self.viewModel.metadata;
+    [ExportHelper getExportFile:self database:database completion:^(NSURL * _Nullable url, NSError * _Nullable error) {
+        if ( url == nil && error == nil ) {
+            return; 
         }
-        else if ( !file || error ) {
-            [Alerts error:self
-                    title:NSLocalizedString(@"export_vc_error_encrypting", @"Could not get database data")
-                    error:error];
+
+        if ( !url || error ) {
+            [Alerts error:self error:error];
         }
         else {
-            NSData* data = [NSData dataWithContentsOfFile:file];
-            [self onShareWithData:data];
+            [self onGotExportFile:url];
         }
     }];
 }
 
-- (void)onShareWithData:(NSData*)data {
-    NSString* filename = self.exportFileName;
-    NSString* f = [NSTemporaryDirectory() stringByAppendingPathComponent:filename];
-    
-    [NSFileManager.defaultManager removeItemAtPath:f error:nil];
-    
-    NSError* err;
-    [data writeToFile:f options:kNilOptions error:&err];
-    
-    if (err) {
-        [Alerts error:self error:err];
-        return;
-    }
-    
-    NSURL* url = [NSURL fileURLWithPath:f];
+- (void)onGotExportFile:(NSURL*)url {
     NSArray *activityItems = @[url]; 
     
     UIActivityViewController *activityViewController = [[UIActivityViewController alloc] initWithActivityItems:activityItems applicationActivities:nil];
@@ -153,11 +142,7 @@
     __weak ExportOptionsTableViewController* weakSelf = self;
 
     [activityViewController setCompletionWithItemsHandler:^(NSString *activityType, BOOL completed, NSArray *returnedItems, NSError *activityError) {
-        NSError *errorBlock;
-        if([[NSFileManager defaultManager] removeItemAtURL:url error:&errorBlock] == NO) {
-            NSLog(@"error deleting file %@", errorBlock);
-            return;
-        }
+        [ExportHelper cleanupExportFiles:url];
         
         if ( completed ) {
             [weakSelf informSuccessAndDismiss];
@@ -175,51 +160,35 @@
 }
 
 - (void)copyCsv {
-    NSString *newStr = [[NSString alloc] initWithData:[Csv getSafeAsCsv:self.viewModel.database] encoding:NSUTF8StringEncoding];
+    NSString *newStr = [[NSString alloc] initWithData:[Csv getGroupAsCsv:self.viewModel.database.effectiveRootGroup] encoding:NSUTF8StringEncoding];
 
     [ClipboardManager.sharedInstance copyStringWithDefaultExpiration:newStr];
     
-    [ISMessages showCardAlertWithTitle:NSLocalizedString(@"export_vc_message_csv_copied", @"Database CSV Copied to Clipboard")
-                               message:nil
-                              duration:3.f
-                           hideOnSwipe:YES
-                             hideOnTap:YES
-                             alertType:ISAlertTypeSuccess
-                         alertPosition:ISAlertPositionTop
-                               didHide:nil];
+    [StrongboxToastMessages showSlimWithTitle:NSLocalizedString(@"export_vc_message_csv_copied", @"Database CSV Copied to Clipboard")];
 
     [self informSuccessAndDismiss];
 }
 
-- (void)copyXml {
-    [self.viewModel encrypt:self completion:^(BOOL userCancelled, NSString * _Nullable file, NSString * _Nullable debugXml, NSError * _Nullable error) {
-        if (userCancelled) {
-            return;
-        }
-        else if ( !file || error ) {
-            [Alerts error:self
-                    title:NSLocalizedString(@"export_vc_error_encrypting", @"Error Encrypting")
-                    error:error];
-            return;
-        }
-        
-        [ClipboardManager.sharedInstance copyStringWithDefaultExpiration:debugXml];
-        
-        [ISMessages showCardAlertWithTitle:NSLocalizedString(@"export_vc_message_xml_copied", @"Database KeePass XML Copied to Clipboard")
-                                   message:nil
-                                  duration:3.f
-                               hideOnSwipe:YES
-                                 hideOnTap:YES
-                                 alertType:ISAlertTypeSuccess
-                             alertPosition:ISAlertPositionTop
-                                   didHide:nil];
-        
-        [self informSuccessAndDismiss];
-    }];
-}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 - (void)exportCsvByEmail {
-    NSData *newStr = [Csv getSafeAsCsv:self.viewModel.database];
+    NSData *newStr = [Csv getGroupAsCsv:self.viewModel.database.effectiveRootGroup];
     NSString* attachmentName = [NSString stringWithFormat:@"%@.csv", self.viewModel.metadata.nickName];
     [self composeEmail:attachmentName mimeType:@"text/csv" data:newStr nickname:self.viewModel.metadata.nickName];
 }
@@ -230,31 +199,6 @@
     NSString* attachmentName = [NSString stringWithFormat:@"%@.html", self.viewModel.metadata.nickName];
     
     [self composeEmail:attachmentName mimeType:@"text/html" data:[html dataUsingEncoding:NSUTF8StringEncoding] nickname:self.viewModel.metadata.nickName];
-}
-
-- (void)exportEncryptedSafeByEmail {
-    [self.viewModel encrypt:self completion:^(BOOL userCancelled, NSString * _Nullable file, NSString * _Nullable debugXml, NSError * _Nullable error) {
-        if (userCancelled) {
-            return;
-        }
-        else if ( !file || error ) {
-            [Alerts error:self
-                    title:NSLocalizedString(@"export_vc_error_encrypting", @"Error Encrypting")
-                    error:error];
-            return;
-        }
-    
-        NSData* data = [NSData dataWithContentsOfFile:file];
-        
-        NSString* likelyExtension = [Serializator getDefaultFileExtensionForFormat:self.viewModel.database.originalFormat];
-        NSString* appendExtension = self.viewModel.metadata.fileName.pathExtension.length ? @"" : likelyExtension;
-        NSString *attachmentName = [NSString stringWithFormat:@"%@%@", self.exportFileName, appendExtension];
-        
-        [self composeEmail:attachmentName
-                  mimeType:@"application/octet-stream"
-                      data:data
-                  nickname:self.viewModel.metadata.nickName];
-    }];
 }
 
 - (void)composeEmail:(NSString*)attachmentName mimeType:(NSString*)mimeType data:(NSData*)data nickname:(NSString*)nickname {
@@ -306,89 +250,6 @@
     }];
 }
 
-- (void)onFiles {
-    [self.viewModel encrypt:self completion:^(BOOL userCancelled, NSString * _Nullable file, NSString * _Nullable debugXml, NSError * _Nullable error) {
-        if (userCancelled) {
-            return;
-        }
-        else if ( !file || error ) {
-            [Alerts error:self
-                    title:NSLocalizedString(@"export_vc_error_encrypting", @"Could not get database data")
-                    error:error];
-            return;
-        }
-    
-        NSData* data = [NSData dataWithContentsOfFile:file];
-
-        [self onFilesGotData:data metadata:self.viewModel.metadata];
-    }];
-}
-
-- (void)onFilesGotData:(NSData*)data metadata:(DatabasePreferences*)metadata {
-    self.temporaryExportUrl = [NSFileManager.defaultManager.temporaryDirectory URLByAppendingPathComponent:self.exportFileName];
-    
-    NSError* error;
-    [data writeToURL:self.temporaryExportUrl options:kNilOptions error:&error];
-    if(error) {
-        [Alerts error:self
-                title:NSLocalizedString(@"export_vc_error_writing", @"Error Writing Database")
-                error:error];
-        NSLog(@"error: %@", error);
-        return;
-    }
-    
-    dispatch_async(dispatch_get_main_queue(), ^{
-        UIDocumentPickerViewController *vc = [[UIDocumentPickerViewController alloc] initWithURL:self.temporaryExportUrl inMode:UIDocumentPickerModeExportToService];
-        vc.delegate = self;
-        
-        [self presentViewController:vc animated:YES completion:nil];
-    });
-}
-
-- (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
-    NSLog(@"didPickDocumentsAtURLs: %@", urls);
-    
-    NSURL* url = [urls objectAtIndex:0];
-
-    #pragma GCC diagnostic push
-    #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-    [self documentPicker:controller didPickDocumentAtURL:url];
-    #pragma GCC diagnostic pop
-}
-
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-implementations"
-- (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentAtURL:(NSURL *)url { 
-    NSError* error;
-    NSData* data = [NSData dataWithContentsOfURL:self.temporaryExportUrl options:kNilOptions error:&error];
-    
-    if(!data || error) {
-        [Alerts error:self
-                title:NSLocalizedString(@"export_vc_error_exporting", @"Error Exporting")
-                error:error];
-        NSLog(@"%@", error);
-        return;
-    }
-    
-    StrongboxUIDocument *document = [[StrongboxUIDocument alloc] initWithData:data fileUrl:url];
-    
-    [document saveToURL:url
-       forSaveOperation:UIDocumentSaveForCreating | UIDocumentSaveForOverwriting
-      completionHandler:^(BOOL success) {
-        if(!success) {
-            [Alerts warn:self
-                   title:NSLocalizedString(@"export_vc_error_exporting", @"Error Exporting")
-                 message:@""];
-        }
-        else {
-            [self informSuccessAndDismiss];
-        }
-    }];
-    
-    [document closeWithCompletionHandler:nil];
-}
-#pragma GCC diagnostic pop
-
 - (void)presentationControllerDidDismiss:(UIPresentationController *)presentationController {
     [self onDismissed:NO];
 }
@@ -402,23 +263,11 @@
 }
 
 - (void)onDismissed:(BOOL)didExport {
-    NSLog(@"Dismissing Export: %hhd successful", didExport);
+    slog(@"Dismissing Export: %hhd successful", didExport);
     
     if ( self.onDone ) {
         self.onDone();
     }
-}
-
-- (NSString*)exportFileName {
-    NSString* extension = self.viewModel.metadata.fileName.pathExtension;
-    NSString* withoutExtension = [self.viewModel.metadata.fileName stringByDeletingPathExtension];
-    NSString* newFileName = [withoutExtension stringByAppendingFormat:@"-%@", NSDate.date.fileNameCompatibleDateTime];
-    
-    NSString* ret = [newFileName stringByAppendingPathExtension:extension];
-    
-    NSLog(@"Export Filename: [%@]", ret);
-    
-    return  ret;
 }
 
 @end

@@ -25,6 +25,7 @@ class AuditConfigurationViewController: NSViewController {
     @IBOutlet var chckboxCommon: NSButton!
     @IBOutlet var checkboxTwoFactor: NSButton!
     @IBOutlet var checkboxHibp: NSButton!
+    @IBOutlet weak var checkboxHibpBreaches: NSButton!
     @IBOutlet var checkboxDuplicated: NSButton!
     @IBOutlet var checkboxDuplicateCaseInsensitive: NSButton!
 
@@ -47,6 +48,8 @@ class AuditConfigurationViewController: NSViewController {
 
     @IBOutlet var labelOnlineHibpInterval: NSTextField!
     @objc var database: ViewModel!
+
+    @IBOutlet var ignoreShortNumericOnly: NSButton!
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -75,11 +78,11 @@ class AuditConfigurationViewController: NSViewController {
 
         bindUI()
 
-        NotificationCenter.default.addObserver(forName: NSNotification.Name(kAuditProgressNotificationKey), object: nil, queue: nil) { [weak self] notification in
+        NotificationCenter.default.addObserver(forName: .auditProgress, object: nil, queue: nil) { [weak self] notification in
             self?.bindAuditStatus(notification)
         }
 
-        NotificationCenter.default.addObserver(forName: NSNotification.Name(kAuditCompletedNotificationKey), object: nil, queue: nil) { [weak self] notification in
+        NotificationCenter.default.addObserver(forName: .auditCompleted, object: nil, queue: nil) { [weak self] notification in
             self?.bindAuditStatus(notification)
         }
     }
@@ -115,7 +118,7 @@ class AuditConfigurationViewController: NSViewController {
             labelStatus.stringValue = NSLocalizedString("audit_status_stopped", comment: "Audit Stopped")
             labelSubStatus.isHidden = true
         @unknown default:
-            NSLog("🔴 Unknown Audit State!")
+            swlog("🔴 Unknown Audit State!")
         }
     }
 
@@ -132,6 +135,7 @@ class AuditConfigurationViewController: NSViewController {
         chckboxCommon.state = config.checkForCommonPasswords ? .on : .off
         checkboxTwoFactor.state = config.checkForTwoFactorAvailable ? .on : .off
         checkboxHibp.state = config.checkHibp ? .on : .off
+        checkboxHibpBreaches.state = config.checkHibpBreaches ? .on : .off
 
         checkboxDuplicated.state = config.checkForDuplicatedPasswords ? .on : .off
         checkboxDuplicateCaseInsensitive.state = config.caseInsensitiveMatchForDuplicates ? .on : .off
@@ -156,6 +160,7 @@ class AuditConfigurationViewController: NSViewController {
 
         let hibpPossible = config.auditInBackground && Settings.sharedInstance().isPro
         checkboxHibp.isEnabled = hibpPossible
+        checkboxHibpBreaches.isEnabled = hibpPossible
         if !hibpPossible {
 
         }
@@ -188,6 +193,9 @@ class AuditConfigurationViewController: NSViewController {
 
         buttonExcludedItems.isEnabled = config.auditInBackground
 
+        ignoreShortNumericOnly.state = config.excludeShortNumericPINCodes ? .on : .off
+        ignoreShortNumericOnly.isEnabled = config.auditInBackground
+
         bindAuditStatusWithProgress()
     }
 
@@ -200,32 +208,36 @@ class AuditConfigurationViewController: NSViewController {
         let config = database.auditConfig
 
         config.hibpCheckForNewBreachesIntervalSeconds = kHibpAlwaysCheck
-
-        saveAndRestartAuditor(config)
+        database.auditConfig = config
+        restartAuditor()
     }
 
     @objc func onSetHibpIntervalOnceADay() {
         let config = database.auditConfig
 
         config.hibpCheckForNewBreachesIntervalSeconds = kHibpOnceADay
-
-        saveAndRestartAuditor(config)
+        database.auditConfig = config
+        restartAuditor()
     }
 
     @objc func onSetHibpIntervalOnceAWeek() {
         let config = database.auditConfig
 
         config.hibpCheckForNewBreachesIntervalSeconds = kHibpOnceAWeek
+        database.auditConfig = config
 
-        saveAndRestartAuditor(config)
+        restartAuditor()
     }
 
     @objc func onSetHibpIntervalOnceAMonth() {
         let config = database.auditConfig
-
         config.hibpCheckForNewBreachesIntervalSeconds = kHibpOnceEvery30Days
 
-        saveAndRestartAuditor(config)
+        database.auditConfig = config
+
+        bindUI()
+
+        restartAuditor()
     }
 
     func bindHibpInterval(_ config: DatabaseAuditorConfiguration) {
@@ -239,7 +251,7 @@ class AuditConfigurationViewController: NSViewController {
         case kHibpOnceEvery30Days:
             popupHibpInterval.selectItem(at: 3)
         default:
-            NSLog("🔴 Unknown/unusual Jibp Interval: [%@]", String(describing: config.hibpCheckForNewBreachesIntervalSeconds))
+            swlog("🔴 Unknown/unusual Jibp Interval: [%@]", String(describing: config.hibpCheckForNewBreachesIntervalSeconds))
             popupHibpInterval.selectItem(at: 0)
         }
     }
@@ -258,7 +270,7 @@ class AuditConfigurationViewController: NSViewController {
             let locYes = NSLocalizedString("audit_hibp_warning_yes", comment: "Yes, I understand and agree")
 
             MacAlerts.twoOptions(withCancel: loc1, informativeText: loc2, option1AndDefault: locNo, option2: locYes, window: view.window) { [weak self] response in
-                guard let self = self else { return }
+                guard let self else { return }
 
                 if response == 1 { 
                     let config = self.database.auditConfig
@@ -276,10 +288,45 @@ class AuditConfigurationViewController: NSViewController {
         }
     }
 
+
+    @IBAction func onHibpBreachesChanged(_: Any) {
+        if checkboxHibpBreaches.state != .on {
+            let config = database.auditConfig
+            config.lastHibpOnlineCheck = nil
+            database.auditConfig = config
+        }
+
+        if checkboxHibpBreaches.state == .on, !database.auditConfig.checkHibpBreaches, !database.auditConfig.hibpCaveatTwoAccepted {
+            let loc1 = NSLocalizedString("audit_hibp_warning_title", comment: "HIBP Disclaimer")
+            let loc2 = NSLocalizedString("audit_hibp_warning_message_breaches", comment: "I understand that my account usernames will be sent over the web (HTTPS) to the 'Have I Been Pwned?' breach checking service, through a dedicated cloud function that validates requests originate from a legitimate build of Strongbox. I also absolve Strongbox, Applause, Mark McGuill and Phoebe Code Limited of all liabilty for using this feature.")
+            let locNo = NSLocalizedString("audit_hibp_warning_no", comment: "No, I don't want to use this feature")
+            let locYes = NSLocalizedString("audit_hibp_warning_yes", comment: "Yes, I understand and agree")
+
+            MacAlerts.twoOptions(withCancel: loc1, informativeText: loc2, option1AndDefault: locNo, option2: locYes, window: view.window) { [weak self] response in
+                guard let self else { return }
+
+                if response == 1 { 
+                    let config = self.database.auditConfig
+
+                    config.hibpCaveatTwoAccepted = true
+                    self.database.auditConfig = config
+
+                    self.onSimpleChanged(nil)
+                } else { 
+                    self.bindUI()
+                }
+            }
+        } else {
+            onSimpleChanged(nil)
+        }
+    }
+
     @IBAction func onSimpleChanged(_: Any?) {
-        NSLog("✅ onSimpleChanged")
+
 
         let config = database.auditConfig
+
+        let newlySwitchedOff = config.auditInBackground && checkboxAuditDatabase.state == .off
 
         config.auditInBackground = checkboxAuditDatabase.state == .on
 
@@ -287,6 +334,7 @@ class AuditConfigurationViewController: NSViewController {
         config.checkForCommonPasswords = chckboxCommon.state == .on
         config.checkForTwoFactorAvailable = checkboxTwoFactor.state == .on
         config.checkHibp = checkboxHibp.state == .on
+        config.checkHibpBreaches = checkboxHibpBreaches.state == .on
 
         config.checkForDuplicatedPasswords = checkboxDuplicated.state == .on
         config.caseInsensitiveMatchForDuplicates = checkboxDuplicateCaseInsensitive.state == .on
@@ -300,13 +348,15 @@ class AuditConfigurationViewController: NSViewController {
         config.checkForSimilarPasswords = checkboxSimilar.state == .on
         config.levenshteinSimilarityThreshold = (Double(sliderSimilar.intValue) / 100.0)
 
+        config.excludeShortNumericPINCodes = ignoreShortNumericOnly.state == .on
+
         
 
         database.auditConfig = config
 
         bindUI()
 
-        saveAndRestartAuditor(config)
+        restartAuditor(newlySwitchedOff: newlySwitchedOff)
     }
 
     @IBAction func onSliderLengthChanged(_: Any) {
@@ -345,19 +395,28 @@ class AuditConfigurationViewController: NSViewController {
         labelSimilar.stringValue = String(format: "%0.1f%%", sliderSimilar.doubleValue)
     }
 
-    func saveAndRestartAuditor(_: DatabaseAuditorConfiguration) {
+    func restartAuditor(newlySwitchedOff: Bool = false) {
         if refreshTimer != nil {
             refreshTimer?.invalidate()
             refreshTimer = nil
         }
 
-        if #available(macOS 10.12, *) {
-            refreshTimer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: false) { [weak self] _ in
-                NSLog("✅ restartBackgroundAudit...")
-                self?.database.restartBackgroundAudit()
+        refreshTimer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: false) { [weak self] _ in
+            self?.foo(newlySwitchedOff: newlySwitchedOff)
+        }
+    }
+
+    func foo(newlySwitchedOff: Bool) {
+        database.restartBackgroundAudit()
+
+        if newlySwitchedOff {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+
+                NotificationCenter.default.post(name: NSNotification.Name(rawValue: kAuditNewSwitchedOffNotificationKey), object: [
+                    "model": database.commonModel,
+                ])
             }
-        } else {
-            
         }
     }
 

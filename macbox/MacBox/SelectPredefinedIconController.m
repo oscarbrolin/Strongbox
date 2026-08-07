@@ -19,6 +19,7 @@
 @property (weak) IBOutlet NSButton *buttonSelectFile;
 @property (weak) IBOutlet NSButton *buttonFindFavIcons;
 @property NSArray<NSImage*>* predefinedIcons;
+@property NSArray<NodeIcon*> *customIcons;
 
 @end
 
@@ -29,6 +30,19 @@
 
     self.predefinedIcons = [NodeIconHelper getIconSet:self.iconSet];
 
+    if ( self.iconPool ) {
+        self.customIcons = [self.iconPool sortedArrayUsingComparator:^NSComparisonResult(id  _Nonnull obj1, id  _Nonnull obj2) {
+            NodeIcon *n1 = obj1;
+            NodeIcon *n2 = obj2;
+            
+            return [@(n1.preferredOrder) compare:@(n2.preferredOrder)];
+        }];
+    }
+    else {
+        self.customIcons = @[];
+    }
+
+    
     self.buttonSelectFile.hidden = self.hideSelectFile;
     self.buttonFindFavIcons.hidden = self.hideFavIconButton;
         
@@ -53,7 +67,7 @@
     
     if([self hasCustomIcons] && indexPath.section == 0) {
         NodeIcon* icon = self.customIcons[indexPath.item];
-        item.icon.image = [NodeIconHelper getNodeIcon:icon];
+        item.icon.image = [NodeIconHelper getNodeIcon:icon predefinedIconSet:self.iconSet];
     }
     else {
         item.icon.image = self.predefinedIcons[indexPath.item];
@@ -64,7 +78,7 @@
 
 - (void)collectionView:(NSCollectionView *)collectionView didSelectItemsAtIndexPaths:(NSSet<NSIndexPath *> *)indexPaths {
     if(indexPaths.count == 1) {
-        NSLog(@"Selected: [%@]", indexPaths.anyObject);
+        slog(@"Selected: [%@]", indexPaths.anyObject);
         NSIndexPath *indexPath = indexPaths.anyObject;
         
         [self.window.sheetParent endSheet:self.window returnCode:NSModalResponseOK];
@@ -93,13 +107,13 @@
     NSOpenPanel *openPanel = [NSOpenPanel openPanel];
     [openPanel beginSheetModalForWindow:self.window completionHandler:^(NSInteger result){
         if (result == NSModalResponseOK) {
-            NSLog(@"%@", openPanel.URL.path);
+            slog(@"%@", openPanel.URL.path);
             
             NSError* error;
             NSData* data = [NSData dataWithContentsOfFile:openPanel.URL.path options:kNilOptions error:&error];
             
             if(!data) {
-                NSLog(@"Could not read file at %@. Error: %@", openPanel.URL, error);
+                slog(@"Could not read file at %@. Error: %@", openPanel.URL, error);
                 
                 NSString* loc = NSLocalizedString(@"mac_could_not_open_this_file", @"Could not open this file.");
                 [MacAlerts error:loc error:error window:self.window];
@@ -107,6 +121,10 @@
             }
 
             [self.window.sheetParent endSheet:self.window returnCode:NSModalResponseOK];
+            
+            
+            
+            
             self.onSelectedItem([NodeIcon withCustom:data], NO);
         }
     }];

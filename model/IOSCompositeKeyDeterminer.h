@@ -9,7 +9,7 @@
 #import <Foundation/Foundation.h>
 #import "CompositeKeyDeterminer.h"
 
-#if TARGET_OS_IPHONE
+#if TARGET_OS_IOS
 
 #import <UIKit/UIKit.h>
 #import "DatabasePreferences.h"
@@ -34,7 +34,7 @@ NS_ASSUME_NONNULL_BEGIN
 + (instancetype)determinerWithViewController:(VIEW_CONTROLLER_PTR)viewController
                                     database:(METADATA_PTR)safe
                               isAutoFillOpen:(BOOL)isAutoFillOpen
-                     isAutoFillQuickTypeOpen:(BOOL)isAutoFillQuickTypeOpen
+  transparentAutoFillBackgroundForBiometrics:(BOOL)transparentAutoFillBackgroundForBiometrics
                          biometricPreCleared:(BOOL)biometricPreCleared
                          noConvenienceUnlock:(BOOL)noConvenienceUnlock;
 

@@ -19,25 +19,21 @@
 #import "Serializator.h"
 #import "Utils.h"
 #import "Document.h"
+#import "Node+KeeAgentSSH.h"
 
 #import "Strongbox-Swift.h"
 
-NSString* const kModelUpdateNotificationCustomFieldsChanged = @"kModelUpdateNotificationCustomFieldsChanged";
-NSString* const kModelUpdateNotificationPasswordChanged = @"kModelUpdateNotificationPasswordChanged";
 NSString* const kModelUpdateNotificationTitleChanged = @"kModelUpdateNotificationTitleChanged";
-NSString* const kModelUpdateNotificationUsernameChanged = @"kModelUpdateNotificationUsernameChanged";
-NSString* const kModelUpdateNotificationEmailChanged = @"kModelUpdateNotificationEmailChanged";
-NSString* const kModelUpdateNotificationUrlChanged = @"kModelUpdateNotificationUrlChanged";
-NSString* const kModelUpdateNotificationNotesChanged = @"kModelUpdateNotificationNotesChanged";
+
 NSString* const kModelUpdateNotificationExpiryChanged = @"kModelUpdateNotificationExpiryChanged";
 NSString* const kModelUpdateNotificationIconChanged = @"kModelUpdateNotificationIconChanged";
 NSString* const kModelUpdateNotificationAttachmentsChanged = @"kModelUpdateNotificationAttachmentsChanged";
-NSString* const kModelUpdateNotificationTotpChanged = @"kModelUpdateNotificationTotpChanged";
+
 NSString* const kModelUpdateNotificationItemsDeleted = @"kModelUpdateNotificationItemsDeleted";
 NSString* const kModelUpdateNotificationItemsUnDeleted = @"kModelUpdateNotificationItemsUnDeleted";
 NSString* const kModelUpdateNotificationItemsMoved = @"kModelUpdateNotificationItemsMoved";
 NSString* const kModelUpdateNotificationTagsChanged = @"kModelUpdateNotificationTagsChanged";
-NSString* const kModelUpdateNotificationSelectedItemChanged = @"kModelUpdateNotificationSelectedItemChanged";
+
 NSString* const kModelUpdateNotificationItemsAdded = @"kModelUpdateNotificationItemsAdded";
 NSString* const kModelUpdateNotificationItemEdited = @"kModelUpdateNotificationItemEdited";
 
@@ -53,24 +49,18 @@ NSString* const kModelUpdateNotificationNextGenNavigationChanged = @"kModelUpdat
 NSString* const kModelUpdateNotificationNextGenSelectedItemsChanged = @"kModelUpdateNotificationNextGenSelectedItemsChanged";
 NSString* const kModelUpdateNotificationNextGenSearchContextChanged = @"kModelUpdateNotificationNextGenSearchContextChanged";
 
-NSString* const kNotificationUserInfoKeyIsBatchIconUpdate = @"kNotificationUserInfoKeyIsBatchIconUpdate";
-NSString* const kNotificationUserInfoKeyNode = @"node";
-NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
-
 @interface ViewModel ()
 
 @property (nullable) Model* innerModel;
-@property (nullable) NSUUID* internalSelectedItem; 
-@property (readonly) NSDictionary<NSString*, NSSet<NSUUID*>*> *domainNodeMap; 
 
 @end
 
 @implementation ViewModel
 
 - (void)dealloc {
-    NSLog(@"=====================================================================");
-    NSLog(@"😎 ViewModel DEALLOC...");
-    NSLog(@"=====================================================================");
+    
+    slog(@"😎 ViewModel DEALLOC...");
+    
 }
 
 - (instancetype)initLocked:(Document*)document
@@ -78,7 +68,6 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
     if (self = [super init]) {
         _document = document;
         _databaseUuid = databaseUuid;
-        _domainNodeMap = @{};
         
         self.innerModel = nil;
     }
@@ -92,7 +81,7 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
     if ( self = [self initLocked:document databaseUuid:databaseUuid] ) {
         self.innerModel = model;
         
-        [self rebuildAutoFillDomainNodeMap];
+        [self cacheKeeAgentPublicKeysOffline]; 
     }
     
     return self;
@@ -111,8 +100,12 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
 
 
 
+- (BOOL)isInOfflineMode {
+    return self.innerModel ? self.innerModel.isInOfflineMode : (self.alwaysOpenOffline || self.databaseMetadata.userRequestOfflineOpenEphemeralFlagForDocument);
+}
+
 - (BOOL)isEffectivelyReadOnly {
-    return self.readOnly || (self.offlineMode || self.alwaysOpenOffline) || (self.innerModel && self.innerModel.isReadOnly);
+    return self.innerModel ? self.innerModel.isReadOnly :  self.readOnly;
 }
 
 - (Model *)commonModel {
@@ -122,7 +115,7 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
 
 - (DatabaseModel *)database {
     if ( self.locked ) {
-        NSLog(@"🔴 database called but ViewModel is locked!");
+        slog(@"🔴 database called but ViewModel is locked!");
         return nil;
     }
     
@@ -135,7 +128,17 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
         return [self.innerModel getItemById:uuid];
     }
     else {
-        NSLog(@"🔴 getItemById - Model Locked cannot get item.");
+        slog(@"🔴 getItemById - Model Locked cannot get item.");
+        return nil;
+    }
+}
+
+- (NSArray<Node *> *)getItemsById:(NSArray<NSUUID *> *)uuids {
+    if ( !self.locked ) {
+        return [self.innerModel getItemsById:uuids];
+    }
+    else {
+        slog(@"🔴 getItemsById - Model Locked cannot get item.");
         return nil;
     }
 }
@@ -149,7 +152,7 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
 }
 
 - (BOOL)isKeePass2Format {
-    return self.format == kKeePass || self.format == kKeePass4;
+    return self.innerModel.isKeePass2Format;
 }
 
 - (NSSet<NodeIcon*>*)customIcons {
@@ -175,7 +178,7 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
         return self.database.expiredEntries;
     }
     else {
-        NSLog(@"🔴 expiredEntries - Model Locked cannot get item.");
+        slog(@"🔴 expiredEntries - Model Locked cannot get item.");
         return @[];
     }
 }
@@ -185,7 +188,17 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
         return self.database.nearlyExpiredEntries;
     }
     else {
-        NSLog(@"🔴 nearlyExpiredEntries - Model Locked cannot get item.");
+        slog(@"🔴 nearlyExpiredEntries - Model Locked cannot get item.");
+        return @[];
+    }
+}
+
+- (NSArray<Node *> *)excludedFromAuditEntries {
+    if ( !self.locked ) {
+        return self.innerModel.excludedFromAuditItems;
+    }
+    else {
+        slog(@"🔴 excludedFromAuditEntries - Model Locked cannot get item.");
         return @[];
     }
 }
@@ -195,7 +208,7 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
         return self.database.totpEntries;
     }
     else {
-        NSLog(@"🔴 totpEntries - Model Locked cannot get item.");
+        slog(@"🔴 totpEntries - Model Locked cannot get item.");
         return @[];
     }
 }
@@ -205,7 +218,27 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
         return self.database.attachmentEntries;
     }
     else {
-        NSLog(@"🔴 attachmentEntries - Model Locked cannot get item.");
+        slog(@"🔴 attachmentEntries - Model Locked cannot get item.");
+        return @[];
+    }
+}
+
+- (NSArray<Node *> *)keeAgentSshKeyEntries {
+    if ( !self.locked ) {
+        return self.database.keeAgentSSHKeyEntries;
+    }
+    else {
+        slog(@"🔴 keeAgentSSHKeyEntries - Model Locked cannot get item.");
+        return @[];
+    }
+}
+
+- (NSArray<Node *> *)passkeyEntries {
+    if ( !self.locked ) {
+        return self.database.passkeyEntries;
+    }
+    else {
+        slog(@"🔴 passkeyEntries - Model Locked cannot get item.");
         return @[];
     }
 }
@@ -215,7 +248,7 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
         return self.database.allSearchable;
     }
     else {
-        NSLog(@"🔴 allSearchable - Model Locked cannot get item.");
+        slog(@"🔴 allSearchable - Model Locked cannot get item.");
         return @[];
     }
 }
@@ -225,7 +258,7 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
         return self.database.allSearchableTrueRoot;
     }
     else {
-        NSLog(@"🔴 allSearchableTrueRoot - Model Locked cannot get item.");
+        slog(@"🔴 allSearchableTrueRoot - Model Locked cannot get item.");
         return @[];
     }
 }
@@ -235,7 +268,7 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
         return self.database.allSearchableNoneExpiredEntries;
     }
     else {
-        NSLog(@"🔴 allSearchableNoneExpiredEntries - Model Locked cannot get item.");
+        slog(@"🔴 allSearchableNoneExpiredEntries - Model Locked cannot get item.");
         return @[];
     }
 }
@@ -245,7 +278,7 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
         return self.database.allSearchableEntries;
     }
     else {
-        NSLog(@"🔴 allSearchableEntries - Model Locked cannot get item.");
+        slog(@"🔴 allSearchableEntries - Model Locked cannot get item.");
         return @[];
     }
 }
@@ -255,7 +288,7 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
         return self.database.allActiveEntries;
     }
     else {
-        NSLog(@"🔴 allActiveEntries - Model Locked cannot get item.");
+        slog(@"🔴 allActiveEntries - Model Locked cannot get item.");
         return @[];
     }
 }
@@ -265,7 +298,7 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
         return self.database.allActiveGroups;
     }
     else {
-        NSLog(@"🔴 expiredEntries - Model Locked cannot get item.");
+        slog(@"🔴 expiredEntries - Model Locked cannot get item.");
         return @[];
     }
 }
@@ -275,7 +308,7 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
         return self.database.allSearchableGroups;
     }
     else {
-        NSLog(@"🔴 allSearchableGroups - Model Locked cannot get item.");
+        slog(@"🔴 allSearchableGroups - Model Locked cannot get item.");
         return @[];
     }
 }
@@ -285,7 +318,7 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
         return self.database.allActive;
     }
     else {
-        NSLog(@"🔴 allActive - Model Locked cannot get item.");
+        slog(@"🔴 allActive - Model Locked cannot get item.");
         return @[];
     }
 }
@@ -304,41 +337,6 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
     return NO;
 }
 
-- (BOOL)asyncUpdateAndSync:(AsyncUpdateCompletion)completion {
-    if (self.locked) {
-        NSLog(@"🔴 Attempt to get update while locked?");
-        return NO;
-    }
-    
-    [self rebuildAutoFillDomainNodeMap];
-    
-    return [self.innerModel asyncUpdateAndSync:completion];
-}
-
-- (void)update:(NSViewController *)viewController handler:(void (^)(BOOL, BOOL, NSError * _Nullable))handler {
-    if (self.locked) {
-        NSLog(@"🔴 Attempt to get update while locked?");
-        return;
-    }
-    
-    [self rebuildAutoFillDomainNodeMap];
-    
-    [self.innerModel update:viewController handler:handler];
-}
-
-- (void)reloadDatabaseFromLocalWorkingCopy:(VIEW_CONTROLLER_PTR)viewController completion:(void (^)(BOOL))completion {
-    if (self.locked) {
-        NSLog(@"🔴 Attempt to get update while locked?");
-        return;
-    }
-    
-    [self.innerModel reloadDatabaseFromLocalWorkingCopy:viewController completion:^(BOOL success) {
-        [self rebuildAutoFillDomainNodeMap];
-
-        completion(success);
-    }];
-}
-
 
 
 - (NSURL*)fileUrl {
@@ -352,16 +350,7 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
         return [self.innerModel restartBackgroundAudit];
     }
     else {
-        NSLog(@"🔴 restartBackgroundAudit - Model Locked.");
-    }
-}
-
-- (void)stopAndClearAuditor {
-    if ( !self.locked ) {
-        return [self.innerModel stopAndClearAuditor];
-    }
-    else {
-        NSLog(@"🔴 stopAndClearAuditor - Model Locked.");
+        slog(@"🔴 restartBackgroundAudit - Model Locked.");
     }
 }
 
@@ -370,7 +359,7 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
         return self.innerModel.auditIssueCount;
     }
     else {
-        NSLog(@"🔴 auditIssueCount - Model Locked.");
+        slog(@"🔴 auditIssueCount - Model Locked.");
         return nil;
     }
 }
@@ -380,7 +369,7 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
         return [self.innerModel isFlaggedByAudit:item];
     }
     else {
-        NSLog(@"🔴 isFlaggedByAudit - Model Locked.");
+        slog(@"🔴 isFlaggedByAudit - Model Locked.");
         return NO;
     }
 }
@@ -390,7 +379,7 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
         return [self.innerModel getQuickAuditAllIssuesVeryBriefSummaryForNode:item];
     }
     else {
-        NSLog(@"🔴 getQuickAuditAllIssuesVeryBriefSummaryForNode - Model Locked.");
+        slog(@"🔴 getQuickAuditAllIssuesVeryBriefSummaryForNode - Model Locked.");
         return @[];
     }
 }
@@ -400,7 +389,7 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
         return [self.innerModel getQuickAuditAllIssuesSummaryForNode:item];
     }
     else {
-        NSLog(@"🔴 getQuickAuditAllIssuesSummaryForNode - Model Locked.");
+        slog(@"🔴 getQuickAuditAllIssuesSummaryForNode - Model Locked.");
         return @[];
     }
 }
@@ -410,7 +399,7 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
         return [self.innerModel getDuplicatedPasswordNodeSet:node];
     }
     else {
-        NSLog(@"🔴 getDuplicatedPasswordNodeSet - Model Locked.");
+        slog(@"🔴 getDuplicatedPasswordNodeSet - Model Locked.");
         return NSSet.set;
     }
 }
@@ -420,7 +409,7 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
         return [self.innerModel getSimilarPasswordNodeSet:node];
     }
     else {
-        NSLog(@"🔴 getSimilarPasswordNodeSet - Model Locked.");
+        slog(@"🔴 getSimilarPasswordNodeSet - Model Locked.");
         return NSSet.set;
     }
 }
@@ -438,7 +427,7 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
         return self.innerModel.auditState;
     }
     else {
-        NSLog(@"🔴 auditState - Model Locked.");
+        slog(@"🔴 auditState - Model Locked.");
         return kAuditStateInitial;
     }
 }
@@ -448,8 +437,18 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
         return self.innerModel.auditHibpErrorCount;
     }
     else {
-        NSLog(@"🔴 auditState - Model Locked.");
+        slog(@"🔴 auditState - Model Locked.");
         return 0;
+    }
+}
+
+- (NSArray<NSString *> *)auditHibpErrorReasons {
+    if ( !self.locked ) {
+        return self.innerModel.auditHibpErrorReasons;
+    }
+    else {
+        slog(@"🔴 auditState - Model Locked.");
+        return @[];
     }
 }
 
@@ -458,27 +457,27 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
         return self.innerModel.auditIssueNodeCount;
     }
     else {
-        NSLog(@"🔴 auditState - Model Locked.");
+        slog(@"🔴 auditState - Model Locked.");
         return 0;
     }
 }
 
-- (void)setItemAuditExclusion:(Node*)node exclude:(BOOL)exclude {
-    [self setItemAuditExclusion:node exclude:exclude modified:nil];
+- (void)setItemAuditExclusion:(Node*)node exclude:(BOOL)exclude isPartOfBatch:(BOOL)isPartOfBatch {
+    [self setItemAuditExclusion:node exclude:exclude modified:nil isPartOfBatch:isPartOfBatch];
 }
 
-- (void)setItemAuditExclusion:(Node*)node exclude:(BOOL)exclude modified:(NSDate*)modified {
+- (void)setItemAuditExclusion:(Node*)node exclude:(BOOL)exclude modified:(NSDate*)modified isPartOfBatch:(BOOL)isPartOfBatch {
     if(self.locked) {
         [NSException raise:@"Attempt to alter model while locked." format:@"Attempt to alter model while locked"];
     }
     
     if ( self.isEffectivelyReadOnly ) {
-        NSLog(@"🔴 setItemAuditExclusion - Model is RO!");
+        slog(@"🔴 setItemAuditExclusion - Model is RO!");
         return;
     }
     
     if ( [self isExcludedFromAudit:node.uuid] == exclude ) {
-        NSLog(@"✅ NOP - setItemAuditExclusion");
+        slog(@"✅ NOP - setItemAuditExclusion");
         return;
     }
     
@@ -498,12 +497,36 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
     
     [self touchAndModify:node modDate:modified];
     
-    [[self.document.undoManager prepareWithInvocationTarget:self] setItemAuditExclusion:node exclude:!exclude modified:oldModified];
+    [[self.document.undoManager prepareWithInvocationTarget:self] setItemAuditExclusion:node exclude:!exclude modified:oldModified isPartOfBatch:isPartOfBatch];
     
     if(!self.document.undoManager.isUndoing) {
-        NSString* loc = NSLocalizedString(@"exclude_item_from_audit", @"Exclude Item from Audit");
+        NSString* loc = NSLocalizedString(@"item_settings_action_verb_toggle_suggest_in_audit", @"Toggle Audit this Item");
         [self.document.undoManager setActionName:loc];
     }
+    
+    if ( !isPartOfBatch ) {
+        [self restartBackgroundAudit];
+    }
+}
+
+- (void)batchExcludeItemsFromAudit:(NSArray<Node*>*)items exclude:(BOOL)exclude {
+    if(self.locked) {
+        [NSException raise:@"Attempt to alter model while locked." format:@"Attempt to alter model while locked"];
+    }
+    
+    if ( self.isEffectivelyReadOnly ) {
+        slog(@"🔴 batchExcludeItemsFromAudit - Model is RO!");
+        return;
+    }
+    
+    [self.document.undoManager beginUndoGrouping];
+    
+    for (Node* node in items) {
+        [self setItemAuditExclusion:node exclude:exclude isPartOfBatch:YES];
+    }
+    
+    [self.document.undoManager setActionName:exclude ? NSLocalizedString(@"action_exclude_items_from_audit_verb", @"Exclude from Audit") : NSLocalizedString(@"action_include_items_in_audit_verb", @"Include in Audit")];
+    [self.document.undoManager endUndoGrouping];
     
     [self restartBackgroundAudit];
 }
@@ -513,18 +536,8 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
         return [self.innerModel isExcludedFromAudit:item];
     }
     else {
-        NSLog(@"🔴 isExcludedFromAudit - Model Locked.");
+        slog(@"🔴 isExcludedFromAudit - Model Locked.");
         return NO;
-    }
-}
-
-- (NSArray<Node*>*)getExcludedAuditItems {
-    if ( !self.locked ) {
-        return [self.innerModel getExcludedAuditItems];
-    }
-    else {
-        NSLog(@"🔴 getExcludedAuditItems - Model Locked.");
-        return @[];
     }
 }
 
@@ -533,7 +546,7 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
         return self.innerModel.auditReport;
     }
     else {
-        NSLog(@"🔴 auditReport - Model Locked.");
+        slog(@"🔴 auditReport - Model Locked.");
         return nil;
     }
 }
@@ -543,7 +556,7 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
         [self.innerModel oneTimeHibpCheck:password completion:completion];
     }
     else {
-        NSLog(@"🔴 oneTimeHibpCheck - Model Locked.");
+        slog(@"🔴 oneTimeHibpCheck - Model Locked.");
     }
 }
 
@@ -594,58 +607,16 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
 
 
 
-- (NSUUID *)selectedItem {
-    return self.internalSelectedItem;
-}
-
-- (void)setSelectedItem:(NSUUID *)selectedItem {
-    if(self.locked) {
-        [NSException raise:@"Attempt to alter model while locked." format:@"Attempt to alter model while locked"];
-    }
-    
-    self.internalSelectedItem = selectedItem;
-    
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [NSNotificationCenter.defaultCenter postNotificationName:kModelUpdateNotificationSelectedItemChanged object:self userInfo:@{ }];
-    });
-}
-
 - (BOOL)setItemTitle:(Node* _Nonnull)item title:(NSString* _Nonnull)title {
     return [self setItemTitle:item title:title modified:nil];
 }
-
-- (void)setItemEmail:(Node*_Nonnull)item email:(NSString*_Nonnull)email {
-    [self setItemEmail:item email:email modified:nil];
-}
-
-- (void)setItemUsername:(Node*_Nonnull)item username:(NSString*_Nonnull)username {
-    [self setItemUsername:item username:username modified:nil];
-}
-
-- (void)setItemUrl:(Node*_Nonnull)item url:(NSString*_Nonnull)url {
-    [self setItemUrl:item url:url modified:nil];
-}
-
-- (void)setItemPassword:(Node*_Nonnull)item password:(NSString*_Nonnull)password {
-    [self setItemPassword:item password:password modified:nil];
-}
-
-- (void)setItemNotes:(Node*)item notes:(NSString*)notes {
-    [self setItemNotes:item notes:notes modified:nil];
-}
-
-- (void)setItemExpires:(Node *)item expiry:(NSDate *)expiry {
-    [self setItemExpires:item expiry:expiry modified:nil];
-}
-
-
 
 - (BOOL)setItemTitle:(Node* _Nonnull)item title:(NSString* _Nonnull)title modified:(NSDate*)modified {
     if(self.locked) {
         [NSException raise:@"Attempt to alter model while locked." format:@"Attempt to alter model while locked"];
     }
     if ( self.isEffectivelyReadOnly ) {
-        NSLog(@"🔴 setItemTitle - Model is RO!");
+        slog(@"🔴 setItemTitle - Model is RO!");
         return NO;
     }
     
@@ -653,6 +624,9 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
     NSDate* oldModified = item.fields.modified;
     
     Node* cloneForHistory = [item cloneForHistory];
+    
+    NSString* ogText = [AutoFillManager.sharedInstance getQuickTypeUserText:self.commonModel node:item usedEmailAsUser:nil fieldKey:nil]; 
+
     if( [item setTitle:title keePassGroupTitleRules:self.format != kPasswordSafe] ) {
         [self touchAndModify:item modDate:modified];
         
@@ -668,11 +642,11 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
         NSString* loc = NSLocalizedString(@"mac_undo_action_title_change", @"Title Change");
         [self.document.undoManager setActionName:loc];
         
-        [self rebuildFastMaps];
+        [self rebuildMapsAndCaches];
         
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [NSNotificationCenter.defaultCenter postNotificationName:kModelUpdateNotificationTitleChanged object:self userInfo:@{ kNotificationUserInfoKeyNode : item }];
-        });
+        [AutoFillManager.sharedInstance refreshQuickTypeSuggestionForEntry:item database:self.commonModel previousSuggestionText:ogText];
+
+        [self notifyOnMain:kModelUpdateNotificationTitleChanged];
         
         return YES;
     }
@@ -680,160 +654,24 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
     return NO;
 }
 
-- (void)setItemEmail:(Node*_Nonnull)item email:(NSString*_Nonnull)email modified:(NSDate*)modified {
-    if(self.locked) {
-        [NSException raise:@"Attempt to alter model while locked." format:@"Attempt to alter model while locked"];
-    }
-    if ( self.isEffectivelyReadOnly ) {
-        NSLog(@"🔴 setItemEmail - Model is RO!");
-        return;
-    }
-    
-    NSString* old = item.fields.email;
-    NSDate* oldModified = item.fields.modified;
-    
-    if(self.document.undoManager.isUndoing) {
-        if(item.fields.keePassHistory.count > 0) [item.fields.keePassHistory removeLastObject];
+- (void)notifyOnMain:(NSString*)notificationName {
+    if ( NSThread.isMainThread ) {
+        [NSNotificationCenter.defaultCenter postNotificationName:notificationName
+                                                          object:self
+                                                        userInfo:nil];
     }
     else {
-        Node* cloneForHistory = [item cloneForHistory];
-        [item.fields.keePassHistory addObject:cloneForHistory];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [NSNotificationCenter.defaultCenter postNotificationName:notificationName
+                                                              object:self
+                                                            userInfo:nil];
+        });
     }
     
-    item.fields.email = email;
-    
-    [self touchAndModify:item modDate:modified];
-    
-    [[self.document.undoManager prepareWithInvocationTarget:self] setItemEmail:item email:old modified:oldModified];
-    
-    NSString* loc = NSLocalizedString(@"mac_undo_action_email_change", @"Email Change");
-    [self.document.undoManager setActionName:loc];
-    
-    [self rebuildFastMaps];
-    
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [NSNotificationCenter.defaultCenter postNotificationName:kModelUpdateNotificationEmailChanged object:self userInfo:@{ kNotificationUserInfoKeyNode : item }];
-    });
 }
 
-- (void)touchAndModify:(Node*)item modDate:(NSDate*_Nullable)modDate {
-    if(modDate) {
-        [item touch:YES touchParents:YES date:modDate];
-    }
-    else {
-        [item touch:YES touchParents:YES];
-    }
-}
-
-- (void)setItemUsername:(Node*_Nonnull)item username:(NSString*_Nonnull)username modified:(NSDate*)modified {
-    if(self.locked) {
-        [NSException raise:@"Attempt to alter model while locked." format:@"Attempt to alter model while locked"];
-    }
-    if ( self.isEffectivelyReadOnly ) {
-        NSLog(@"🔴 setItemUsername - Model is RO!");
-        return;
-    }
-    
-    NSString* old = item.fields.username;
-    NSDate* oldModified = item.fields.modified;
-    
-    if(self.document.undoManager.isUndoing) {
-        if(item.fields.keePassHistory.count > 0) [item.fields.keePassHistory removeLastObject];
-    }
-    else {
-        Node* cloneForHistory = [item cloneForHistory];
-        [item.fields.keePassHistory addObject:cloneForHistory];
-    }
-    
-    item.fields.username = username;
-    [self touchAndModify:item modDate:modified];
-    
-    [[self.document.undoManager prepareWithInvocationTarget:self] setItemUsername:item username:old modified:oldModified];
-    
-    NSString* loc = NSLocalizedString(@"mac_undo_action_username_change", @"Username Change");
-    [self.document.undoManager setActionName:loc];
-    
-    [self rebuildFastMaps];
-    
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [NSNotificationCenter.defaultCenter postNotificationName:kModelUpdateNotificationUsernameChanged object:self userInfo:@{ kNotificationUserInfoKeyNode : item }];
-    });
-}
-
-- (void)setItemUrl:(Node*_Nonnull)item url:(NSString*_Nonnull)url modified:(NSDate*)modified {
-    if(self.locked) {
-        [NSException raise:@"Attempt to alter model while locked." format:@"Attempt to alter model while locked"];
-    }
-    if ( self.isEffectivelyReadOnly ) {
-        NSLog(@"🔴 setItemUrl - Model is RO!");
-        return;
-    }
-    
-    NSString* old = item.fields.url;
-    NSDate* oldModified = item.fields.modified;
-    
-    if(self.document.undoManager.isUndoing) {
-        if(item.fields.keePassHistory.count > 0) [item.fields.keePassHistory removeLastObject];
-    }
-    else {
-        Node* cloneForHistory = [item cloneForHistory];
-        [item.fields.keePassHistory addObject:cloneForHistory];
-    }
-    
-    item.fields.url = url;
-    [self touchAndModify:item modDate:modified];
-    
-    [[self.document.undoManager prepareWithInvocationTarget:self] setItemUrl:item url:old modified:oldModified];
-    
-    NSString* loc = NSLocalizedString(@"mac_undo_action_url_change", @"URL Change");
-    [self.document.undoManager setActionName:loc];
-    
-    [self rebuildFastMaps];
-    
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [NSNotificationCenter.defaultCenter postNotificationName:kModelUpdateNotificationUrlChanged object:self userInfo:@{ kNotificationUserInfoKeyNode : item }];
-    });
-}
-
-- (void)setItemPassword:(Node*_Nonnull)item password:(NSString*_Nonnull)password modified:(NSDate*)modified {
-    if(self.locked) {
-        [NSException raise:@"Attempt to alter model while locked." format:@"Attempt to alter model while locked"];
-    }
-    if ( self.isEffectivelyReadOnly ) {
-        NSLog(@"🔴 setItemPassword - Model is RO!");
-        return;
-    }
-    
-    NSString* old = item.fields.password;
-    NSDate* oldModified = item.fields.modified;
-    
-    if(self.document.undoManager.isUndoing) {
-        if(item.fields.keePassHistory.count > 0) {
-            [item.fields.keePassHistory removeLastObject];
-        }
-    }
-    else {
-        Node* cloneForHistory = [item cloneForHistory];
-        
-        NSLog(@"setItemPassword: %ld / %ld", cloneForHistory.fields.keePassHistory.count, item.fields.keePassHistory.count);
-        
-        [item.fields.keePassHistory addObject:cloneForHistory];
-    }
-    
-    item.fields.password = password;
-    [self touchAndModify:item modDate:modified];
-    item.fields.passwordModified = item.fields.modified;
-    
-    [[self.document.undoManager prepareWithInvocationTarget:self] setItemPassword:item password:old modified:oldModified];
-    
-    NSString* loc = NSLocalizedString(@"mac_undo_action_password_change", @"Password Change");
-    [self.document.undoManager setActionName:loc];
-    
-    [self rebuildFastMaps];
-    
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [NSNotificationCenter.defaultCenter postNotificationName:kModelUpdateNotificationPasswordChanged object:self userInfo:@{ kNotificationUserInfoKeyNode : item }];
-    });
+- (void)setItemNotes:(Node*)item notes:(NSString*)notes {
+    [self setItemNotes:item notes:notes modified:nil];
 }
 
 - (void)setItemNotes:(Node*)item notes:(NSString*)notes modified:(NSDate*)modified {
@@ -841,7 +679,7 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
         [NSException raise:@"Attempt to alter model while locked." format:@"Attempt to alter model while locked"];
     }
     if ( self.isEffectivelyReadOnly ) {
-        NSLog(@"🔴 setItemNotes - Model is RO!");
+        slog(@"🔴 setItemNotes - Model is RO!");
         return;
     }
     
@@ -864,46 +702,85 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
     NSString* loc = NSLocalizedString(@"mac_undo_action_notes_change", @"Notes Change");
     [self.document.undoManager setActionName:loc];
     
-    [self rebuildFastMaps];
-    
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [NSNotificationCenter.defaultCenter postNotificationName:kModelUpdateNotificationNotesChanged object:self userInfo:@{ kNotificationUserInfoKeyNode : item }];
-    });
+    [self rebuildMapsAndCaches];
 }
 
-- (void)setItemExpires:(Node*)item expiry:(NSDate*)expiry modified:(NSDate*)modified {
+- (void)setKeeAgentSshKeyEnabled:(Node*)item enabled:(BOOL)enabled {
     if(self.locked) {
         [NSException raise:@"Attempt to alter model while locked." format:@"Attempt to alter model while locked"];
     }
     if ( self.isEffectivelyReadOnly ) {
-        NSLog(@"🔴 setItemExpires - Model is RO!");
+        slog(@"🔴 setKeeAgentSshKeyEnabled - Model is RO!");
+        return;
+    }
+
+    if ( item.keeAgentSshKeyViewModel == nil ) {
+        slog(@"🔴 setKeeAgentSshKeyEnabled - Item has no KeeAgent SSH key!");
+        return;
+    }
+
+    if ( item.keeAgentSshKeyViewModel.enabled == enabled ) {
+        slog(@"✅ NOP - setKeeAgentSshKeyEnabled");
+        return;
+    }
+
+    Node* editedNode = [item clone];
+    [editedNode setKeeAgentSshKeyEnabled:enabled];
+    [editedNode touch:YES touchParents:NO];
+
+    if ( ![self editNodeFieldsUsingSourceNode:editedNode destination:item.uuid] ) {
+        slog(@"🔴 setKeeAgentSshKeyEnabled - Could not apply edited KeeAgent SSH state!");
+    }
+}
+
+- (void)batchSetKeeAgentSshKeyEnabled:(NSArray<Node*>*)items enabled:(BOOL)enabled {
+    if(self.locked) {
+        [NSException raise:@"Attempt to alter model while locked." format:@"Attempt to alter model while locked"];
+    }
+
+    if ( self.isEffectivelyReadOnly ) {
+        slog(@"🔴 batchSetKeeAgentSshKeyEnabled - Model is RO!");
+        return;
+    }
+
+    [self.document.undoManager beginUndoGrouping];
+
+    for (Node* item in items) {
+        [self setKeeAgentSshKeyEnabled:item enabled:enabled];
+    }
+
+    NSString* loc = enabled ?
+        NSLocalizedString(@"ssh_agent_key_enabled_for_agent", @"Enabled for SSH Agent") :
+        NSLocalizedString(@"ssh_agent_disabled_for_agent", @"Disabled for SSH Agent");
+
+    [self.document.undoManager setActionName:loc];
+    [self.document.undoManager endUndoGrouping];
+}
+
+- (void)touchAndModify:(Node*)item modDate:(NSDate*_Nullable)modDate {
+    if(modDate) {
+        [item touch:YES touchParents:YES date:modDate];
+    }
+    else {
+        [item touch:YES touchParents:YES];
+    }
+}
+
+- (void)setSearchableState:(Node *)item searchable:(NSNumber*)searchable {
+    if(self.locked) {
+        [NSException raise:@"Attempt to alter model while locked." format:@"Attempt to alter model while locked"];
+    }
+    
+    if ( self.isEffectivelyReadOnly ) {
+        slog(@"🔴 setSearchableState - Model is RO!");
         return;
     }
     
-    NSDate* old = item.fields.expires;
-    NSDate* oldModified = item.fields.modified;
     
-    if(self.document.undoManager.isUndoing) {
-        if(item.fields.keePassHistory.count > 0) [item.fields.keePassHistory removeLastObject];
-    }
-    else {
-        Node* cloneForHistory = [item cloneForHistory];
-        [item.fields.keePassHistory addObject:cloneForHistory];
-    }
     
-    item.fields.expires = expiry;
-    [self touchAndModify:item modDate:modified];
-    
-    [[self.document.undoManager prepareWithInvocationTarget:self] setItemExpires:item expiry:old modified:oldModified];
-    
-    NSString* loc = NSLocalizedString(@"mac_undo_action_expiry_change", @"Expiry Date Change");
-    [self.document.undoManager setActionName:loc];
-    
-    [self rebuildFastMaps];
-    
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [NSNotificationCenter.defaultCenter postNotificationName:kModelUpdateNotificationExpiryChanged object:self userInfo:@{ kNotificationUserInfoKeyNode : item }];
-    });
+    item.fields.enableSearching = searchable;
+    [self touchAndModify:item modDate:NSDate.date];
+    [self.document updateChangeCount:NSChangeDone];
 }
 
 - (void)setGroupExpandedState:(Node *)item expanded:(BOOL)expanded {
@@ -911,7 +788,7 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
         [NSException raise:@"Attempt to alter model while locked." format:@"Attempt to alter model while locked"];
     }
     if ( self.isEffectivelyReadOnly ) {
-        NSLog(@"🔴 setGroupExpandedState - Model is RO!");
+        slog(@"🔴 setGroupExpandedState - Model is RO!");
         return;
     }
     
@@ -919,7 +796,10 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
     
     item.fields.isExpanded = expanded;
     [self touchAndModify:item modDate:NSDate.date];
-    [self.document updateChangeCount:NSChangeDone];
+    
+    if ( self.databaseMetadata.markDirtyOnExpandCollapseGroups ) {  
+        [self.document updateChangeCount:NSChangeDone];
+    }
 }
 
 - (BOOL)applyModelEditsAndMoves:(EntryViewModel *)editModel toNode:(NSUUID*)nodeId {
@@ -927,20 +807,20 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
         [NSException raise:@"Attempt to alter model while locked." format:@"Attempt to alter model while locked"];
     }
     if ( self.isEffectivelyReadOnly ) {
-        NSLog(@"🔴 applyModelEditsAndMoves - Model is RO!");
+        slog(@"🔴 applyModelEditsAndMoves - Model is RO!");
         return NO;
     }
     
     Node* node = [self getItemById:nodeId];
     if ( node == nil ) {
-        NSLog(@"🔴 Could not find destination node!");
+        slog(@"🔴 Could not find destination node!");
         return NO;
     }
     
     Node* cloneForApplication = [node clone];
     
     if ( ![editModel applyToNode:cloneForApplication
-                  databaseFormat:self.format
+                           model:self.commonModel
          legacySupplementaryTotp:NO
                    addOtpAuthUrl:YES] ) {
         return NO;
@@ -950,7 +830,7 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
     
     if ( ![self editNodeFieldsUsingSourceNode:cloneForApplication destination:nodeId] ) {
         [self.document.undoManager endUndoGrouping];
-        NSLog(@"🔴 Could not edit node fields using source node!");
+        slog(@"🔴 Could not edit node fields using source node!");
         return NO;
     }
     
@@ -962,18 +842,18 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
         Node* parent = [self getItemById:editModel.parentGroupUuid];
         if ( parent == nil || !parent.isGroup ) {
             [self.document.undoManager endUndoGrouping];
-            NSLog(@"🔴 Could not find destination node!");
+            slog(@"🔴 Could not find destination node!");
             return NO;
         }
         
         if (! [self move:@[node] destination:parent] ) {
             [self.document.undoManager endUndoGrouping];
-            NSLog(@"🔴 Could not move node!");
+            slog(@"🔴 Could not move node!");
             return NO;
         }
     }
     
-    [self rebuildFastMaps];
+    [self rebuildMapsAndCaches];
     
     NSString* loc = NSLocalizedString(@"browse_prefs_tap_action_edit", @"Edit Item");
     
@@ -988,13 +868,13 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
         [NSException raise:@"Attempt to alter model while locked." format:@"Attempt to alter model while locked"];
     }
     if ( self.isEffectivelyReadOnly ) {
-        NSLog(@"🔴 editNodeFieldsUsingSourceNode - Model is RO!");
+        slog(@"🔴 editNodeFieldsUsingSourceNode - Model is RO!");
         return NO;
     }
     
     Node* destinationNode = [self getItemById:destination];
     if ( destinationNode == nil ) {
-        NSLog(@"🔴 Could not find destination node!");
+        slog(@"🔴 Could not find destination node!");
         return NO;
     }
     
@@ -1017,11 +897,9 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
         NSString* loc = NSLocalizedString(@"browse_prefs_tap_action_edit", @"Edit Item");
         [self.document.undoManager setActionName:loc];
         
-        [self rebuildFastMaps];
+        [self rebuildMapsAndCaches];
         
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [NSNotificationCenter.defaultCenter postNotificationName:kModelUpdateNotificationItemEdited object:self userInfo:@{ kNotificationUserInfoKeyNode : destinationNode }];
-        });
+        [self notifyOnMain:kModelUpdateNotificationItemEdited];
         
         return YES;
     }
@@ -1033,10 +911,11 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
 
 - (void)batchSetIcons:(NSArray<Node*>*)items icon:(NodeIcon*)icon {
     if(self.locked) {
+        
         [NSException raise:@"Attempt to alter model while locked." format:@"Attempt to alter model while locked"];
     }
     if ( self.isEffectivelyReadOnly ) {
-        NSLog(@"🔴 batchSetIcons - Model is RO!");
+        slog(@"🔴 batchSetIcons - Model is RO!");
         return;
     }
     
@@ -1051,34 +930,26 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
     [self.document.undoManager setActionName:loc];
     [self.document.undoManager endUndoGrouping];
     
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [NSNotificationCenter.defaultCenter postNotificationName:kModelUpdateNotificationIconChanged
-                                                          object:self
-                                                        userInfo:@{ kNotificationUserInfoKeyIsBatchIconUpdate : @(YES)}];
-    });
+    [self notifyOnMain:kModelUpdateNotificationIconChanged];
 }
 
-- (void)batchSetIcons:(NSDictionary<NSUUID *,NSImage *>*)iconMap {
+- (void)batchSetIcons:(NSDictionary<NSUUID *,NodeIcon *>*)iconMap {
     if(self.locked) {
         [NSException raise:@"Attempt to alter model while locked." format:@"Attempt to alter model while locked"];
     }
     if ( self.isEffectivelyReadOnly ) {
-        NSLog(@"🔴 batchSetIcons - Model is RO!");
+        slog(@"🔴 batchSetIcons - Model is RO!");
         return;
     }
     
     [self.document.undoManager beginUndoGrouping];
     
-    for (Node* item in self.rootGroup.allChildRecords) {
-        NSImage* selectedImage = iconMap[item.uuid];
-        if(selectedImage) {
-            CGImageRef cgRef = [selectedImage CGImageForProposedRect:NULL context:nil hints:nil];
-            
-            if (cgRef) { 
-                NSBitmapImageRep *newRep = [[NSBitmapImageRep alloc] initWithCGImage:cgRef];
-                NSData *selectedImageData = [newRep representationUsingType:NSBitmapImageFileTypePNG properties:@{ }];
-                [self setItemIcon:item icon:[NodeIcon withCustom:selectedImageData] batchUpdate:YES];
-            }
+    
+    for ( Node* item in [self.database getItemsById:iconMap.allKeys] ) {
+        NodeIcon* icon = iconMap[item.uuid];
+        
+        if ( icon ) {
+            [self setItemIcon:item icon:icon batchUpdate:YES];
         }
     }
     
@@ -1087,23 +958,7 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
     [self.document.undoManager setActionName:loc];
     [self.document.undoManager endUndoGrouping];
     
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [NSNotificationCenter.defaultCenter postNotificationName:kModelUpdateNotificationIconChanged
-                                                          object:self
-                                                        userInfo:@{ kNotificationUserInfoKeyIsBatchIconUpdate : @(YES)}];
-    });
-}
-
-- (void)setItemIcon:(Node *)item image:(NSImage *)image {
-    if(image) {
-        CGImageRef cgRef = [image CGImageForProposedRect:NULL context:nil hints:nil];
-        
-        if (cgRef) { 
-            NSBitmapImageRep *newRep = [[NSBitmapImageRep alloc] initWithCGImage:cgRef];
-            NSData *selectedImageData = [newRep representationUsingType:NSBitmapImageFileTypePNG properties:@{ }];
-            [self setItemIcon:item icon:[NodeIcon withCustom:selectedImageData]];
-        }
-    }
+    [self notifyOnMain:kModelUpdateNotificationIconChanged];
 }
 
 - (void)setItemIcon:(Node *)item icon:(NodeIcon*)icon {
@@ -1122,7 +977,7 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
         [NSException raise:@"Attempt to alter model while locked." format:@"Attempt to alter model while locked"];
     }
     if ( self.isEffectivelyReadOnly ) {
-        NSLog(@"🔴 setItemIcon - Model is RO!");
+        slog(@"🔴 setItemIcon - Model is RO!");
         return;
     }
     
@@ -1151,11 +1006,7 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
     [self.document.undoManager setActionName:loc];
     
     if ( !batchUpdate ) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [NSNotificationCenter.defaultCenter postNotificationName:kModelUpdateNotificationIconChanged
-                                                              object:self
-                                                            userInfo:@{ kNotificationUserInfoKeyIsBatchIconUpdate : @(NO)}];
-        });
+        [self notifyOnMain:kModelUpdateNotificationIconChanged];
     }
 }
 
@@ -1170,7 +1021,7 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
         [NSException raise:@"Attempt to alter model while locked." format:@"Attempt to alter model while locked"];
     }
     if ( self.isEffectivelyReadOnly ) {
-        NSLog(@"🔴 deleteHistoryItem - Model is RO!");
+        slog(@"🔴 deleteHistoryItem - Model is RO!");
         return;
     }
     
@@ -1194,9 +1045,7 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
     NSString* loc = NSLocalizedString(@"mac_undo_action_delete_history_item", @"Delete History Item");
     [self.document.undoManager setActionName:loc];
     
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [NSNotificationCenter.defaultCenter postNotificationName:kModelUpdateNotificationHistoryItemDeleted object:self userInfo:@{ kNotificationUserInfoKeyNode : item }];
-    });
+    [self notifyOnMain:kModelUpdateNotificationHistoryItemDeleted];
 }
 
 - (void)restoreHistoryItem:(Node *)item historicalItem:(Node *)historicalItem {
@@ -1208,7 +1057,7 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
         [NSException raise:@"Attempt to alter model while locked." format:@"Attempt to alter model while locked"];
     }
     if ( self.isEffectivelyReadOnly ) {
-        NSLog(@"🔴 deleteHistoryItem - Model is RO!");
+        slog(@"🔴 deleteHistoryItem - Model is RO!");
         return;
     }
     
@@ -1234,273 +1083,17 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
     NSString* loc = NSLocalizedString(@"mac_undo_action_restore_history_item", @"Restore History Item");
     [self.document.undoManager setActionName:loc];
     
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [NSNotificationCenter.defaultCenter postNotificationName:kModelUpdateNotificationHistoryItemRestored object:self userInfo:@{ kNotificationUserInfoKeyNode : item }];
-    });
+    [self rebuildMapsAndCaches];
+    
+    [self notifyOnMain:kModelUpdateNotificationHistoryItemRestored];
 }
 
-- (void)removeItemAttachment:(Node *)item filename:(NSString *)filename {
-    [self removeItemAttachment:item filename:filename modified:nil];
-}
-
-- (void)removeItemAttachment:(Node *)item filename:(NSString *)filename modified:(NSDate*)modified {
-    if(self.locked) {
-        [NSException raise:@"Attempt to alter model while locked." format:@"Attempt to alter model while locked"];
-    }
-    if ( self.isEffectivelyReadOnly ) {
-        NSLog(@"🔴 removeItemAttachment - Model is RO!");
-        return;
-    }
-    
-    DatabaseAttachment* oldDbAttachment = item.fields.attachments[filename];
-    [item.fields.attachments removeObjectForKey:filename];
-    
-    NSDate* oldModified = item.fields.modified;
-    
-    if(self.document.undoManager.isUndoing) {
-        if(item.fields.keePassHistory.count > 0) [item.fields.keePassHistory removeLastObject];
-    }
-    else {
-        Node* cloneForHistory = [item cloneForHistory];
-        [item.fields.keePassHistory addObject:cloneForHistory];
-    }
-    
-    [[self.document.undoManager prepareWithInvocationTarget:self] addItemAttachment:item filename:filename attachment:oldDbAttachment modified:oldModified];
-    
-    if(!self.document.undoManager.isUndoing) {
-        NSString* loc = NSLocalizedString(@"mac_undo_action_remove_attachment", @"Remove Attachment");
-        [self.document.undoManager setActionName:loc];
-    }
-    
-    [self touchAndModify:item modDate:modified];
-    
-    [self rebuildFastMaps];
-    
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [NSNotificationCenter.defaultCenter postNotificationName:kModelUpdateNotificationAttachmentsChanged object:self userInfo:@{ kNotificationUserInfoKeyNode : item }];
-    });
-}
-
-- (void)addItemAttachment:(Node *)item filename:(NSString *)filename attachment:(DatabaseAttachment *)attachment {
-    [self addItemAttachment:item filename:filename attachment:attachment modified:nil];
-}
-
-- (void)addItemAttachment:(Node *)item filename:(NSString *)filename attachment:(DatabaseAttachment *)attachment modified:(NSDate*)modified {
-    if(self.locked) {
-        [NSException raise:@"Attempt to alter model while locked." format:@"Attempt to alter model while locked"];
-    }
-    if ( self.isEffectivelyReadOnly ) {
-        NSLog(@"🔴 addItemAttachment - Model is RO!");
-        return;
-    }
-    
-    if(self.document.undoManager.isUndoing) {
-        if(item.fields.keePassHistory.count > 0) [item.fields.keePassHistory removeLastObject];
-    }
-    else {
-        Node* cloneForHistory = [item cloneForHistory];
-        [item.fields.keePassHistory addObject:cloneForHistory];
-    }
-    
-    NSDate* oldModified = item.fields.modified;
-    
-    item.fields.attachments[filename] = attachment;
-    [self touchAndModify:item modDate:modified];
-    
-    [[self.document.undoManager prepareWithInvocationTarget:self] removeItemAttachment:item filename:filename modified:oldModified];
-    
-    if(!self.document.undoManager.isUndoing) {
-        NSString* loc = NSLocalizedString(@"mac_undo_action_add_attachment", @"Add Attachment");
-        [self.document.undoManager setActionName:loc];
-    }
-    
-    [self rebuildFastMaps];
-    
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [NSNotificationCenter.defaultCenter postNotificationName:kModelUpdateNotificationAttachmentsChanged object:self userInfo:@{ kNotificationUserInfoKeyNode : item }];
-    });
-}
-
-
-
-
-- (void)addCustomField:(Node *)item key:(NSString *)key value:(StringValue *)value {
-    [self editCustomField:item existingFieldKey:nil key:key value:value];
-}
-
-- (void)removeCustomField:(Node *)item key:(NSString *)key {
-    [self editCustomField:item existingFieldKey:key key:nil value:nil];
-}
-
-
-
-- (void)editCustomField:(Node*)item
-       existingFieldKey:(NSString*)existingFieldKey
-                    key:(NSString *)key
-                  value:(StringValue *)value {
-    [self editCustomField:item existingFieldKey:existingFieldKey key:key value:value modified:nil];
-}
-
-- (void)editCustomField:(Node*)item
-       existingFieldKey:(NSString*)existingFieldKey
-                    key:(NSString *)key
-                  value:(StringValue *)value
-               modified:(NSDate*)modified {
-    if(self.locked) {
-        [NSException raise:@"Attempt to alter model while locked." format:@"Attempt to alter model while locked"];
-    }
-    if ( self.isEffectivelyReadOnly ) {
-        NSLog(@"🔴 editCustomField - Model is RO!");
-        return;
-    }
-    
-    
-    
-    
-    
-    
-    
-    
-    NSString* oldKey = existingFieldKey;
-    StringValue* oldValue = existingFieldKey ? [item.fields.customFields objectForKey:existingFieldKey] : nil;
-    NSDate* oldModified = item.fields.modified;
-    
-    if(self.document.undoManager.isUndoing) {
-        if(item.fields.keePassHistory.count > 0) [item.fields.keePassHistory removeLastObject];
-    }
-    else {
-        Node* cloneForHistory = [item cloneForHistory];
-        [item.fields.keePassHistory addObject:cloneForHistory];
-    }
-    
-    BOOL changedSomething = NO;
-    if ( oldValue ) {
-        changedSomething = YES;
-        [item.fields removeCustomField:oldKey];
-    }
-    
-    if ( key && value ) {
-        changedSomething = YES;
-        [item.fields setCustomField:key value:value];
-    }
-    
-    if ( changedSomething ) {
-        [self touchAndModify:item modDate:modified];
-        
-        [[self.document.undoManager prepareWithInvocationTarget:self] editCustomField:item existingFieldKey:key key:oldKey value:oldValue modified:oldModified];
-        
-        if(!self.document.undoManager.isUndoing) {
-            NSString* loc;
-            if ( oldKey == nil ) {
-                loc = NSLocalizedString(@"mac_undo_action_add_custom_field", @"Add Custom Field");
-            }
-            else if ( key == nil ) {
-                loc = NSLocalizedString(@"mac_undo_action_remove_custom_field", @"Remove Custom Field");
-            }
-            else {
-                loc = NSLocalizedString(@"mac_undo_action_set_custom_field", @"Set Custom Field");
-            }
-            
-            [self.document.undoManager setActionName:loc];
-        }
-        
-        [self rebuildFastMaps];
-        
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [NSNotificationCenter.defaultCenter postNotificationName:kModelUpdateNotificationCustomFieldsChanged object:self userInfo:@{ kNotificationUserInfoKeyNode : item }];
-        });
-    }
-    else {
-        NSLog(@"WARNWARN: NOP in editCustomField [%@] - [%@]", existingFieldKey, key);
-    }
-}
-
-
-
-- (void)setTotp:(Node *)item otp:(NSString *)otp steam:(BOOL)steam {
-    [self setTotp:item otp:otp steam:steam modified:nil];
-}
-
-- (void)setTotp:(Node *)item otp:(NSString *)otp steam:(BOOL)steam modified:(NSDate*)modified {
-    if(self.locked) {
-        [NSException raise:@"Attempt to alter model while locked." format:@"Attempt to alter model while locked"];
-    }
-    if ( self.isEffectivelyReadOnly ) {
-        NSLog(@"🔴 setTotp - Model is RO!");
-        return;
-    }
-    
-    Node* cloneForHistory = [item cloneForHistory];
-    [item.fields.keePassHistory addObject:cloneForHistory];
-    
-    [self touchAndModify:item modDate:modified];
-    
-    [item setTotpWithString:otp
-           appendUrlToNotes:self.format == kPasswordSafe || self.format == kKeePass1
-                 forceSteam:steam
-            addLegacyFields:Settings.sharedInstance.addLegacySupplementaryTotpCustomFields
-              addOtpAuthUrl:Settings.sharedInstance.addOtpAuthUrl];
-    
-    [[self.document.undoManager prepareWithInvocationTarget:self] clearTotp:item];
-    
-    if(!self.document.undoManager.isUndoing) {
-        NSString* loc = NSLocalizedString(@"mac_undo_action_set_totp", @"Set TOTP");
-        [self.document.undoManager setActionName:loc];
-    }
-    
-    [self rebuildFastMaps];
-    
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [NSNotificationCenter.defaultCenter postNotificationName:kModelUpdateNotificationTotpChanged object:self userInfo:@{ kNotificationUserInfoKeyNode : item }];
-    });
-}
-
--(void)clearTotp:(Node *)item  {
-    [self clearTotp:item modified:nil];
-}
-
--(void)clearTotp:(Node *)item modified:(NSDate*)modified {
-    if(self.locked) {
-        [NSException raise:@"Attempt to alter model while locked." format:@"Attempt to alter model while locked"];
-    }
-    if ( self.isEffectivelyReadOnly ) {
-        NSLog(@"🔴 clearTotp - Model is RO!");
-        return;
-    }
-    
-    OTPToken* oldOtpToken = item.fields.otpToken;
-    if(oldOtpToken == nil) { 
-        NSLog(@"Attempt to clear non existent OTP token");
-        return;
-    }
-    
-    NSURL* oldOtpTokenUrl = [oldOtpToken url:YES];
-    Node* cloneForHistory = [item cloneForHistory];
-    [item.fields.keePassHistory addObject:cloneForHistory];
-    
-    [self touchAndModify:item modDate:modified];
-    
-    [item.fields clearTotp];
-    
-    [[self.document.undoManager prepareWithInvocationTarget:self] setTotp:item otp:oldOtpTokenUrl.absoluteString steam:oldOtpToken.algorithm == OTPAlgorithmSteam];
-    
-    if(!self.document.undoManager.isUndoing) {
-        NSString* loc = NSLocalizedString(@"mac_undo_action_clear_totp", @"Clear TOTP");
-        [self.document.undoManager setActionName:loc];
-    }
-    
-    [self rebuildFastMaps];
-    
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [NSNotificationCenter.defaultCenter postNotificationName:kModelUpdateNotificationTotpChanged object:self userInfo:@{ kNotificationUserInfoKeyNode : item }];
-    });
-}
 
 
 
 - (BOOL)isFavourite:(NSUUID *)itemId {
     if ( self.locked ) {
-        NSLog(@"🔴 Model is locked. isFavourite");
+        slog(@"🔴 Model is locked. isFavourite");
         return NO;
     }
     else {
@@ -1517,7 +1110,7 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
         [NSException raise:@"Attempt to alter model while locked." format:@"Attempt to alter model while locked"];
     }
     if ( self.isEffectivelyReadOnly ) {
-        NSLog(@"🔴 toggleFavourite - Model is RO!");
+        slog(@"🔴 toggleFavourite - Model is RO!");
         return;
     }
     
@@ -1544,14 +1137,61 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
         [self.document.undoManager setActionName:loc];
     }
     
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [NSNotificationCenter.defaultCenter postNotificationName:kModelUpdateNotificationTagsChanged object:self userInfo:nil];
-    });
+    [self notifyOnMain:kModelUpdateNotificationTagsChanged];
+}
+
+- (void)addFavourites:(NSArray<NSUUID*>*)items {
+    if(self.locked) {
+        [NSException raise:@"Attempt to alter model while locked." format:@"Attempt to alter model while locked"];
+    }
+    if ( self.isEffectivelyReadOnly ) {
+        slog(@"🔴 toggleFavourite - Model is RO!");
+        return;
+    }
+
+    [self.document.undoManager beginUndoGrouping];
+    
+    for (NSUUID* itemId in items) {
+        if ( [self isFavourite:itemId] ) {
+            continue;
+        }
+
+        Node* item = [self getItemById:itemId];
+        NSDate* oldModified = item.fields.modified;
+        
+        if(self.document.undoManager.isUndoing) {
+            if(item.fields.keePassHistory.count > 0) [item.fields.keePassHistory removeLastObject];
+        }
+        else {
+            Node* cloneForHistory = [item cloneForHistory];
+            [item.fields.keePassHistory addObject:cloneForHistory];
+        }
+        
+        [self.innerModel addFavourite:itemId];
+        
+        [self touchAndModify:item modDate:nil];
+        
+        [[self.document.undoManager prepareWithInvocationTarget:self] toggleFavourite:itemId modified:oldModified];
+
+        if(!self.document.undoManager.isUndoing) {
+            [self.document.undoManager setActionName:NSLocalizedString(@"browse_vc_action_pin", @"Favourite") ];
+        }
+    }
+    
+    if(!self.document.undoManager.isUndoing) {
+        NSString* loc = NSLocalizedString(@"browse_vc_action_pin", @"Favourite");
+        [self.document.undoManager setActionName:loc];
+    }
+    [self.document.undoManager endUndoGrouping];
+    
+    [self rebuildMapsAndCaches];
+    
+    [self notifyOnMain:kModelUpdateNotificationTagsChanged];
 }
 
 - (NSArray<Node *> *)favourites {
     if ( self.locked ) {
-        NSLog(@"🔴 Model is locked. Favourites");
+        slog(@"🔴 Model is locked. Favourites");
         return @[];
     }
     else {
@@ -1561,9 +1201,117 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
 
 
 
-- (void)addItemTag:(Node *)item tag:(NSString *)tag {
-    [self addItemTag:item tag:tag modified:nil];
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+- (void)setItemAutoFillExclusion:(Node*)node exclude:(BOOL)exclude {
+    [self setItemAutoFillExclusion:node exclude:exclude modified:nil];
 }
+
+- (void)setItemAutoFillExclusion:(Node*)node exclude:(BOOL)exclude modified:(NSDate*)modified {
+    if(self.locked) {
+        [NSException raise:@"Attempt to alter model while locked." format:@"Attempt to alter model while locked"];
+    }
+    
+    if ( self.isEffectivelyReadOnly ) {
+        slog(@"🔴 setItemAutoFillExclusion - Model is RO!");
+        return;
+    }
+    
+    if ( [self isExcludedFromAutoFill:node.uuid] == exclude ) {
+        slog(@"✅ NOP - setItemAutoFillExclusion");
+        return;
+    }
+    
+    NSDate* oldModified = node.fields.modified;
+    
+    if(self.document.undoManager.isUndoing) {
+        if ( node.fields.keePassHistory.count > 0 ) {
+            [node.fields.keePassHistory removeLastObject];
+        }
+    }
+    else {
+        Node* cloneForHistory = [node cloneForHistory];
+        [node.fields.keePassHistory addObject:cloneForHistory];
+    }
+    
+    [self.innerModel setItemsExcludedFromAutoFill:@[node.uuid] exclude:exclude]; 
+    
+    [self touchAndModify:node modDate:modified];
+    
+    [[self.document.undoManager prepareWithInvocationTarget:self] setItemAutoFillExclusion:node exclude:!exclude modified:oldModified];
+    
+    if(!self.document.undoManager.isUndoing) {
+        NSString* loc = NSLocalizedString(@"item_settings_action_verb_toggle_suggest_in_autofill", @"Toggle Suggest in AutoFill");
+        [self.document.undoManager setActionName:loc];
+    }
+}
+
+- (void)batchExcludeItemsFromAutoFill:(NSArray<Node*>*)items exclude:(BOOL)exclude {
+    if(self.locked) {
+        [NSException raise:@"Attempt to alter model while locked." format:@"Attempt to alter model while locked"];
+    }
+    
+    if ( self.isEffectivelyReadOnly ) {
+        slog(@"🔴 batchExcludeItemsFromAudit - Model is RO!");
+        return;
+    }
+    
+    [self.document.undoManager beginUndoGrouping];
+    
+    for (Node* node in items) {
+        [self setItemAutoFillExclusion:node exclude:exclude];
+    }
+    
+    NSString* loc = NSLocalizedString(@"item_settings_action_verb_toggle_suggest_in_autofill", @"Toggle Suggest in AutoFill");
+    [self.document.undoManager setActionName:loc];
+    [self.document.undoManager endUndoGrouping];
+}
+
+- (BOOL)isExcludedFromAutoFill:(NSUUID *)item {
+    if ( !self.locked ) {
+        return [self.innerModel isExcludedFromAutoFill:item];
+    }
+    else {
+        slog(@"🔴 isExcludedFromAutoFill - Model Locked.");
+        return NO;
+    }
+}
+
+
 
 - (void)addItemTag:(Node *)item tag:(NSString *)tag modified:(NSDate*)modified {
     [self addTagToItems:@[item] tag:tag modified:modified];
@@ -1578,7 +1326,7 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
         [NSException raise:@"Attempt to alter model while locked." format:@"Attempt to alter model while locked"];
     }
     if ( self.isEffectivelyReadOnly ) {
-        NSLog(@"🔴 addTagToItems - Model is RO!");
+        slog(@"🔴 addTagToItems - Model is RO!");
         return;
     }
     
@@ -1617,15 +1365,9 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
     }
     [self.document.undoManager endUndoGrouping];
     
-    [self rebuildFastMaps];
+    [self rebuildMapsAndCaches];
     
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [NSNotificationCenter.defaultCenter postNotificationName:kModelUpdateNotificationTagsChanged object:self userInfo:nil];
-    });
-}
-
-- (void)removeItemTag:(Node *)item tag:(NSString *)tag {
-    [self removeItemTag:item tag:tag modified:nil];
+    [self notifyOnMain:kModelUpdateNotificationTagsChanged];
 }
 
 - (void)removeItemTag:(Node *)item tag:(NSString *)tag modified:(NSDate*)modified {
@@ -1641,7 +1383,7 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
         [NSException raise:@"Attempt to alter model while locked." format:@"Attempt to alter model while locked"];
     }
     if ( self.isEffectivelyReadOnly ) {
-        NSLog(@"🔴 removeTagFromItems - Model is RO!");
+        slog(@"🔴 removeTagFromItems - Model is RO!");
         return;
     }
     
@@ -1680,11 +1422,9 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
     }
     [self.document.undoManager endUndoGrouping];
     
-    [self rebuildFastMaps];
+    [self rebuildMapsAndCaches];
     
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [NSNotificationCenter.defaultCenter postNotificationName:kModelUpdateNotificationTagsChanged object:self userInfo:nil];
-    });
+    [self notifyOnMain:kModelUpdateNotificationTagsChanged];
 }
 
 - (void)renameTag:(NSString *)from to:(NSString*)to {
@@ -1696,12 +1436,12 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
         [NSException raise:@"Attempt to alter model while locked." format:@"Attempt to alter model while locked"];
     }
     if ( self.isEffectivelyReadOnly ) {
-        NSLog(@"🔴 addTagToItems - Model is RO!");
+        slog(@"🔴 addTagToItems - Model is RO!");
         return;
     }
     
     if ( to.length == 0 || from.length == 0 || [from isEqualToString:to] ) {
-        NSLog(@"🔴 renameTag - invalid to or from");
+        slog(@"🔴 renameTag - invalid to or from");
         return;
     }
     
@@ -1732,11 +1472,9 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
     }
     [self.document.undoManager endUndoGrouping];
     
-    [self rebuildFastMaps];
+    [self rebuildMapsAndCaches];
     
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [NSNotificationCenter.defaultCenter postNotificationName:kModelUpdateNotificationTagsChanged object:self userInfo:nil];
-    });
+    [self notifyOnMain:kModelUpdateNotificationTagsChanged];
 }
 
 - (void)deleteTag:(NSString *)tag {
@@ -1747,10 +1485,6 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
 
 
 
-- (NSString*)getDefaultTitle {
-    return NSLocalizedString(@"item_details_vc_new_item_title", @"Untitled");
-}
-
 - (NSSet<Node *> *)getMinimalNodeSet:(const NSArray<Node *> *)nodes {
     return [self.database getMinimalNodeSet:nodes];
 }
@@ -1758,13 +1492,8 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
 
 
 
-- (BOOL)addNewRecord:(Node *_Nonnull)parentGroup {
-    Node* record = [self getDefaultNewEntryNode:parentGroup];
-    return [self addItem:record parent:parentGroup openEntryDetailsWindowWhenDone:YES];
-}
-
-- (BOOL)addNewGroup:(Node *)parentGroup title:(NSString *)title {
-    return [self addNewGroup:parentGroup title:title group:nil];
+- (BOOL)addItem:(Node *)item parent:(Node *)parent {
+    return [self addChildren:@[item] parent:parent];
 }
 
 - (BOOL)addNewGroup:(Node *)parentGroup title:(NSString *)title group:(Node **)group {
@@ -1774,8 +1503,7 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
     
     Node* newGroup = [self getNewGroupWithSafeName:parentGroup title:title];
     
-    BOOL ret = [self addItem:newGroup parent:parentGroup openEntryDetailsWindowWhenDone:NO];
-    
+    BOOL ret = [self addChildren:@[newGroup] parent:parentGroup];
     if ( ret && group ) {
         *group = newGroup;
     }
@@ -1783,29 +1511,17 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
     return ret;
 }
 
-- (BOOL)addItem:(Node *)item parent:(Node *)parent {
-    return [self addItem:item parent:parent openEntryDetailsWindowWhenDone:NO];
-}
-
-- (BOOL)addItem:(Node*)item parent:(Node*)parent openEntryDetailsWindowWhenDone:(BOOL)openEntryDetailsWindowWhenDone {
-    return [self addChildren:@[item] parent:parent openEntryDetailsWindowWhenDone:openEntryDetailsWindowWhenDone];
-}
-
 - (BOOL)addChildren:(NSArray<Node *>*)children parent:(Node *)parent {
-    return [self addChildren:children parent:parent openEntryDetailsWindowWhenDone:NO];
-}
-
-- (BOOL)addChildren:(NSArray<Node *>*)children parent:(Node *)parent openEntryDetailsWindowWhenDone:(BOOL)openEntryDetailsWindowWhenDone {
     if(self.locked) {
         [NSException raise:@"Attempt to alter model while locked." format:@"Attempt to alter model while locked"];
     }
     if ( self.isEffectivelyReadOnly ) {
-        NSLog(@"🔴 addChildren - Model is RO!");
+        slog(@"🔴 addChildren - Model is RO!");
         return NO;
     }
     
     if ( parent == nil ) {
-        NSLog(@"🔴 Failed to add child to NIL parent");
+        slog(@"🔴 Failed to add child to NIL parent");
         return NO;
     }
     
@@ -1820,14 +1536,10 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
     NSString* loc = children.count > 1 ? NSLocalizedString(@"mac_undo_action_add_items", @"Add Items") : NSLocalizedString(@"mac_undo_action_add_item", @"Add Item");
     [self.document.undoManager setActionName:loc];
     
-    [NSNotificationCenter.defaultCenter postNotificationName:kModelUpdateNotificationItemsAdded
-                                                      object:self
-                                                    userInfo:@{ kNotificationUserInfoKeyNode : children ,
-                                                                kNotificationUserInfoKeyBoolParam : @(openEntryDetailsWindowWhenDone)
-                                                             }];
+    [self rebuildMapsAndCaches];
     
-    [self rebuildAutoFillDomainNodeMap];
-    
+    [self notifyOnMain:kModelUpdateNotificationItemsAdded];
+
     return YES;
 }
 
@@ -1836,7 +1548,7 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
         [NSException raise:@"Attempt to alter model while locked." format:@"Attempt to alter model while locked"];
     }
     if ( self.isEffectivelyReadOnly ) {
-        NSLog(@"🔴 unAddChildren - Model is RO!");
+        slog(@"🔴 unAddChildren - Model is RO!");
         return;
     }
     
@@ -1857,12 +1569,40 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
     NSString* loc = children.count > 1 ? NSLocalizedString(@"mac_undo_action_add_items", @"Add Items") : NSLocalizedString(@"mac_undo_action_add_item", @"Add Item");
     [self.document.undoManager setActionName:loc];
     
-    [self rebuildAutoFillDomainNodeMap];
+    [self rebuildMapsAndCaches];
     
-    [NSNotificationCenter.defaultCenter postNotificationName:kModelUpdateNotificationItemsDeleted
-                                                      object:self
-                                                    userInfo:@{ kNotificationUserInfoKeyNode : children }];
+    [self notifyOnMain:kModelUpdateNotificationItemsDeleted];
 }
+
+
+
+- (Node*)duplicateWithOptions:(NSUUID*)itemId
+                        title:(NSString*)title
+            preserveTimestamp:(BOOL)preserveTimestamp
+            referencePassword:(BOOL)referencePassword
+            referenceUsername:(BOOL)referenceUsername {
+    if(self.locked) {
+        [NSException raise:@"Attempt to alter model while locked." format:@"Attempt to alter model while locked"];
+    }
+    if ( self.isEffectivelyReadOnly ) {
+        slog(@"🔴 duplicateWithOptions - Model is RO!");
+        return nil;
+    }
+
+    Node* dupe = [self.commonModel duplicateWithOptions:itemId 
+                                                  title:title
+                                      preserveTimestamp:preserveTimestamp
+                                      referencePassword:referencePassword
+                                      referenceUsername:referencePassword];
+        
+    if ( !dupe || ![self addChildren:@[dupe] parent:dupe.parent] ) {
+        return nil;
+    }
+    
+    return dupe;
+}
+
+
 
 - (BOOL)canRecycle:(Node *)item {
     return [self.database canRecycle:item.uuid];
@@ -1873,12 +1613,12 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
         [NSException raise:@"Attempt to alter model while locked." format:@"Attempt to alter model while locked"];
     }
     if ( self.isEffectivelyReadOnly ) {
-        NSLog(@"🔴 deleteItems - Model is RO!");
+        slog(@"🔴 deleteItems - Model is RO!");
         return;
     }
     
     NSArray<NodeHierarchyReconstructionData*>* undoData;
-    [self.database deleteItems:items undoData:&undoData];
+    [self.innerModel deleteItems:items undoData:&undoData];
     
     [[self.document.undoManager prepareWithInvocationTarget:self] unDeleteItems:undoData];
     
@@ -1887,11 +1627,9 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
     
     [self.document.undoManager setActionName:loc];
     
-    [NSNotificationCenter.defaultCenter postNotificationName:kModelUpdateNotificationItemsDeleted
-                                                      object:self
-                                                    userInfo:@{ kNotificationUserInfoKeyNode : items }];
-    
-    [self rebuildAutoFillDomainNodeMap];
+    [self rebuildMapsAndCaches];
+
+    [self notifyOnMain:kModelUpdateNotificationItemsDeleted];
 }
 
 - (void)unDeleteItems:(NSArray<NodeHierarchyReconstructionData*>*)undoData {
@@ -1899,11 +1637,11 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
         [NSException raise:@"Attempt to alter model while locked." format:@"Attempt to alter model while locked"];
     }
     if ( self.isEffectivelyReadOnly ) {
-        NSLog(@"🔴 unDeleteItems - Model is RO!");
+        slog(@"🔴 unDeleteItems - Model is RO!");
         return;
     }
     
-    [self.database unDelete:undoData];
+    [self.innerModel unDelete:undoData];
     
     NSArray<Node*>* items = [undoData map:^id _Nonnull(NodeHierarchyReconstructionData * _Nonnull obj, NSUInteger idx) {
         return obj.clonedNode;
@@ -1916,11 +1654,9 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
     
     [self.document.undoManager setActionName:loc];
     
-    [self rebuildAutoFillDomainNodeMap];
+    [self rebuildMapsAndCaches];
     
-    [NSNotificationCenter.defaultCenter postNotificationName:kModelUpdateNotificationItemsUnDeleted
-                                                      object:self
-                                                    userInfo:nil];
+    [self notifyOnMain:kModelUpdateNotificationItemsUnDeleted];
 }
 
 
@@ -1930,12 +1666,12 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
         [NSException raise:@"Attempt to alter model while locked." format:@"Attempt to alter model while locked"];
     }
     if ( self.isEffectivelyReadOnly ) {
-        NSLog(@"🔴 recycleItems - Model is RO!");
+        slog(@"🔴 recycleItems - Model is RO!");
         return NO;
     }
     
     NSArray<NodeHierarchyReconstructionData*> *undoData;
-    BOOL ret = [self.database recycleItems:items undoData:&undoData];
+    BOOL ret = [self.innerModel recycleItems:items undoData:&undoData];
     
     [[self.document.undoManager prepareWithInvocationTarget:self] unRecycleItems:undoData];
     
@@ -1944,12 +1680,10 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
     [self.document.undoManager setActionName:loc];
     
     if (ret) {
-        [NSNotificationCenter.defaultCenter postNotificationName:kModelUpdateNotificationItemsDeleted
-                                                          object:self
-                                                        userInfo:@{ kNotificationUserInfoKeyNode : items }];
+        [self notifyOnMain:kModelUpdateNotificationItemsDeleted];
     }
     
-    [self rebuildAutoFillDomainNodeMap];
+    [self rebuildMapsAndCaches];
     
     return ret;
 }
@@ -1959,11 +1693,11 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
         [NSException raise:@"Attempt to alter model while locked." format:@"Attempt to alter model while locked"];
     }
     if ( self.isEffectivelyReadOnly ) {
-        NSLog(@"🔴 unRecycleItems - Model is RO!");
+        slog(@"🔴 unRecycleItems - Model is RO!");
         return;
     }
     
-    [self.database undoRecycle:undoData];
+    [self.innerModel undoRecycle:undoData];
     
     NSArray<Node*>* items = [undoData map:^id _Nonnull(NodeHierarchyReconstructionData * _Nonnull obj, NSUInteger idx) {
         return obj.clonedNode;
@@ -1976,11 +1710,13 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
     
     [self.document.undoManager setActionName:loc];
     
-    [NSNotificationCenter.defaultCenter postNotificationName:kModelUpdateNotificationItemsUnDeleted
-                                                      object:self
-                                                    userInfo:nil];
+    [self rebuildMapsAndCaches];
     
-    [self rebuildAutoFillDomainNodeMap];
+    [self notifyOnMain:kModelUpdateNotificationItemsUnDeleted];
+}
+
+- (BOOL)isInRecycled:(NSUUID *)itemId {
+    return [self.innerModel isInRecycled:itemId];
 }
 
 
@@ -1995,28 +1731,26 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
         [NSException raise:@"Attempt to alter model while locked." format:@"Attempt to alter model while locked"];
     }
     if ( self.isEffectivelyReadOnly ) {
-        NSLog(@"🔴 move - Model is RO!");
+        slog(@"🔴 move - Model is RO!");
         return NO;
     }
     
     NSArray<NodeHierarchyReconstructionData*> *undoData;
-    BOOL ret = [self.database moveItems:items destination:destination undoData:&undoData];
-    
-    [[self.document.undoManager prepareWithInvocationTarget:self] unMove:undoData destination:destination];
-    
-    NSString* loc = items.count > 1 ? NSLocalizedString(@"mac_undo_action_move_items", @"Move Items") :
-    NSLocalizedString(@"mac_undo_action_move_item", @"Move Item");
-    
-    [self.document.undoManager setActionName:loc];
+    BOOL ret = [self.innerModel moveItems:items destination:destination undoData:&undoData];
     
     if (ret) {
-        [NSNotificationCenter.defaultCenter postNotificationName:kModelUpdateNotificationItemsMoved
-                                                          object:self
-                                                        userInfo:@{ kNotificationUserInfoKeyNode : items }];
+        [[self.document.undoManager prepareWithInvocationTarget:self] unMove:undoData destination:destination];
+        
+        NSString* loc = items.count > 1 ? NSLocalizedString(@"mac_undo_action_move_items", @"Move Items") :
+        NSLocalizedString(@"mac_undo_action_move_item", @"Move Item");
+        
+        [self.document.undoManager setActionName:loc];
+        
+        [self rebuildMapsAndCaches];
+
+        [self notifyOnMain:kModelUpdateNotificationItemsMoved];
     }
-    
-    [self rebuildAutoFillDomainNodeMap];
-    
+        
     return ret;
 }
 
@@ -2025,11 +1759,11 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
         [NSException raise:@"Attempt to alter model while locked." format:@"Attempt to alter model while locked"];
     }
     if ( self.isEffectivelyReadOnly ) {
-        NSLog(@"🔴 unMove - Model is RO!");
+        slog(@"🔴 unMove - Model is RO!");
         return;
     }
     
-    [self.database undoMove:undoData];
+    [self.innerModel undoMove:undoData];
     
     NSArray<Node*>* items = [undoData map:^id _Nonnull(NodeHierarchyReconstructionData * _Nonnull obj, NSUInteger idx) {
         return obj.clonedNode;
@@ -2042,11 +1776,9 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
     
     [self.document.undoManager setActionName:loc];
     
-    [NSNotificationCenter.defaultCenter postNotificationName:kModelUpdateNotificationItemsMoved
-                                                      object:self
-                                                    userInfo:nil];
+    [self rebuildMapsAndCaches];
     
-    [self rebuildAutoFillDomainNodeMap];
+    [self notifyOnMain:kModelUpdateNotificationItemsMoved];
 }
 
 - (BOOL)moveItemsIntoNewGroup:(const NSArray<Node *> *)items parentGroup:(Node *)parentGroup title:(NSString *)title group:(Node **)group {
@@ -2054,7 +1786,7 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
         [NSException raise:@"Attempt to alter model while locked." format:@"Attempt to alter model while locked"];
     }
     if ( self.isEffectivelyReadOnly ) {
-        NSLog(@"🔴 moveItemsIntoNewGroup: MODEL is READ-ONLY!");
+        slog(@"🔴 moveItemsIntoNewGroup: MODEL is READ-ONLY!");
         return NO;
     }
     
@@ -2075,12 +1807,12 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
     
     Node* newGroup = [self getNewGroupWithSafeName:parentGroup title:title];
     if ( ![self.innerModel addChildren:@[newGroup] destination:parentGroup] ) {
-        NSLog(@"🔴 Failed to add child");
+        slog(@"🔴 Failed to add child");
         return NO;
     }
     
     if ( ![self move:items destination:newGroup] ) {
-        NSLog(@"🔴 Cannot move these items into this new group");
+        slog(@"🔴 Cannot move these items into this new group");
         return NO;
     }
     
@@ -2097,7 +1829,7 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
     }
     
     if ( self.isEffectivelyReadOnly ) {
-        NSLog(@"🔴 move - Model is RO!");
+        slog(@"🔴 move - Model is RO!");
         return NO;
     }
     
@@ -2107,8 +1839,8 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
         [[self.document.undoManager prepareWithInvocationTarget:self] reorderItem:nodeId idx:prevIdx];
         
         [self.document.undoManager setActionName:NSLocalizedString(@"mac_undo_action_move_item", @"Move Item")];
-        
-        [NSNotificationCenter.defaultCenter postNotificationName:kModelUpdateNotificationItemReOrdered object:self userInfo:@{ }];
+    
+        [self notifyOnMain:kModelUpdateNotificationItemReOrdered];
     }
     
     return prevIdx;
@@ -2121,7 +1853,7 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
         [NSException raise:@"Attempt to alter model while locked." format:@"Attempt to alter model while locked"];
     }
     if ( self.isEffectivelyReadOnly ) {
-        NSLog(@"🔴 setGroupExpandedState - Model is RO!");
+        slog(@"🔴 setGroupExpandedState - Model is RO!");
         return;
     }
     
@@ -2141,55 +1873,7 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
 }
 
 
-- (Node*)getDefaultNewEntryNode:(Node *_Nonnull)parentGroup {
-    AutoFillNewRecordSettings *autoFill = Settings.sharedInstance.autoFillNewRecordSettings;
-    BOOL useParentGroupIcon = Settings.sharedInstance.useParentGroupIconOnCreate;
-    
-    
-    
-    NSString *actualTitle = autoFill.titleAutoFillMode == kDefault ? [self getDefaultTitle] :
-    autoFill.titleAutoFillMode == kSmartUrlFill ? [self getSmartFillTitle] : autoFill.titleCustomAutoFill;
-    
-    
-    
-    NSString *actualUsername = autoFill.usernameAutoFillMode == kNone ? @"" :
-    autoFill.usernameAutoFillMode == kMostUsed ? [self getAutoFillMostPopularUsername] : autoFill.usernameCustomAutoFill;
-    
-    
-    
-    NSString *actualPassword = autoFill.passwordAutoFillMode == kNone ? @"" : autoFill.passwordAutoFillMode == kGenerated ? [self generatePassword] : autoFill.passwordCustomAutoFill;
-    
-    
-    
-    NSString *actualEmail = autoFill.emailAutoFillMode == kNone ? @"" :
-    autoFill.emailAutoFillMode == kMostUsed ? [self getAutoFillMostPopularEmail] : autoFill.emailCustomAutoFill;
-    
-    
-    
-    NSString *actualUrl = autoFill.urlAutoFillMode == kNone ? @"" :
-    autoFill.urlAutoFillMode == kSmartUrlFill ? [self getSmartFillUrl] : autoFill.urlCustomAutoFill;
-    
-    
-    
-    NSString *actualNotes = autoFill.notesAutoFillMode == kNone ? @"" :
-    autoFill.notesAutoFillMode == kClipboard ? [self getSmartFillNotes] : autoFill.notesCustomAutoFill;
-    
-    
-    
-    NodeFields* fields = [[NodeFields alloc] initWithUsername:actualUsername
-                                                          url:actualUrl
-                                                     password:actualPassword
-                                                        notes:actualNotes
-                                                        email:actualEmail];
-    
-    Node* record = [[Node alloc] initAsRecord:actualTitle parent:parentGroup fields:fields uuid:nil];
-    
-    if ( useParentGroupIcon && !parentGroup.isUsingKeePassDefaultIcon ) {
-        record.icon = parentGroup.icon;
-    }
-    
-    return record;
-}
+
 
 - (Node*)getNewGroupWithSafeName:(Node *)parentGroup title:(NSString *)title {
     if ( !parentGroup ) {
@@ -2210,63 +1894,11 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
     return newGroup;
 }
 
-- (NSString*)getSmartFillTitle {
-    NSPasteboard*  myPasteboard  = [NSPasteboard generalPasteboard];
-    NSString* clipboardText = [myPasteboard  stringForType:NSPasteboardTypeString];
-    
-    if(clipboardText) {
-        
-        
-        NSURL *url = clipboardText.urlExtendedParse;
-        
-        if (url && url.scheme && url.host)
-        {
-            return url.host;
-        }
-    }
-    
-    return [self getDefaultTitle];
-}
-
-- (NSString*)getSmartFillUrl {
-    NSPasteboard*  myPasteboard  = [NSPasteboard generalPasteboard];
-    NSString* clipboardText = [myPasteboard  stringForType:NSPasteboardTypeString];
-    
-    if(clipboardText) {
-        NSURL *url = clipboardText.urlExtendedParse;
-        if (url && url.scheme && url.host)
-        {
-            return clipboardText;
-        }
-    }
-    
-    return @"";
-}
-
-- (NSString*)getSmartFillNotes {
-    NSPasteboard*  myPasteboard  = [NSPasteboard generalPasteboard];
-    NSString* clipboardText = [myPasteboard  stringForType:NSPasteboardTypeString];
-    
-    if(clipboardText) {
-        return clipboardText;
-    }
-    
-    return @"";
-}
-
-- (NSString*)getAutoFillMostPopularUsername {
-    return self.database.mostPopularUsername == nil ? @"" : self.database.mostPopularUsername;
-}
-
-- (NSString*)getAutoFillMostPopularEmail {
-    return self.database.mostPopularEmail == nil ? @"" : self.database.mostPopularEmail;
-}
-
 - (Node*)getItemFromSerializationId:(NSString*)serializationId {
     return [self.database getItemByCrossSerializationFriendlyId:serializationId];
 }
 
-- (NSString*)generatePassword {
+- (NSString *)generatePassword {
     return [PasswordMaker.sharedInstance generateForConfigOrDefault:Settings.sharedInstance.passwordGenerationConfig];
 }
 
@@ -2290,9 +1922,9 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
     return self.database.usernameSet;
 }
 
-- (NSSet<NSString*> *)passwordSet {
-    return self.database.passwordSet;
-}
+
+
+
 
 - (NSString *)mostPopularUsername {
     return self.database.mostPopularUsername;
@@ -2314,52 +1946,21 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
     return self.database.mostPopularTags;
 }
 
-- (NSInteger)numberOfRecords {
-    return self.database.numberOfRecords;
+- (NSInteger)fastEntryTotalCount {
+    return self.database.fastEntryTotalCount;
 }
 
-- (NSInteger)numberOfGroups {
-    return self.database.numberOfGroups;
+- (NSInteger)fastGroupTotalCount {
+    return self.database.fastGroupTotalCount;
 }
 
-- (BOOL)isTitleMatches:(NSString*)searchText node:(Node*)node dereference:(BOOL)dereference {
-    return [self.database isTitleMatches:searchText node:node dereference:dereference checkPinYin:NO];
-}
-
-- (BOOL)isUsernameMatches:(NSString*)searchText node:(Node*)node dereference:(BOOL)dereference {
-    return [self.database isUsernameMatches:searchText node:node dereference:dereference checkPinYin:NO];
-}
-
-- (BOOL)isPasswordMatches:(NSString*)searchText node:(Node*)node dereference:(BOOL)dereference {
-    return [self.database isPasswordMatches:searchText node:node dereference:dereference checkPinYin:NO];
-}
-
-- (BOOL)isUrlMatches:(NSString*)searchText node:(Node*)node dereference:(BOOL)dereference {
-    return [self.database isUrlMatches:searchText node:node dereference:dereference checkPinYin:NO];
-}
-
-- (BOOL)isAllFieldsMatches:(NSString*)searchText node:(Node*)node dereference:(BOOL)dereference {
-    return [self.database isAllFieldsMatches:searchText node:node dereference:dereference checkPinYin:NO];
-}
-
-- (NSArray<NSString*>*)getSearchTerms:(NSString *)searchText {
-    return [self.database getSearchTerms:searchText];
-}
 
 - (NSString *)getHtmlPrintString:(NSString*)databaseName {
     return [self.database getHtmlPrintString:databaseName];
 }
 
-
-
-- (BOOL)showTotp {
-    return !self.databaseMetadata.doNotShowTotp;
-}
-
-- (void)setShowTotp:(BOOL)showTotp {
-    self.databaseMetadata.doNotShowTotp = !showTotp;
-    
-    [self publishDatabasePreferencesChangedNotification];
+- (NSString *)getHtmlPrintStringForItems:(NSString *)databaseName items:(NSArray<Node *> *)items {
+    return [self.database getHtmlPrintStringForItems:databaseName items:items];
 }
 
 - (BOOL)showAutoCompleteSuggestions {
@@ -2386,22 +1987,6 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
 
 - (void)setConcealEmptyProtectedFields:(BOOL)concealEmptyProtectedFields {
     self.databaseMetadata.concealEmptyProtectedFields = concealEmptyProtectedFields;
-}
-
-- (BOOL)lockOnScreenLock {
-    return self.databaseMetadata.lockOnScreenLock;
-}
-
-- (void)setLockOnScreenLock:(BOOL)lockOnScreenLock {
-    self.databaseMetadata.lockOnScreenLock = lockOnScreenLock;
-}
-
-- (BOOL)autoPromptForConvenienceUnlockOnActivate {
-    return self.databaseMetadata.autoPromptForConvenienceUnlockOnActivate;
-}
-
-- (void)setAutoPromptForConvenienceUnlockOnActivate:(BOOL)autoPromptForConvenienceUnlockOnActivate {
-    self.databaseMetadata.autoPromptForConvenienceUnlockOnActivate = autoPromptForConvenienceUnlockOnActivate;
 }
 
 - (BOOL)showAdvancedUnlockOptions {
@@ -2459,6 +2044,51 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
     [self publishDatabasePreferencesChangedNotification];
 }
 
+- (SideBarChildCountFormat)sideBarChildCountFormat {
+    return self.databaseMetadata.sideBarChildCountFormat;
+}
+
+- (void)setSideBarChildCountFormat:(SideBarChildCountFormat)sideBarChildCountFormat {
+    self.databaseMetadata.sideBarChildCountFormat = sideBarChildCountFormat;
+    [self publishDatabasePreferencesChangedNotification];
+}
+
+- (NSString *)sideBarChildCountSeparator {
+    return self.databaseMetadata.sideBarChildCountSeparator;
+}
+
+- (void)setSideBarChildCountSeparator:(NSString *)sideBarChildCountSeparator {
+    self.databaseMetadata.sideBarChildCountSeparator = sideBarChildCountSeparator;
+    [self publishDatabasePreferencesChangedNotification];
+}
+
+- (BOOL)sideBarChildCountShowZero {
+    return self.databaseMetadata.sideBarChildCountShowZero;
+}
+
+- (void)setSideBarChildCountShowZero:(BOOL)sideBarChildCountShowZero {
+    self.databaseMetadata.sideBarChildCountShowZero = sideBarChildCountShowZero;
+    [self publishDatabasePreferencesChangedNotification];
+}
+
+- (NSString *)sideBarChildCountGroupPrefix {
+    return self.databaseMetadata.sideBarChildCountGroupPrefix;
+}
+
+- (void)setSideBarChildCountGroupPrefix:(NSString *)sideBarChildCountGroupPrefix {
+    self.databaseMetadata.sideBarChildCountGroupPrefix = sideBarChildCountGroupPrefix;
+    [self publishDatabasePreferencesChangedNotification];
+}
+
+- (BOOL)sideBarShowTotalCountOnHierarchy {
+    return self.databaseMetadata.sideBarShowTotalCountOnHierarchy;
+}
+
+- (void)setSideBarShowTotalCountOnHierarchy:(BOOL)sideBarShowTotalCountOnHierarchy {
+    self.databaseMetadata.sideBarShowTotalCountOnHierarchy = sideBarShowTotalCountOnHierarchy;
+    [self publishDatabasePreferencesChangedNotification];
+}
+
 - (NSArray *)visibleColumns {
     return self.databaseMetadata.visibleColumns;
 }
@@ -2499,14 +2129,6 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
 
 - (void)setOutlineViewTitleIsReadonly:(BOOL)outlineViewTitleIsReadonly {
     self.databaseMetadata.outlineViewTitleIsReadonly = outlineViewTitleIsReadonly;
-}
-
-- (BOOL)outlineViewEditableFieldsAreReadonly {
-    return self.databaseMetadata.outlineViewEditableFieldsAreReadonly;
-}
-
-- (void)setOutlineViewEditableFieldsAreReadonly:(BOOL)outlineViewEditableFieldsAreReadonly {
-    self.databaseMetadata.outlineViewEditableFieldsAreReadonly = outlineViewEditableFieldsAreReadonly;
 }
 
 - (BOOL)showRecycleBinInSearchResults {
@@ -2579,16 +2201,6 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
     [self publishDatabasePreferencesChangedNotification];
 }
 
-- (BOOL)offlineMode {
-    return self.databaseMetadata.offlineMode;
-}
-
-- (void)setOfflineMode:(BOOL)offlineMode {
-    self.databaseMetadata.offlineMode = offlineMode;
-    
-    [self publishDatabasePreferencesChangedNotification];
-}
-
 - (NSUUID *)asyncUpdateId {
     return self.databaseMetadata.asyncUpdateId;
 }
@@ -2601,12 +2213,12 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
 
 
 
-- (KeePassIconSet)iconSet {
-    return self.databaseMetadata.iconSet;
+- (KeePassIconSet)keePassIconSet {
+    return self.databaseMetadata.keePassIconSet;
 }
 
-- (void)setIconSet:(KeePassIconSet)iconSet {
-    self.databaseMetadata.iconSet = iconSet;
+- (void)setKeePassIconSet:(KeePassIconSet)keePassIconSet {
+    self.databaseMetadata.keePassIconSet = keePassIconSet;
     
     [self publishDatabasePreferencesChangedNotification];
 }
@@ -2614,15 +2226,11 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
 
 
 - (void)publishDatabasePreferencesChangedNotification {
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [NSNotificationCenter.defaultCenter postNotificationName:kModelUpdateNotificationDatabasePreferenceChanged object:self userInfo:@{ }];
-    });
+    [self notifyOnMain:kModelUpdateNotificationDatabasePreferenceChanged];
 }
 
 - (void)publishDatabaseUpdateStatusChangedNotification {
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [NSNotificationCenter.defaultCenter postNotificationName:kModelUpdateNotificationDatabaseUpdateStatusChanged object:self userInfo:@{ }];
-    });
+    [self notifyOnMain:kModelUpdateNotificationDatabaseUpdateStatusChanged];
 }
 
 
@@ -2815,17 +2423,12 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
 }
 
 - (void)publishNextGenSelectedItemsChanged {
-    NSLog(@"✅ publishNextGenSelectedItemsChanged");
-    
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [NSNotificationCenter.defaultCenter postNotificationName:kModelUpdateNotificationNextGenSelectedItemsChanged object:self userInfo:nil];
-    });
+
+    [self notifyOnMain:kModelUpdateNotificationNextGenSelectedItemsChanged];
 }
 
 - (void)publishNextGenNavigationContextChanged {
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [NSNotificationCenter.defaultCenter postNotificationName:kModelUpdateNotificationNextGenNavigationChanged object:self userInfo:nil];
-    });
+    [self notifyOnMain:kModelUpdateNotificationNextGenNavigationChanged];
 }
 
 
@@ -2852,10 +2455,19 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
     }
 }
 
+- (BOOL)nextGenSearchIncludeGroups {
+    return self.databaseMetadata.searchIncludeGroups;
+}
+
+- (void)setNextGenSearchIncludeGroups:(BOOL)nextGenSearchIncludeGroups {
+    if ( self.nextGenSearchIncludeGroups != nextGenSearchIncludeGroups ) {
+        self.databaseMetadata.searchIncludeGroups = nextGenSearchIncludeGroups;
+        [self publishNextGenSearchContextChanged];
+    }
+}
+
 - (void)publishNextGenSearchContextChanged {
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [NSNotificationCenter.defaultCenter postNotificationName:kModelUpdateNotificationNextGenSearchContextChanged object:self userInfo:nil];
-    });
+    [self notifyOnMain:kModelUpdateNotificationNextGenSearchContextChanged];
 }
 
 
@@ -2900,92 +2512,30 @@ NSString* const kNotificationUserInfoKeyBoolParam = @"boolean";
 
 
 
-- (NSArray<Node *> *)getAutoFillMatchingNodesForUrl:(NSString *)urlString {
-    if ( !self.locked ) {
-        if ( self.databaseMetadata.autoFillEnabled ) {
-            NSSet<NSUUID*>* matches = [BrowserAutoFillManager getMatchingNodesWithUrl:urlString domainNodeMap:self.domainNodeMap];
-            
-            return [self.innerModel getItemsById:matches.allObjects];
-        }
-        else {
-            return @[];
-        }
-    }
-    else {
-        NSLog(@"🔴 autoFillUrlCredentialMatchesForUrl - Model Locked cannot get item.");
-        return @[];
-    }
-}
-
-- (void)rebuildFastMaps {
-    [self.database rebuildFastMaps];
+- (void)rebuildMapsAndCaches { 
+    [self.innerModel refreshCaches];
     
-    [self rebuildAutoFillDomainNodeMap];
+    [self cacheKeeAgentPublicKeysOffline];
 }
 
-- (void)rebuildAutoFillDomainNodeMap {
-    NSLog(@"ViewModel::rebuildAutoFillDomainNodeMap");
+- (void)cacheKeeAgentPublicKeysOffline {
+    if ( !Settings.sharedInstance.runSshAgent ) {
+        
+        return;
+    }
     
-    if ( !self.locked ) {
-        if ( self.databaseMetadata.autoFillEnabled ) {
-            _domainNodeMap = [BrowserAutoFillManager loadDomainNodeMap:self.database
-                                                       alternativeUrls:self.databaseMetadata.autoFillScanAltUrls
-                                                          customFields:self.databaseMetadata.autoFillScanCustomFields
-                                                                 notes:self.databaseMetadata.autoFillScanNotes];
+    NSSet<NSData*>* pkBlobs = [self.keeAgentSshKeyEntries map:^id _Nonnull(Node * _Nonnull obj, NSUInteger idx) {
+        KeeAgentSshKeyViewModel* theKey = obj.keeAgentSshKeyViewModel;
+        
+        if ( theKey && theKey.enabled ) {
+            return theKey.openSshKey.publicKeySerializationBlob;
         }
-        else {
-            _domainNodeMap = @{};
-        }
-    }
-    else {
-        NSLog(@"🔴 rebuildDomainNodeMap - Model Locked");
-        _domainNodeMap = @{};
-    }
-}
-
-
-
-- (void)copyUsername:(NSUUID *)itemId {
-    Node* item = [self getItemById:itemId];
+        
+        return nil;
+    }].set;
     
-    if ( item ) {
-        [self dereferenceAndCopy:item.fields.username item:item];
-    }
-}
-
-- (void)copyPassword:(NSUUID *)itemId {
-    Node* item = [self getItemById:itemId];
-    
-    if ( item ) {
-        [self dereferenceAndCopy:item.fields.password item:item];
-    }
-}
-
-- (void)copyTotp:(NSUUID *)itemId {
-    Node* item = [self getItemById:itemId];
-    
-    if ( item ) {
-        if ( item.fields.otpToken ) {
-            NSString *password = item.fields.otpToken.password;
-            [ClipboardManager.sharedInstance copyConcealedString:password];
-            [self scheduleClipboardClearingTask];
-        }
-    }
-}
-
-- (void)dereferenceAndCopy:(NSString*)text item:(Node*)item {
-    NSString* deref = [self dereference:text node:item];
-    [ClipboardManager.sharedInstance copyConcealedString:deref];
-    [self scheduleClipboardClearingTask];
-}
-
-- (void)scheduleClipboardClearingTask {
-    if ( Settings.sharedInstance.clearClipboardEnabled ) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            AppDelegate* appDelegate = (AppDelegate*)[NSApplication sharedApplication].delegate;
-            [appDelegate onStrongboxDidChangeClipboard];
-        });
-    }
+    [SSHAgentRequestHandler.shared updateOfflinePublicKeysForDatabaseWithPublicKeyBlobs:pkBlobs.allObjects
+                                                                           databaseUuid:self.databaseUuid];
 }
 
 @end

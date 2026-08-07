@@ -50,6 +50,16 @@
 
 @implementation UpgradeViewController
 
++ (instancetype)fromStoryboard {
+    UIStoryboard* storyboard = [UIStoryboard storyboardWithName:@"Upgrade" bundle:nil];
+    UpgradeViewController* vc = [storyboard instantiateInitialViewController];
+    
+    vc.modalPresentationStyle = UIModalPresentationFullScreen;
+    vc.modalInPresentation = YES;
+    
+    return vc;
+}
+
 - (void)viewDidLoad {
     [super viewDidLoad];
 
@@ -109,10 +119,7 @@
                                                                 body:NSLocalizedString(@"upgrade_vc_feature_subtitle_compare_and_merge", @"View & Combine Revisions")
                                                                 tint:UIColor.whiteColor];
 
-    UIImage* image = [UIImage imageNamed:@"upgrade_carousel_offline"];
-    if (@available(iOS 13.0, *)) {
-        image = [UIImage systemImageNamed:@"bolt.circle.fill"];
-    }
+    UIImage* image = [UIImage systemImageNamed:@"bolt.circle.fill"];
     
     ZKCarouselSlide* offline = [[ZKCarouselSlide alloc] initWithImage:image
                                                                 title:NSLocalizedString(@"upgrade_vc_feature_offline_editing", @"Offline Editing")
@@ -129,10 +136,7 @@
                                                                            body:NSLocalizedString(@"upgrade_vc_feature_subtitle_favicon_downloader", @"Make your entries stand out")
                                                                            tint:UIColor.whiteColor];
 
-    UIImage* image2 = [UIImage imageNamed:@"upgrade_carousel_heart"];
-    if (@available(iOS 13.0, *)) {
-        image2 = [UIImage systemImageNamed:@"heart.circle"];
-    }
+    UIImage* image2 = [UIImage systemImageNamed:@"heart.circle"];
 
     ZKCarouselSlide* indieDev = [[ZKCarouselSlide alloc] initWithImage:image2
                                                                  title:NSLocalizedString(@"upgrade_vc_feature_support_indie", @"Support Indie Development")
@@ -184,13 +188,11 @@
     
     self.buttonViewMonthly.layer.cornerRadius = kRadius;
     
-    if (@available(iOS 13.0, *)) {
-        if ( self.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark ) {
-            self.buttonViewMonthly.backgroundColor = UIColor.systemGray5Color;
-        }
-        else {
-            self.buttonViewMonthly.backgroundColor = UIColor.systemGray5Color;
-        }
+    if ( self.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark ) {
+        self.buttonViewMonthly.backgroundColor = UIColor.systemGray5Color;
+    }
+    else {
+        self.buttonViewMonthly.backgroundColor = UIColor.systemGray5Color;
     }
     
     self.buttonViewYearly.layer.cornerRadius = kRadius;
@@ -261,7 +263,8 @@
     [self bindSale];
 }
 
-- (void)bindSale { 
+- (void)bindSale {
+    
     self.stackSale.hidden = YES; 
 
 
@@ -329,7 +332,15 @@
             self.freeTrialBadge.hidden = NO;
             fmt = [NSString stringWithFormat:NSLocalizedString(@"upgrade_vc_price_per_year_with_free_trial_fmt", @"then %@ every year"), priceText];
             self.yearlyBonusLabel.hidden = YES;
-            self.labelFirstMonthsFree.hidden = NO;
+
+            NSString* trialDuration = ProUpgradeIAPManager.sharedInstance.freeTrialDurationText;
+            if ( trialDuration.length > 0 ) {
+                self.labelFirstMonthsFree.hidden = NO;
+                NSString* freeTrialFmt = NSLocalizedString(@"upgrade_vc_first_period_free_fmt", @"First %@ are free,");
+                self.labelFirstMonthsFree.text = [NSString stringWithFormat:freeTrialFmt, trialDuration];
+            } else {
+                self.labelFirstMonthsFree.hidden = YES;
+            }
         }
         else {
             self.freeTrialBadge.hidden = YES;
@@ -355,12 +366,12 @@
     
     [vc loadProductWithParameters:@{ SKStoreProductParameterITunesItemIdentifier : @(1481853033) }
                   completionBlock:^(BOOL result, NSError * _Nullable error) {
-        if ( !result ) {
-            NSLog(@"loadProductWithParameters: result = %hhd, error = %@", result, error);
+        if (result) {
+            [self presentViewController:vc animated:YES completion:nil];
+        } else {
+            slog(@"loadProductWithParameters: result = %hhd, error = %@", result, error);
         }
     }];
-    
-    [self presentViewController:vc animated:YES completion:nil];
 }
 
 - (IBAction)onRestorePurchase:(id)sender {
@@ -379,18 +390,30 @@
             }
             else {
                 if( !AppPreferences.sharedInstance.isPro ) {
-                    [Alerts info:self
-                           title:NSLocalizedString(@"upgrade_vc_restore_unsuccessful_title", @"Restoration Unsuccessful")
-                         message:NSLocalizedString(@"upgrade_vc_restore_unsuccessful_message", @"Upgrade could not be restored from previous purchase. Are you sure you have purchased this item?")
-                      completion:nil];
+                    [self tryRefreshReceiptAfterRestorePurchases];
                 }
                 else {
-                    dispatch_async(dispatch_get_main_queue(), ^(void) {
-                        [self dismiss];
-                    });
+                    [self dismiss];
                 }
             }
         });
+    }];
+}
+
+- (void)tryRefreshReceiptAfterRestorePurchases {
+    [ProUpgradeIAPManager.sharedInstance refreshReceiptAndCheckForProEntitlements:^{
+        dispatch_async(dispatch_get_main_queue(), ^(void) {
+            if( !AppPreferences.sharedInstance.isPro ) {
+                [Alerts info:self
+                       title:NSLocalizedString(@"upgrade_vc_restore_unsuccessful_title", @"Restoration Unsuccessful")
+                     message:NSLocalizedString(@"upgrade_vc_restore_unsuccessful_message", @"Upgrade could not be restored from previous purchase. Are you sure you have purchased this item?")
+                  completion:nil];
+            }
+            else {
+                [self dismiss];
+            }
+        });
+
     }];
 }
 
@@ -464,15 +487,13 @@
 }
 
 - (NSDecimalNumber*)getEffectivePrice:(SKProduct*)product {
-    if (@available(iOS 11.2, *)) {
-        if(product.introductoryPrice) {
-            if ( [product.introductoryPrice.price isEqual:NSDecimalNumber.zero] ) {
-
-                return product.price;
-            }
-            else {
-                return product.introductoryPrice.price;
-            }
+    if(product.introductoryPrice) {
+        if ( [product.introductoryPrice.price isEqual:NSDecimalNumber.zero] ) {
+            
+            return product.price;
+        }
+        else {
+            return product.introductoryPrice.price;
         }
     }
 
@@ -490,11 +511,11 @@ static int calculatePercentageSavings(NSDecimalNumber* price, NSDecimalNumber* m
 }
 
 - (IBAction)onFreeProComparisonChart:(id)sender {
-    [UIApplication.sharedApplication openURL:[NSURL URLWithString:@"https:
+    [UIApplication.sharedApplication openURL:[NSURL URLWithString:@"https://strongboxsafe.com/comparison/"]
                                      options:@{}
                            completionHandler:^(BOOL success) {
         if (!success) {
-            NSLog(@"Couldn't launch this URL!");
+            slog(@"Couldn't launch this URL!");
         }
     }];
 }
@@ -522,4 +543,3 @@ static int calculatePercentageSavings(NSDecimalNumber* price, NSDecimalNumber* m
 }
 
 @end
-

@@ -11,6 +11,7 @@
 #import "CryptoParameters.h"
 #import "CompositeKeyFactors.h"
 #import "InnerRandomStream.h"
+#import "KeyDerivationCipher.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -37,9 +38,14 @@ typedef struct _InnerHeaderEntryHeader {
 typedef void (^Deserialize4CompletionBlock)(BOOL userCancelled, Kdbx4SerializationData *_Nullable serializationData, NSError*_Nullable innerStreamError, NSError*_Nullable error);
 typedef void (^Serialize4CompletionBlock)(BOOL userCancelled, NSError*_Nullable error);
 
+id<KeyDerivationCipher> getKeyDerivationCipher(KdfParameters *kdfParameters, NSError** error);
+    
 @interface Kdbx4Serialization : NSObject
 
 + (nullable CryptoParameters*)getCryptoParams:(NSInputStream*)stream; 
+
++ (NSData*)getYubiKeyChallenge:(NSInputStream *)stream;
++ (NSData *)getYubiKeyChallenge:(KdfParameters *)kdfParameters error:(NSError * _Nullable __autoreleasing *)error;
 
 + (void)deserialize:(NSInputStream*)stream
 compositeKeyFactors:(CompositeKeyFactors*)compositeKeyFactors

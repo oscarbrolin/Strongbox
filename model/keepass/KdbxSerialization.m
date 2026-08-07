@@ -66,7 +66,8 @@ static BOOL kLogVerbose = NO;
     return self;
 }
 
-- (void)stage1Serialize:(CompositeKeyFactors *)compositeKeyFactors completion:(SerializeCompletionBlock)completion {
+- (void)stage1Serialize:(CompositeKeyFactors *)compositeKeyFactors
+             completion:(SerializeCompletionBlock)completion {
     KeepassFileHeader header = getNewFileHeader(self.serializationData.fileVersion);
     [self.headerData appendBytes:&header length:SIZE_OF_KEEPASS_HEADER];
     
@@ -75,10 +76,13 @@ static BOOL kLogVerbose = NO;
     NSData* compositeKey = getCompositeKey(compositeKeyFactors);
     NSData* transformSeed = getRandomData(kDefaultTransformSeedLength);
     NSData* transformKey = getAesTransformKey(compositeKey, transformSeed, self.serializationData.transformRounds);
-    NSData* masterSeed = getRandomData(kMasterSeedLength);
+    NSData* masterSeed = getRandomData(kMasterSeedLength); 
     
     if(compositeKeyFactors.yubiKeyCR) {
         NSData* challenge = masterSeed;
+        
+
+        
         compositeKeyFactors.yubiKeyCR(challenge, ^(BOOL userCancelled, NSData * _Nullable response, NSError * _Nullable error) {
             if(userCancelled || error) {
                 completion(userCancelled, nil, error);
@@ -118,11 +122,11 @@ static BOOL kLogVerbose = NO;
     self.startStream = getRandomData(kDefaultStartStreamBytesLength);
     
     if(kLogVerbose) {
-        NSLog(@"Serialize: compositeKey = [%@]", compositeKey);
-        NSLog(@"Serialize: transformSeed = [%@]", transformSeed);
-        NSLog(@"Serialize: masterSeed = [%@]", masterSeed);
-        NSLog(@"Serialize: encryptionIv = [%@]", self.encryptionIv);
-        NSLog(@"Serialize: StartStream = [%@]", self.startStream);
+        slog(@"Serialize: compositeKey = [%@]", compositeKey);
+        slog(@"Serialize: transformSeed = [%@]", transformSeed);
+        slog(@"Serialize: masterSeed = [%@]", masterSeed);
+        slog(@"Serialize: encryptionIv = [%@]", self.encryptionIv);
+        slog(@"Serialize: StartStream = [%@]", self.startStream);
     }
     
     
@@ -196,14 +200,14 @@ static BOOL readFileHeader(NSInputStream* stream, KeepassFileHeader *pFileHeader
 compositeKeyFactors:(CompositeKeyFactors *)compositeKeyFactors
       xmlDumpStream:(NSOutputStream*)xmlDumpStream
 sanityCheckInnerStream:(BOOL)sanityCheckInnerStream
-         completion:(DeserializeCompletionBlock)completion {
+         completion:(Kdbx31DeserializeCompletionBlock)completion {
     NSMutableData* headerDataForIntegrityCheck = [NSMutableData data];
     
     
     
     KeepassFileHeader fileHeader = {0};
     if (!readFileHeader(stream, &fileHeader)) {
-        NSLog(@"Error reading KDBX 3.1 file header");
+        slog(@"Error reading KDBX 3.1 file header");
         NSError* error = [Utils createNSError:@"Error reading KDBX 3.1 file header" errorCode:-1];
         completion(NO, nil, nil, error);
         return;
@@ -215,7 +219,7 @@ sanityCheckInnerStream:(BOOL)sanityCheckInnerStream
     NSDictionary<NSNumber *,NSObject *> *headerEntries = getHeaderEntries3(stream, headerDataForIntegrityCheck);
     
     if(!headerEntries) {
-        NSLog(@"Error getting header entries. Possibly missing header entry.");
+        slog(@"Error getting header entries. Possibly missing header entry.");
         NSError *error = [Utils createNSError:@"Error getting header entries. Possibly missing entry." errorCode:-3];
         completion(NO, nil, nil, error);
         return;
@@ -225,7 +229,7 @@ sanityCheckInnerStream:(BOOL)sanityCheckInnerStream
     
     DecryptionParameters * decryptionParameters = getDecryptionParameters(headerEntries);
     if(kLogVerbose) {
-        NSLog(@"DecryptionParameters: [%@]", decryptionParameters);
+        slog(@"DecryptionParameters: [%@]", decryptionParameters);
     }
     
     NSData* compositeKey = getCompositeKey(compositeKeyFactors);
@@ -276,12 +280,12 @@ headerDataForIntegrityCheck:(NSData*)headerDataForIntegrityCheck
                 masterKey:(NSData*)masterKey
             xmlDumpStream:(NSOutputStream*)xmlDumpStream
    sanityCheckInnerStream:(BOOL)sanityCheckInnerStream
-               completion:(DeserializeCompletionBlock)completion {
+               completion:(Kdbx31DeserializeCompletionBlock)completion {
     NSMutableData* headerHash = [[NSMutableData alloc] initWithLength:CC_SHA256_DIGEST_LENGTH];
     CC_SHA256(headerDataForIntegrityCheck.bytes, (CC_LONG)headerDataForIntegrityCheck.length, headerHash.mutableBytes);
     
     if(kLogVerbose) {
-        NSLog(@"HEADERHASH (ACTUAL): %@", [headerHash base64EncodedStringWithOptions:kNilOptions]);
+        slog(@"HEADERHASH (ACTUAL): %@", [headerHash base64EncodedStringWithOptions:kNilOptions]);
     }
         
     
@@ -338,7 +342,7 @@ headerDataForIntegrityCheck:(NSData*)headerDataForIntegrityCheck
     [decompressedStream close];
     
     if(rootXmlObject == nil) {
-        NSLog(@"Could not parse XML: [%@]", error);
+        slog(@"Could not parse XML: [%@]", error);
         completion(NO, nil, innerStreamError, error);
         return;
     }
@@ -421,7 +425,7 @@ static NSData * _Nonnull getEncryptionBlob(NSData *payload, NSData* startStream)
         CC_SHA256(block.bytes, (CC_LONG)blockLength, blockHeader.hash);
    
         if(kLogVerbose) {
-            NSLog(@"Writing Block %d [%llu bytes]", blockNumber, blockLength);
+            slog(@"Writing Block %d [%llu bytes]", blockNumber, blockLength);
         }
         
         [blockified appendBytes:&blockHeader length:SIZE_OF_BLOCK_HEADER];
@@ -484,23 +488,27 @@ NSDictionary<NSNumber *,NSObject *>* getHeaderEntries3(NSInputStream* stream, NS
         NSInteger bytesRead = [stream read:(uint8_t*)&headerEntry maxLength:SIZE_OF_HEADER_ENTRY_HEADER];
         
         if (bytesRead < 0 || bytesRead < SIZE_OF_HEADER_ENTRY_HEADER) {
-            NSLog(@"Couldn't read Header Entry Header");
+            slog(@"Couldn't read Header Entry Header");
             return nil;
         }
-        [headerDataForIntegrityCheck appendBytes:&headerEntry length:bytesRead];
-                
+        if ( headerDataForIntegrityCheck ) {
+            [headerDataForIntegrityCheck appendBytes:&headerEntry length:bytesRead];
+        }
+        
         uint16_t length = littleEndian2BytesToUInt16(headerEntry.lengthBytes);
         NSMutableData* headerData = [NSMutableData dataWithLength:length];
         bytesRead = [stream read:headerData.mutableBytes maxLength:length];
         
         if (bytesRead < 0 || bytesRead < length) {
-            NSLog(@"Couldn't read Header: [%ld]", (long)bytesRead);
+            slog(@"Couldn't read Header: [%ld]", (long)bytesRead);
             return nil;
         }
-        [headerDataForIntegrityCheck appendBytes:headerData.bytes length:bytesRead];
-
+        if ( headerDataForIntegrityCheck ) {
+            [headerDataForIntegrityCheck appendBytes:headerData.bytes length:bytesRead];
+        }
+        
         if(kLogVerbose) {
-            NSLog(@"Found Header Entry of Type %d and length %d", headerEntry.id, length);
+            slog(@"Found Header Entry of Type %d and length %d", headerEntry.id, length);
         }
         
         if(END_OF_ENTRIES == headerEntry.id) {
@@ -528,33 +536,33 @@ NSDictionary<NSNumber *,NSObject *>* getHeaderEntries3(NSInputStream* stream, NS
 
 +(BOOL)verifyRequiredHeadersPresent:(NSMutableDictionary<NSNumber *,NSObject *> *)headerEntries {
     if(![headerEntries objectForKey:@(TRANSFORMSEED)]){
-        NSLog(@"Missing required TRANSFORMSEED header entry.");
+        slog(@"Missing required TRANSFORMSEED header entry.");
         return NO;
     }
     
     if(![headerEntries objectForKey:@(TRANSFORMROUNDS)]) {
-        NSLog(@"Missing required TRANSFORMROUNDS header entry.");
+        slog(@"Missing required TRANSFORMROUNDS header entry.");
         return NO;
     }
     
     if(![headerEntries objectForKey:@(MASTERSEED)]) {
-        NSLog(@"Missing required MASTERSEED header entry.");
+        slog(@"Missing required MASTERSEED header entry.");
         return NO;
     }
     
     if(![headerEntries objectForKey:@(ENCRYPTIONIV)]) {
-        NSLog(@"Missing required ENCRYPTIONIV header entry.");
+        slog(@"Missing required ENCRYPTIONIV header entry.");
         return NO;
     }
     
     
     if(![headerEntries objectForKey:@(STREAMSTARTBYTES)]) {
-        NSLog(@"Missing required STREAMSTARTBYTES header entry.");
+        slog(@"Missing required STREAMSTARTBYTES header entry.");
         return NO;
     }
     
     if([headerEntries objectForKey:@(INNERRANDOMSTREAMID)] && ![headerEntries objectForKey:@(PROTECTEDSTREAMKEY)]) {
-        NSLog(@"Missing required PROTECTEDSTREAMKEY because INNERRANDOMSTREAMID is Present.");
+        slog(@"Missing required PROTECTEDSTREAMKEY because INNERRANDOMSTREAMID is Present.");
         return NO;
     }
     
@@ -583,7 +591,7 @@ static DecryptionParameters *getDecryptionParameters(NSDictionary *headerEntries
     decryptionParameters.cipherId = cipherData ? [[NSUUID alloc] initWithUUIDBytes:cipherData.bytes] : aesCipherUuid();
     
     if(kLogVerbose) {
-        NSLog(@"DECRYPTION PARAMETERS = [%@]", decryptionParameters);
+        slog(@"DECRYPTION PARAMETERS = [%@]", decryptionParameters);
     }
     
     return decryptionParameters;
@@ -608,7 +616,7 @@ static NSData *getMaster(NSData* masterSeed, NSData *transformKey, NSData* yubiR
     CC_SHA256_Final(masterKey.mutableBytes, &context);
     
     if(kLogVerbose) {
-        NSLog(@"MASTER KEY: %@", [masterKey base64EncodedStringWithOptions:kNilOptions]);
+        slog(@"MASTER KEY: %@", [masterKey base64EncodedStringWithOptions:kNilOptions]);
     }
     
     return [masterKey copy];
@@ -642,7 +650,7 @@ static NSData *getCompositeKey(CompositeKeyFactors* compositeKeyFactors) {
     CC_SHA256_Final(compositeKey.mutableBytes, &context);
     
     if(kLogVerbose) {
-        NSLog(@"COMPOSITE KEY: %@", [compositeKey base64EncodedStringWithOptions:kNilOptions]);
+        slog(@"COMPOSITE KEY: %@", [compositeKey base64EncodedStringWithOptions:kNilOptions]);
     }
     
     return compositeKey;

@@ -9,12 +9,35 @@
 #import "NSString+Extensions.h"
 #import "NSData+Extensions.h"
 #import "MMcG_MF_Base32Additions.h"
+#import "SBLog.h"
 
 static NSString* const kDefaultScheme = @"https";
+static NSString* const kDefaultSchemeWithSlashes = @"https://";
 
 static NSString* const kLowerCaseTrue = @"true";
 static NSString* const kLowerCaseFalse = @"false";
 static NSString* const kLowerCaseNull = @"null";
+
+static NSCharacterSet* searchApostropheVariantCharacterSet(void) {
+    static NSCharacterSet* set;
+    static dispatch_once_t onceToken;
+    
+    dispatch_once(&onceToken, ^{
+        unichar chars[] = { 0x2018, 0x2019, 0x201B, 0x02BC, 0xFF07 };
+        NSString* string = [NSString stringWithCharacters:chars length:sizeof(chars) / sizeof(unichar)];
+        set = [NSCharacterSet characterSetWithCharactersInString:string];
+    });
+    
+    return set;
+}
+
+static NSString* normalizedApostrophesForSearch(NSString* string) {
+    if (string.length == 0) {
+        return string;
+    }
+    
+    return [[string componentsSeparatedByCharactersInSet:searchApostropheVariantCharacterSet()] componentsJoinedByString:@"'"];
+}
 
 @implementation NSString (Extensions)
 
@@ -27,12 +50,12 @@ static NSString* const kLowerCaseNull = @"null";
     
         
 
-        _regex = [NSRegularExpression regularExpressionWithPattern:@"^(([^:/?#]+):)?(
+        _regex = [NSRegularExpression regularExpressionWithPattern:@"^(([^:/?#]+):)?(//([^/?#]*))?([^?#]*)(\\?([^#]*))?(#(.*))?"
                                                            options:kNilOptions
                                                              error:&error];
 
         if(error) {
-            NSLog(@"Error compiling Regex: %@", error);
+            slog(@"Error compiling Regex: %@", error);
         }
     });
     
@@ -51,7 +74,7 @@ static NSString* const kLowerCaseNull = @"null";
                                                              error:&error];
 
         if(error) {
-            NSLog(@"Error compiling Regex: %@", error);
+            slog(@"Error compiling Regex: %@", error);
         }
     });
     
@@ -70,7 +93,7 @@ static NSString* const kLowerCaseNull = @"null";
                                                              error:&error];
 
         if(error) {
-            NSLog(@"Error compiling host Regex: %@", error);
+            slog(@"Error compiling host Regex: %@", error);
         }
     });
     
@@ -87,7 +110,7 @@ static NSString* const kLowerCaseNull = @"null";
         hanChineseRegex = [NSRegularExpression regularExpressionWithPattern:@"\\p{Script=Han}" options:NSRegularExpressionCaseInsensitive error:&error];
 
         if(error) {
-            NSLog(@"Error compiling hanChineseRegex: %@", error);
+            slog(@"Error compiling hanChineseRegex: %@", error);
         }
     });
     
@@ -111,6 +134,17 @@ static NSString* const kLowerCaseNull = @"null";
 
 - (NSArray<NSString *> *)lines {
      return [self componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]];
+}
+
+- (NSURL *)urlExtendedParseAddingDefaultScheme {
+    NSURL* url = self.urlExtendedParse;
+    
+    if ( url && url.scheme.length == 0 ) {
+        NSString* foo = [kDefaultSchemeWithSlashes stringByAppendingString:url.absoluteString];
+        return foo.urlExtendedParse;
+    }
+    
+    return url;
 }
 
 - (NSURL*)urlExtendedParse {
@@ -159,6 +193,9 @@ static NSString* const kLowerCaseNull = @"null";
     }
     
     NSString* processedHost =  [hostResult rangeAtIndex:5].location != NSNotFound ? [host substringWithRange:[hostResult rangeAtIndex:5]] : host;
+    
+    processedHost = [host stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLHostAllowedCharacterSet]; 
+    
     NSString* username =  [hostResult rangeAtIndex:2].location != NSNotFound ? [host substringWithRange:[hostResult rangeAtIndex:2]] : nil;
     NSString* password =  [hostResult rangeAtIndex:4].location != NSNotFound ? [host substringWithRange:[hostResult rangeAtIndex:4]] : nil;
     NSString* port =  [hostResult rangeAtIndex:7].location != NSNotFound ? [host substringWithRange:[hostResult rangeAtIndex:7]] : nil;
@@ -189,7 +226,7 @@ static NSString* const kLowerCaseNull = @"null";
         components.password = password;
         components.port = port ? @(port.integerValue) : nil;
     } @catch (NSException *exception) {
-        NSLog(@"Exception while building URL: [%@]", exception);
+        slog(@"Exception while building URL: [%@]", exception);
         return nil;
     } @finally {
         
@@ -255,6 +292,38 @@ static NSString* const kLowerCaseNull = @"null";
     return [self dataUsingEncoding:NSUTF8StringEncoding];
 }
 
+- (StringSearchMatchType)isSearchMatch:(NSString*)searchText checkPinYin:(BOOL)checkPinYin {
+    if ( self.length == 0 || searchText.length == 0) {
+        return kStringSearchMatchTypeNoMatch;
+    }
+
+    if ( self == searchText || ( [self localizedCaseInsensitiveCompare:searchText] == NSOrderedSame ) ) {
+        return kStringSearchMatchTypeExact;
+    }
+    
+    NSRange range = [self rangeOfString:searchText options:NSCaseInsensitiveSearch | NSAnchoredSearch | NSDiacriticInsensitiveSearch];
+    if ( range.location != NSNotFound ) {
+        return kStringSearchMatchTypeStartsWith;
+    }
+    
+    NSString* normalizedSelf = normalizedApostrophesForSearch(self);
+    NSString* normalizedSearchText = normalizedApostrophesForSearch(searchText);
+    if (![normalizedSelf isEqualToString:self] || ![normalizedSearchText isEqualToString:searchText]) {
+        if (normalizedSelf == normalizedSearchText || [normalizedSelf localizedCaseInsensitiveCompare:normalizedSearchText] == NSOrderedSame) {
+            return kStringSearchMatchTypeExact;
+        }
+        
+        NSRange normalizedRange = [normalizedSelf rangeOfString:normalizedSearchText options:NSCaseInsensitiveSearch | NSAnchoredSearch | NSDiacriticInsensitiveSearch];
+        if (normalizedRange.location != NSNotFound) {
+            return kStringSearchMatchTypeStartsWith;
+        }
+    }
+    
+    BOOL contains = [self containsSearchString:searchText checkPinYin:checkPinYin];
+    
+    return contains ? kStringSearchMatchTypeContains : kStringSearchMatchTypeNoMatch;
+}
+
 - (BOOL)containsSearchString:(NSString*)searchText checkPinYin:(BOOL)checkPinYin {
     if ( self.length == 0 || searchText.length == 0) {
         return NO;
@@ -264,6 +333,14 @@ static NSString* const kLowerCaseNull = @"null";
 
     if ( simple ) {
         return YES;
+    }
+    
+    NSString* normalizedSelf = normalizedApostrophesForSearch(self);
+    NSString* normalizedSearchText = normalizedApostrophesForSearch(searchText);
+    if (![normalizedSelf isEqualToString:self] || ![normalizedSearchText isEqualToString:searchText]) {
+        if ([normalizedSelf localizedStandardContainsString:normalizedSearchText]) {
+            return YES;
+        }
     }
     
     if ( !checkPinYin ) {
@@ -324,6 +401,26 @@ static NSString* const kLowerCaseNull = @"null";
     NSCharacterSet* nonNumbers = [[NSCharacterSet decimalDigitCharacterSet] invertedSet];
     NSRange r = [self rangeOfCharacterFromSet:nonNumbers];
     return r.location == NSNotFound && self.length > 0;
+}
+
+- (NSString *)stringByTrimmingLeadingCharactersInSet:(NSCharacterSet *)characterSet {
+    NSRange rangeOfFirstWantedCharacter = [self rangeOfCharacterFromSet:[characterSet invertedSet]];
+    
+    if (rangeOfFirstWantedCharacter.location == NSNotFound) {
+        return @"";
+    }
+    
+    return [self substringFromIndex:rangeOfFirstWantedCharacter.location];
+}
+
+- (NSString *)stringByTrimmingTrailingCharactersInSet:(NSCharacterSet *)characterSet {
+    NSRange rangeOfLastWantedCharacter = [self rangeOfCharacterFromSet:[characterSet invertedSet]
+                                                               options:NSBackwardsSearch];
+    if (rangeOfLastWantedCharacter.location == NSNotFound) {
+        return @"";
+    }
+    
+    return [self substringToIndex:rangeOfLastWantedCharacter.location+1]; 
 }
 
 @end

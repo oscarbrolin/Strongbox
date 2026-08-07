@@ -13,14 +13,16 @@ NS_ASSUME_NONNULL_BEGIN
 
 static NSString* const kCSVHeaderTitle = @"Title";
 static NSString* const kCSVHeaderUsername = @"Username";
-static NSString* const kCSVHeaderUrl = @"Url";
+static NSString* const kCSVHeaderUrl = @"URL";
 static NSString* const kCSVHeaderEmail = @"Email";
 static NSString* const kCSVHeaderPassword = @"Password";
 static NSString* const kCSVHeaderNotes = @"Notes";
+static NSString* const kCSVHeaderTotp = @"OTPAuth";
 
 @interface Csv : NSObject
 
-+ (NSData*)getSafeAsCsv:(DatabaseModel*_Nullable)database;
++ (NSData*)getGroupAsCsv:(Node*_Nullable)database;
++ (NSData*)getNodesAsCsv:(NSArray<Node*>*)nodes;
 
 @end
 

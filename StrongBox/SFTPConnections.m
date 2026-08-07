@@ -7,8 +7,14 @@
 //
 
 #import "SFTPConnections.h"
-#import "FileManager.h"
 #import "NSArray+Extensions.h"
+#import "SBLog.h"
+
+#if TARGET_OS_IOS
+#import "StrongboxiOSFilesManager.h"
+#else
+#import "StrongboxMacFilesManager.h"
+#endif
 
 static NSString* const kConfigFilename = @"sftp-connections.json";
 
@@ -27,7 +33,7 @@ static NSString* const kConfigFilename = @"sftp-connections.json";
 - (NSMutableArray<SFTPSessionConfiguration*>*)deserialize {
     NSMutableArray<SFTPSessionConfiguration*> *ret = NSMutableArray.array;
     
-    NSURL* fileUrl = [FileManager.sharedInstance.preferencesDirectory URLByAppendingPathComponent:kConfigFilename];
+    NSURL* fileUrl = [StrongboxFilesManager.sharedInstance.preferencesDirectory URLByAppendingPathComponent:kConfigFilename];
     
     NSError* error;
     __block NSError* readError;
@@ -42,14 +48,14 @@ static NSString* const kConfigFilename = @"sftp-connections.json";
     }];
     
     if (!json || error || readError) {
-        NSLog(@"Error reading file for SFTP Connections: [%@] - [%@]", error, readError);
+        slog(@"Error reading file for SFTP Connections: [%@] - [%@]", error, readError);
         return ret;
     }
 
     NSArray* jsonArray = [NSJSONSerialization JSONObjectWithData:json options:kNilOptions error:&error];
 
     if (error) {
-        NSLog(@"Error getting json SFTP Connections: [%@]", error);
+        slog(@"Error getting json SFTP Connections: [%@]", error);
         return ret;
     }
 
@@ -70,26 +76,16 @@ static NSString* const kConfigFilename = @"sftp-connections.json";
     }
     
     NSError* error;
-    NSUInteger options = NSJSONWritingPrettyPrinted;
-
-#if TARGET_OS_IPHONE
-    if (@available(iOS 11.0, *)) {
-#else
-    if (@available(macOS 10.13, *)) {
-#endif
-        options |= NSJSONWritingSortedKeys;
-    } else {
-        
-    }
+    NSUInteger options = NSJSONWritingPrettyPrinted | NSJSONWritingSortedKeys;
     
     NSData* json = [NSJSONSerialization dataWithJSONObject:jsonArray options:options error:&error];
 
     if (error) {
-        NSLog(@"Error getting json for SFTP Connections: [%@]", error);
+        slog(@"Error getting json for SFTP Connections: [%@]", error);
         return;
     }
 
-    NSURL* fileUrl = [FileManager.sharedInstance.preferencesDirectory URLByAppendingPathComponent:kConfigFilename];
+    NSURL* fileUrl = [StrongboxFilesManager.sharedInstance.preferencesDirectory URLByAppendingPathComponent:kConfigFilename];
 
     NSFileCoordinator *fileCoordinator = [[NSFileCoordinator alloc] initWithFilePresenter:nil];
     __block NSError *writeError = nil;
@@ -102,7 +98,7 @@ static NSString* const kConfigFilename = @"sftp-connections.json";
     }];
 
     if (!success || error || writeError) {
-        NSLog(@"Error writing SFTP Connections file: [%@]-[%@]", error, writeError);
+        slog(@"Error writing SFTP Connections file: [%@]-[%@]", error, writeError);
         return;
     }
 }

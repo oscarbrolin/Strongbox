@@ -20,31 +20,45 @@ class LargeTextViewAndQrCode: NSViewController {
     let colorBlind = Settings.sharedInstance().colorizeUseColorBlindPalette
     let dark = DarkMode.isOn
 
-    @IBOutlet var labelFieldName: NSTextField!
     @IBOutlet var collectionView: NSCollectionView!
     @IBOutlet var imageView: NSImageView!
     @IBOutlet var label: NSTextField!
     @IBOutlet var scrollView: NSScrollView!
     @IBOutlet var scrollViewHeightConstraint: NSLayoutConstraint!
     @IBOutlet var scrollViewMaximumHeightConstraint: NSLayoutConstraint!
+    @IBOutlet var labelSubtext: NSTextField!
+    @IBOutlet var labelLargeTextHeader: NSTextField!
 
-    var largeText: Bool = true
-    var string: String = "" {
+    private var largeText: Bool = true
+    private var string: String = "" {
         didSet {
             characters = Array(string)
         }
     }
 
-    var characters: [Character] = []
-    var fieldName: String = ""
+    private var qrCodeString: String?
+
+    private var subtext: String = ""
+    private var characters: [Character] = []
 
     override func viewDidLoad() {
         super.viewDidLoad()
+    }
 
+    func setContent(string: String, largeText: Bool = true, subtext: String = "", qrCodeString: String? = nil) {
+        self.string = string
+        self.largeText = largeText
+        self.subtext = subtext
+        self.qrCodeString = qrCodeString
+
+        bindUI()
+    }
+
+    func bindUI() {
         let flowLayout = NSCollectionViewFlowLayout()
 
-        flowLayout.minimumInteritemSpacing = 12
-        flowLayout.minimumLineSpacing = 12
+        flowLayout.minimumInteritemSpacing = 0
+        flowLayout.minimumLineSpacing = 4
         flowLayout.itemSize = NSSize(width: 36, height: 65) 
 
         view.wantsLayer = true
@@ -58,10 +72,11 @@ class LargeTextViewAndQrCode: NSViewController {
         collectionView.register(LargeTextIndexedCharacter.self, forItemWithIdentifier: LargeTextIndexedCharacter.reuseIdentifier)
 
         collectionView.dataSource = self
-
+        collectionView.delegate = self
         
 
-        let image = Utils.getQrCode(string, pointSize: 128)
+        let qrCodeText = qrCodeString ?? string
+        let image = Utils.getQrCode(qrCodeText, pointSize: 128)
         imageView.image = image
 
         
@@ -72,7 +87,11 @@ class LargeTextViewAndQrCode: NSViewController {
 
         scrollView.isHidden = !largeText
 
-        labelFieldName.stringValue = fieldName
+        labelSubtext.stringValue = subtext
+        labelSubtext.isHidden = subtext.count == 0
+
+        labelLargeTextHeader.stringValue = NSLocalizedString("generic_totp_secret", comment: "2FA Secret")
+        labelLargeTextHeader.isHidden = subtext.count == 0
 
         
 
@@ -101,7 +120,7 @@ class LargeTextViewAndQrCode: NSViewController {
 
 extension LargeTextViewAndQrCode: NSCollectionViewDataSource {
     func collectionView(_: NSCollectionView, numberOfItemsInSection _: Int) -> Int {
-        return characters.count
+        characters.count
     }
 
     func collectionView(_ collectionView: NSCollectionView, itemForRepresentedObjectAt indexPath: IndexPath) -> NSCollectionViewItem {
@@ -111,9 +130,45 @@ extension LargeTextViewAndQrCode: NSCollectionViewDataSource {
 
         let colored = ColoredStringHelper.getColorizedAttributedString(character, colorize: colorize, darkMode: dark, colorBlind: colorBlind, font: FontManager.shared.largeTextEasyReadFont)
 
-        item.labelCharacter.attributedStringValue = colored
-        item.labelIndex.stringValue = String(indexPath.item + 1)
+        item.setContent(index: indexPath.item + 1, attributedString: colored)
 
         return item
+    }
+}
+
+extension LargeTextViewAndQrCode: NSCollectionViewDelegate {
+    func collectionView(_: NSCollectionView, didSelectItemsAt indexPaths: Set<IndexPath>) {
+        guard let singleItem = indexPaths.first, let char = characters[safe: singleItem.item] else {
+            return
+        }
+
+        ClipboardManager.sharedInstance().copyConcealedString(String(char))
+
+        showToastMessage(index: singleItem.item + 1)
+    }
+
+    func showToastMessage(index: Int) {
+        guard let hud = MBProgressHUD.showAdded(to: collectionView, animated: true) else {
+            return
+        }
+
+        let color = CIColor(cgColor: NSColor.systemBlue.cgColor)
+        let defaultColor = NSColor(deviceRed: color.red, green: color.green, blue: color.blue, alpha: color.alpha)
+
+        hud.labelText = String(format: NSLocalizedString("character_number_n_copied_fmt", comment: "Character %@ Copied"), String(index))
+
+        hud.color = defaultColor
+        hud.mode = MBProgressHUDModeText
+        hud.margin = 0.0
+        hud.yOffset = 2.0
+        hud.removeFromSuperViewOnHide = true
+        hud.dismissible = false
+        hud.cornerRadius = 5.0
+        hud.dimBackground = false
+
+        let when = DispatchTime.now() + 0.75
+        DispatchQueue.main.asyncAfter(deadline: when) {
+            hud.hide(true)
+        }
     }
 }

@@ -8,8 +8,7 @@
 
 #import "AddNewSafeHelper.h"
 #import "Alerts.h"
-#import "KeyFileParser.h"
-#import "AppleICloudProvider.h"
+#import "KeyFileManagement.h"
 #import "LocalDeviceStorageProvider.h"
 #import "YubiManager.h"
 #import "BookmarksHelper.h"
@@ -17,11 +16,11 @@
 #import "SVProgressHUD.h"
 #import "Serializator.h"
 #import "SampleItemsGenerator.h"
-#import "iCloudSafesCoordinator.h"
+#import "Strongbox-Swift.h"
 
 const DatabaseFormat kDefaultFormat = kKeePass4;
 
-@implementation AddNewSafeHelper
+@implementation AddNewSafeHelper 
 
 + (void)createNewExpressDatabase:(UIViewController*)vc
                             name:(NSString *)name
@@ -58,14 +57,21 @@ const DatabaseFormat kDefaultFormat = kKeePass4;
                            model:(DatabaseModel *)model
                       forceLocal:(BOOL)forceLocal
                       completion:(void (^)(BOOL userCancelled, DatabasePreferences* metadata, NSData* initialSnapshot, NSError* error))completion {
-    BOOL iCloud = !forceLocal && AppPreferences.sharedInstance.iCloudOn && iCloudSafesCoordinator.sharedInstance.fastAvailabilityTest;
+    
+#ifndef NO_NETWORKING
+    BOOL useCloudKitForStorage = !forceLocal && !AppPreferences.sharedInstance.disableNetworkBasedFeatures && CloudKitDatabasesInteractor.shared.fastIsAvailable;
+
+    id<SafeStorageProvider> provider = useCloudKitForStorage ? CloudKitStorageProvider.sharedInstance : LocalDeviceStorageProvider.sharedInstance;
+#else
+    id<SafeStorageProvider> provider = LocalDeviceStorageProvider.sharedInstance;
+#endif
     
     [AddNewSafeHelper createDatabase:vc
                                 name:name
                      keyFileBookmark:nil
                      keyFileFileName:nil
                             database:model
-                            provider:iCloud ? AppleICloudProvider.sharedInstance : LocalDeviceStorageProvider.sharedInstance
+                            provider:provider
                         parentFolder:nil
                        yubiKeyConfig:nil
                           completion:completion];
@@ -130,18 +136,23 @@ const DatabaseFormat kDefaultFormat = kKeePass4;
 
             dispatch_async(dispatch_get_main_queue(), ^(void) { 
                 [SVProgressHUD dismiss];
+
+                [SVProgressHUD showWithStatus:NSLocalizedString(@"generic_saving_ellipsis", @"Saving...")];
                 
+                NSString* filename = [NSString stringWithFormat:@"%@.%@", name, [Serializator getDefaultFileExtensionForFormat:format]];
+                                
                 [provider create:name
-                       extension:[Serializator getDefaultFileExtensionForFormat:format]
+                        fileName:filename
                             data:data
                     parentFolder:parentFolder
                   viewController:vc
                       completion:^(DatabasePreferences *metadata, NSError *error) {
                     [metadata setKeyFile:keyFileBookmark keyFileFileName:keyFileFileName];
                     metadata.likelyFormat = format;
-                    metadata.contextAwareYubiKeyConfig = yubiKeyConfig;
+                    metadata.nextGenPrimaryYubiKeyConfig = yubiKeyConfig;
 
                     dispatch_async(dispatch_get_main_queue(), ^(void) {
+                        [SVProgressHUD dismiss];
                         completion(NO, metadata, data, error);
                     });
                  }];
@@ -159,11 +170,14 @@ static DatabaseModel* getNewDatabase(NSString* password,
                                      NSError** error) {
     NSData* keyFileDigest = nil;
     if ( keyFileBookmark || keyFileFileName || onceOffKeyFileData ) {
-        keyFileDigest = [KeyFileParser getDigestFromSources:keyFileBookmark
-                                            keyFileFileName:keyFileFileName
-                                         onceOffKeyFileData:onceOffKeyFileData
-                                                     format:format
-                                                      error:error];
+        keyFileDigest = [KeyFileManagement getDigestFromSources:keyFileBookmark
+                                                    fallbackUrl:nil
+                                                keyFileFileName:keyFileFileName
+                                             onceOffKeyFileData:onceOffKeyFileData
+                                                         format:format
+                                             resolvedKeyFileUrl:nil
+                                                updatedBookmark:nil
+                                                          error:error];
     
         if ( *error ) {
             return nil;

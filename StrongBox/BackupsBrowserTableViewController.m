@@ -111,14 +111,6 @@
         }];
     }];
 
-
-
-
-
-
-
-
-
     UITableViewRowAction *addLocalAction = [UITableViewRowAction rowActionWithStyle:UITableViewRowActionStyleNormal
                                                                              title:NSLocalizedString(@"backups_add_local", @"Add as Local Database")
                                                                            handler:^(UITableViewRowAction * _Nonnull action, NSIndexPath * _Nonnull indexPath) {
@@ -138,27 +130,6 @@
     [self.tableView deselectRowAtIndexPath:indexPath animated:YES];
 }
 
-- (void)prepareForSegue:(UIStoryboardSegue *)segue sender:(id)sender {
-    if ([segue.identifier isEqualToString:@"segueToExport"]) {
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    }
-}
-
 - (void)createAsLocalDatabase:(BackupItem*)item {
     NSError* error;
     NSData* data = [NSData dataWithContentsOfURL:item.url options:kNilOptions error:&error];
@@ -175,28 +146,32 @@
     
     NSDate* modDate = attr.fileModificationDate;
     
-    NSString* nickName = [NSString stringWithFormat:@"Restored Backup of %@", self.metadata ? self.metadata.nickName : [self tryDetermineNickName:item]];
+    NSString* origNickName = self.metadata ? self.metadata.nickName : [self tryDetermineNickName:item];
+    NSString* nickName = [NSString stringWithFormat:@"Restored Backup of %@", origNickName];
     
     NSString* extension = [Serializator getLikelyFileExtension:data];
+    
     [LocalDeviceStorageProvider.sharedInstance create:nickName
-                                            extension:extension
+                                             fileName:[NSString stringWithFormat:@"%@.%@", origNickName, extension]
                                                  data:data
                                               modDate:modDate
-                                    suggestedFilename:nickName
                                            completion:^(DatabasePreferences * _Nonnull metadata, NSError * _Nonnull error) {
         if(error || !metadata) {
             [Alerts error:self title:NSLocalizedString(@"generic_error", @"Error") error:error];
             return;
         }
         
-        [metadata addWithDuplicateCheck:data initialCacheModDate:modDate];
-
-        [Alerts info:self
-               title:NSLocalizedString(@"generic_done", @"Done")
-             message:NSLocalizedString(@"backup_vc_backup_added_to_databases", @"This backup has been added to your databases")
-          completion:^{
-            [self.navigationController popToRootViewControllerAnimated:YES];
-        }];
+        if ( ![metadata addWithDuplicateCheck:data initialCacheModDate:modDate error:&error] ) {
+            [Alerts error:self error:error];
+        }
+        else {
+            [Alerts info:self
+                   title:NSLocalizedString(@"generic_done", @"Done")
+                 message:NSLocalizedString(@"backup_vc_backup_added_to_databases", @"This backup has been added to your databases")
+              completion:^{
+                [self.navigationController popToRootViewControllerAnimated:YES];
+            }];
+        }
     }];
 }
 

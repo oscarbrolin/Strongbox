@@ -32,7 +32,7 @@
 + (NSData *)getBookmarkDataFromUrl:(NSURL *)url readOnly:(BOOL)readOnly error:(NSError *_Nonnull*)error {
     NSURLBookmarkCreationOptions options = kNilOptions;
     
-    #if !TARGET_OS_IPHONE
+    #if !TARGET_OS_IOS
         options |= readOnly ? NSURLBookmarkCreationSecurityScopeAllowOnlyReadAccess : kNilOptions; 
         options |= NSURLBookmarkCreationWithSecurityScope;
     #else
@@ -48,7 +48,7 @@
                                   relativeToURL:nil
                                           error:error];
     } @catch (NSException *exception) {
-        NSLog(@"🔴 Exception getBookmarkDataFromUrl [%@]", exception);
+        slog(@"🔴 Exception getBookmarkDataFromUrl [%@]", exception);
         if ( error ) {
             *error = [Utils createNSError:exception.reason errorCode:-1234];
         }
@@ -60,7 +60,7 @@
     }
 
     if (!bookmark) {
-        NSLog(@"Error while creating bookmark for URL (%@): %@", url, *error);
+        slog(@"Error while creating bookmark for URL (%@): %@", url, *error);
         return nil;
     }
 
@@ -108,7 +108,7 @@
 
 + (NSURL *)getUrlFromBookmarkData:(NSData *)bookmark readOnly:(BOOL)readOnly updatedBookmark:(NSData * _Nonnull __autoreleasing *)updatedBookmark error:(NSError * _Nonnull __autoreleasing *)error {
     NSURLBookmarkResolutionOptions options = NSURLBookmarkResolutionWithoutUI; 
-    #if !TARGET_OS_IPHONE
+    #if !TARGET_OS_IOS
         options |= NSURLBookmarkResolutionWithSecurityScope;
     #endif
 
@@ -116,13 +116,22 @@
     
     NSURL* bookmarkFileURL;
     @try {
+        NSError* fooError;
         bookmarkFileURL = [NSURL URLByResolvingBookmarkData:bookmark
                                                     options:options
                                               relativeToURL:nil
                                         bookmarkDataIsStale:&bookmarkDataIsStale
-                                                      error:error];
+                                                      error:&fooError];
+        
+        if ( fooError ) {
+            slog(@"🔴 URLByResolvingBookmarkData ERROR: [%@]", fooError);
+            
+            if ( error ) {
+                *error = fooError;
+            }
+        }
     } @catch (NSException *exception) {
-        NSLog(@"🔴 Exception getUrlFromBookmarkData [%@]", exception);
+        slog(@"🔴 Exception getUrlFromBookmarkData [%@]", exception);
         if ( error ) {
             *error = [Utils createNSError:exception.reason errorCode:-1234];
         }
@@ -146,7 +155,7 @@
         }
 
         if(!fileIdentifier) {
-            NSLog(@"Error regenerating: [%@]", *error);
+            slog(@"Error regenerating: [%@]", *error);
             return nil;
         }
 
@@ -171,20 +180,14 @@
         return ret;
     }
     else {
-        NSLog(@"Could not read file... [%@]", *error);
+        slog(@"Could not read file... [%@]", *error);
     }
     
     return nil;
 }
 
 + (void)stopAccessingSecurityScopedResource:(NSURL*)url {
-#if !TARGET_OS_IPHONE
-    if ( @available(macOS 11.0, *) ) { 
-        [url stopAccessingSecurityScopedResource];
-    }
-#else
     [url stopAccessingSecurityScopedResource];
-#endif
 }
 
 @end

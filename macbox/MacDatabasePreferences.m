@@ -10,12 +10,14 @@
 #import "DatabasesManager.h"
 #import "NSArray+Extensions.h"
 #import "NSDate+Extensions.h"
+#import "NSData+Extensions.h"
 #import <objc/message.h>
 
 @interface MacDatabasePreferences ()
 
 @property (readonly) DatabaseMetadata* metadata;
 @property (readonly) DatabaseMetadata* templateDummy;
+@property NSDictionary<NSData*, NSData*> *cachedYubiKeyChallengeResponses;
 
 @end
 
@@ -31,9 +33,21 @@
     }];
 }
 
++ (instancetype)getById:(NSString *)databaseId {
+    return [MacDatabasePreferences.allDatabases firstOrDefault:^BOOL(MacDatabasePreferences * _Nonnull obj) {
+        return [obj.uuid isEqual:databaseId];
+    }];
+}
+
 + (NSArray<MacDatabasePreferences *> *)allDatabases {
     return [DatabasesManager.sharedInstance.snapshot map:^id _Nonnull(DatabaseMetadata * _Nonnull obj, NSUInteger idx) {
         return [MacDatabasePreferences fromUuid:obj.uuid];
+    }];
+}
+
++ (NSArray<MacDatabasePreferences *> *)forAllDatabasesOfProvider:(StorageProvider)provider {
+    return [DatabasesManager.sharedInstance.snapshot map:^id _Nonnull(DatabaseMetadata * _Nonnull obj, NSUInteger idx) {
+        return obj.storageProvider == provider ? [MacDatabasePreferences fromUuid:obj.uuid] : nil; 
     }];
 }
 
@@ -105,7 +119,7 @@
         [DatabasesManager.sharedInstance add:self.templateDummy];
     }
     else {
-        NSLog(@"🔴 WARNWARN: Attempt to add an existing database to the list");
+        slog(@"🔴 WARNWARN: Attempt to add an existing database to the list");
     }
 }
 
@@ -131,6 +145,35 @@
     return [DatabasesManager.sharedInstance isValid:nickName];
 }
 
++ (NSString *)getSuggestedNewDatabaseName {
+    return [DatabasesManager.sharedInstance getSuggestedNewDatabaseName];
+}
+
++ (NSString *)getUniqueNameFromSuggestedName:(NSString *)suggested {
+    return [DatabasesManager.sharedInstance getUniqueNameFromSuggestedName:suggested];
+}
+
+
+
+- (BOOL)isSharedInCloudKit {
+    return self.metadata.isSharedInCloudKit;
+}
+
+- (void)setIsSharedInCloudKit:(BOOL)isSharedInCloudKit {
+    [self update:^(DatabaseMetadata * _Nonnull metadata) {
+        metadata.isSharedInCloudKit = isSharedInCloudKit;
+    }];
+}
+
+- (BOOL)isOwnedByMeCloudKit {
+    return self.metadata.isOwnedByMeCloudKit;
+}
+
+- (void)setIsOwnedByMeCloudKit:(BOOL)isOwnedByMeCloudKit {
+    [self update:^(DatabaseMetadata * _Nonnull metadata) {
+        metadata.isOwnedByMeCloudKit = isOwnedByMeCloudKit;
+    }];
+}
 
 
 
@@ -209,6 +252,19 @@
 
 
 
+- (BOOL)hidden {
+    return self.metadata.hidden;
+}
+
+- (void)setHidden:(BOOL)hidden {
+    [self update:^(DatabaseMetadata * _Nonnull metadata) {
+        metadata.hidden = hidden;
+    }];
+}
+
+
+
+
 - (NSString *)keyFileBookmark {
     return self.metadata.keyFileBookmark;
 }
@@ -225,6 +281,24 @@
 
 - (void)setAutoFillKeyFileBookmark:(NSString *)autoFillKeyFileBookmark {
     self.metadata.autoFillKeyFileBookmark = autoFillKeyFileBookmark;
+}
+
+- (NSString *)fallbackLastKnownKeyFileUrl {
+    return self.metadata.fallbackLastKnownKeyFileUrl;
+}
+
+- (void)setFallbackLastKnownKeyFileUrl:(NSString *)fallbackLastKnownKeyFileUrl {
+    self.metadata.fallbackLastKnownKeyFileUrl = fallbackLastKnownKeyFileUrl;
+}
+
+- (NSURL *)keyFileFallbackUrl {
+    NSString* foo = self.fallbackLastKnownKeyFileUrl;
+    if ( foo ) {
+        return [NSURL URLWithString:foo];
+    }
+    else {
+        return nil;
+    }
 }
 
 
@@ -262,19 +336,6 @@
 - (void)setQuickTypeDisplayFormat:(QuickTypeAutoFillDisplayFormat)quickTypeDisplayFormat {
     [self update:^(DatabaseMetadata * _Nonnull metadata) {
         metadata.quickTypeDisplayFormat = quickTypeDisplayFormat;
-    }];
-
-}
-
-
-
-- (BOOL)quickWormholeFillEnabled {
-    return self.metadata.quickWormholeFillEnabled;
-}
-
-- (void)setQuickWormholeFillEnabled:(BOOL)quickWormholeFillEnabled {
-    [self update:^(DatabaseMetadata * _Nonnull metadata) {
-        metadata.quickWormholeFillEnabled = quickWormholeFillEnabled;
     }];
 
 }
@@ -340,19 +401,6 @@
 - (void)setLaunchAtStartup:(BOOL)launchAtStartup {
     [self update:^(DatabaseMetadata * _Nonnull metadata) {
         metadata.launchAtStartup = launchAtStartup;
-    }];
-
-}
-
-
-
-- (BOOL)autoPromptForConvenienceUnlockOnActivate {
-    return self.metadata.autoPromptForConvenienceUnlockOnActivate;
-}
-
-- (void)setAutoPromptForConvenienceUnlockOnActivate:(BOOL)autoPromptForConvenienceUnlockOnActivate {
-    [self update:^(DatabaseMetadata * _Nonnull metadata) {
-        metadata.autoPromptForConvenienceUnlockOnActivate = autoPromptForConvenienceUnlockOnActivate;
     }];
 
 }
@@ -486,13 +534,13 @@
 
 
 
-- (BOOL)offlineMode {
-    return self.metadata.offlineMode;
+- (BOOL)userRequestOfflineOpenEphemeralFlagForDocument {
+    return self.metadata.userRequestOfflineOpenEphemeralFlagForDocument;
 }
 
-- (void)setOfflineMode:(BOOL)offlineMode {
+- (void)setUserRequestOfflineOpenEphemeralFlagForDocument:(BOOL)userRequestOfflineOpenEphemeralFlagForDocument {
     [self update:^(DatabaseMetadata * _Nonnull metadata) {
-        metadata.offlineMode = offlineMode;
+        metadata.userRequestOfflineOpenEphemeralFlagForDocument = userRequestOfflineOpenEphemeralFlagForDocument;
     }];
 
 }
@@ -538,16 +586,16 @@
 
 
 
-- (BOOL)doNotShowTotp {
-    return self.metadata.doNotShowTotp;
-}
 
-- (void)setDoNotShowTotp:(BOOL)doNotShowTotp {
-    [self update:^(DatabaseMetadata * _Nonnull metadata) {
-        metadata.doNotShowTotp = doNotShowTotp;
-    }];
 
-}
+
+
+
+
+
+
+
+
 
 
 
@@ -629,19 +677,6 @@
 
 
 
-- (BOOL)outlineViewEditableFieldsAreReadonly {
-    return self.metadata.outlineViewEditableFieldsAreReadonly;
-}
-
-- (void)setOutlineViewEditableFieldsAreReadonly:(BOOL)outlineViewEditableFieldsAreReadonly {
-    [self update:^(DatabaseMetadata * _Nonnull metadata) {
-        metadata.outlineViewEditableFieldsAreReadonly = outlineViewEditableFieldsAreReadonly;
-    }];
-
-}
-
-
-
 - (BOOL)concealEmptyProtectedFields {
     return self.metadata.concealEmptyProtectedFields;
 }
@@ -675,19 +710,6 @@
 - (void)setShowAdvancedUnlockOptions:(BOOL)showAdvancedUnlockOptions {
     [self update:^(DatabaseMetadata * _Nonnull metadata) {
         metadata.showAdvancedUnlockOptions = showAdvancedUnlockOptions;
-    }];
-
-}
-
-
-
-- (BOOL)lockOnScreenLock {
-    return self.metadata.lockOnScreenLock;
-}
-
-- (void)setLockOnScreenLock:(BOOL)lockOnScreenLock {
-    [self update:^(DatabaseMetadata * _Nonnull metadata) {
-        metadata.lockOnScreenLock = lockOnScreenLock;
     }];
 
 }
@@ -754,20 +776,16 @@
     [self update:^(DatabaseMetadata * _Nonnull metadata) {
         metadata.hasSetInitialWindowPosition = hasSetInitialWindowPosition;
     }];
-
 }
 
-
-
-- (BOOL)autoFillScanAltUrls {
-    return self.metadata.autoFillScanAltUrls;
+- (BOOL)hasSetInitialUnlockedFrame {
+    return self.metadata.hasSetInitialUnlockedFrame;
 }
 
-- (void)setAutoFillScanAltUrls:(BOOL)autoFillScanAltUrls {
+- (void)setHasSetInitialUnlockedFrame:(BOOL)hasSetInitialUnlockedFrame {
     [self update:^(DatabaseMetadata * _Nonnull metadata) {
-        metadata.autoFillScanAltUrls = autoFillScanAltUrls;
+        metadata.hasSetInitialUnlockedFrame = hasSetInitialUnlockedFrame;
     }];
-
 }
 
 
@@ -830,6 +848,26 @@
         metadata.likelyFormat = likelyFormat;
     }];
 
+}
+
+- (NSString *)serializationPerf {
+    return self.metadata.serializationPerf;
+}
+
+- (void)setSerializationPerf:(NSString *)serializationPerf {
+    [self update:^(DatabaseMetadata * _Nonnull metadata) {
+        metadata.serializationPerf = serializationPerf;
+    }];
+}
+
+- (NSString *)lastKnownEncryptionSettings {
+    return self.metadata.lastKnownEncryptionSettings;
+}
+
+- (void)setLastKnownEncryptionSettings:(NSString *)lastKnownEncryptionSettings {
+    [self update:^(DatabaseMetadata * _Nonnull metadata) {
+        metadata.lastKnownEncryptionSettings = lastKnownEncryptionSettings;
+    }];
 }
 
 
@@ -964,6 +1002,18 @@
 
 
 
+- (BOOL)includeAssociatedDomains {
+    return self.metadata.includeAssociatedDomains;
+}
+
+- (void)setIncludeAssociatedDomains:(BOOL)includeAssociatedDomains {
+    [self update:^(DatabaseMetadata * _Nonnull metadata) {
+        metadata.includeAssociatedDomains = includeAssociatedDomains;
+    }];
+}
+
+
+
 - (BOOL)autoFillConcealedFieldsAsCreds {
     return self.metadata.autoFillConcealedFieldsAsCreds;
 }
@@ -972,7 +1022,6 @@
     [self update:^(DatabaseMetadata * _Nonnull metadata) {
         metadata.autoFillConcealedFieldsAsCreds = autoFillConcealedFieldsAsCreds;
     }];
-
 }
 
 
@@ -1051,14 +1100,6 @@
     }];
 }
 
-- (NSArray<NSString *> *)favourites {
-    return self.metadata.favourites;
-}
-
-- (void)setFavourites:(NSArray<NSString *> *)favourites {
-    
-}
-
 - (DatabaseAuditorConfiguration *)auditConfig {
     return self.metadata.auditConfig;
 }
@@ -1066,16 +1107,6 @@
 - (void)setAuditConfig:(DatabaseAuditorConfiguration *)auditConfig {
     [self update:^(DatabaseMetadata * _Nonnull metadata) {
         metadata.auditConfig = auditConfig;
-    }];
-}
-
-- (NSArray<NSString *> *)auditExcludedItems {
-    return self.metadata.auditExcludedItems;
-}
-
-- (void)setAuditExcludedItems:(NSArray<NSString *> *)auditExcludedItems {
-    [self update:^(DatabaseMetadata * _Nonnull metadata) {
-        metadata.auditExcludedItems = auditExcludedItems;
     }];
 }
 
@@ -1088,12 +1119,85 @@
     
     NSString* ret = [newFileName stringByAppendingPathExtension:extension];
     
-    NSLog(@"Export Filename: [%@]", ret);
+    slog(@"Export Filename: [%@]", ret);
     
     return  ret;
 }
 
 
+
+- (NSDictionary<NSString*, NSString *> *)debugInfoLines_old {
+    NSMutableDictionary<NSString*, NSString*>* debugLines = NSMutableDictionary.dictionary;
+    
+    debugLines[@"nickName"] = self.nickName; 
+    debugLines[@"fileUrl"] = [NSString stringWithFormat:@"%@", self.fileUrl]; 
+    debugLines[@"keyFileBookmark"] = [NSString stringWithFormat:@"%@", self.keyFileBookmark ? @"YES" : @"NO" ];
+    debugLines[@"autoFillEnabled"] = [NSString stringWithFormat:@"%hhd", self.autoFillEnabled]; 
+    debugLines[@"quickTypeEnabled"] = [NSString stringWithFormat:@"%hhd", self.quickTypeEnabled]; 
+    debugLines[@"quickTypeDisplayFormat"] = [NSString stringWithFormat:@"%ld", (long)self.quickTypeDisplayFormat]; 
+    debugLines[@"hasPromptedForAutoFillEnrol"] = [NSString stringWithFormat:@"%hhd", self.hasPromptedForAutoFillEnrol]; 
+    debugLines[@"outstandingUpdateId"] = [NSString stringWithFormat:@"%@", self.outstandingUpdateId]; 
+    debugLines[@"lastSyncRemoteModDate"] = [NSString stringWithFormat:@"%@", self.lastSyncRemoteModDate.iso8601DateString]; 
+    debugLines[@"lastSyncAttempt"] = [NSString stringWithFormat:@"%@", self.lastSyncAttempt.iso8601DateString]; 
+    debugLines[@"launchAtStartup"] = [NSString stringWithFormat:@"%hhd", self.launchAtStartup]; 
+    debugLines[@"autoPromptForConvenienceUnlockOnActivate"] = [NSString stringWithFormat:@"%hhd", self.autoPromptForConvenienceUnlockOnActivate]; 
+    debugLines[@"autoFillConvenienceAutoUnlockTimeout"] = [NSString stringWithFormat:@"%ld", self.autoFillConvenienceAutoUnlockTimeout]; 
+    debugLines[@"autoFillLastUnlockedAt"] = [NSString stringWithFormat:@"%@", self.autoFillLastUnlockedAt.iso8601DateString]; 
+    debugLines[@"conflictResolutionStrategy"] = [NSString stringWithFormat:@"%ld", self.conflictResolutionStrategy]; 
+    debugLines[@"monitorForExternalChanges"] = [NSString stringWithFormat:@"%hhd", self.monitorForExternalChanges]; 
+    debugLines[@"monitorForExternalChangesInterval"] = [NSString stringWithFormat:@"%ld", self.monitorForExternalChangesInterval]; 
+    debugLines[@"autoReloadAfterExternalChanges"] = [NSString stringWithFormat:@"%hhd", self.autoReloadAfterExternalChanges]; 
+    debugLines[@"maxBackupKeepCount"] = [NSString stringWithFormat:@"%ld", self.maxBackupKeepCount]; 
+    debugLines[@"makeBackups"] = [NSString stringWithFormat:@"%hhd", self.makeBackups]; 
+    debugLines[@"userRequestOfflineOpenEphemeralFlagForDocument"] = [NSString stringWithFormat:@"%hhd", self.userRequestOfflineOpenEphemeralFlagForDocument]; 
+    debugLines[@"alwaysOpenOffline"] = [NSString stringWithFormat:@"%hhd", self.alwaysOpenOffline]; 
+    debugLines[@"readOnly"] = [NSString stringWithFormat:@"%hhd", self.readOnly]; 
+    debugLines[@"showQuickView"] = [NSString stringWithFormat:@"%hhd", self.showQuickView]; 
+
+    debugLines[@"noAlternatingRows"] = [NSString stringWithFormat:@"%hhd", self.noAlternatingRows]; 
+    debugLines[@"showHorizontalGrid"] = [NSString stringWithFormat:@"%hhd", self.showHorizontalGrid]; 
+    debugLines[@"showVerticalGrid"] = [NSString stringWithFormat:@"%hhd", self.showVerticalGrid]; 
+    debugLines[@"doNotShowAutoCompleteSuggestions"] = [NSString stringWithFormat:@"%hhd", self.doNotShowAutoCompleteSuggestions]; 
+    debugLines[@"doNotShowChangeNotifications"] = [NSString stringWithFormat:@"%hhd", self.doNotShowChangeNotifications]; 
+    debugLines[@"outlineViewTitleIsReadonly"] = [NSString stringWithFormat:@"%hhd", self.outlineViewTitleIsReadonly]; 
+    debugLines[@"concealEmptyProtectedFields"] = [NSString stringWithFormat:@"%hhd", self.concealEmptyProtectedFields]; 
+    debugLines[@"startWithSearch"] = [NSString stringWithFormat:@"%hhd", self.startWithSearch]; 
+    debugLines[@"showAdvancedUnlockOptions"] = [NSString stringWithFormat:@"%hhd", self.showAdvancedUnlockOptions]; 
+    debugLines[@"expressDownloadFavIconOnNewOrUrlChanged"] = [NSString stringWithFormat:@"%hhd", self.expressDownloadFavIconOnNewOrUrlChanged]; 
+    debugLines[@"doNotShowRecycleBinInBrowse"] = [NSString stringWithFormat:@"%hhd", self.doNotShowRecycleBinInBrowse]; 
+    debugLines[@"showRecycleBinInSearchResults"] = [NSString stringWithFormat:@"%hhd", self.showRecycleBinInSearchResults]; 
+    debugLines[@"uiDoNotSortKeePassNodesInBrowseView"] = [NSString stringWithFormat:@"%hhd", self.uiDoNotSortKeePassNodesInBrowseView]; 
+    debugLines[@"hasSetInitialWindowPosition"] = [NSString stringWithFormat:@"%hhd", self.hasSetInitialWindowPosition]; 
+
+    debugLines[@"autoFillScanCustomFields"] = [NSString stringWithFormat:@"%hhd", self.autoFillScanCustomFields]; 
+    debugLines[@"autoFillScanNotes"] = [NSString stringWithFormat:@"%hhd", self.autoFillScanNotes]; 
+    debugLines[@"unlockCount"] = [NSString stringWithFormat:@"%ld", self.unlockCount]; 
+    debugLines[@"likelyFormat"] = [NSString stringWithFormat:@"%ld", self.likelyFormat]; 
+    debugLines[@"emptyOrNilPwPreferNilCheckFirst"] = [NSString stringWithFormat:@"%hhd", self.emptyOrNilPwPreferNilCheckFirst]; 
+    debugLines[@"isTouchIdEnabled"] = [NSString stringWithFormat:@"%hhd", self.isTouchIdEnabled]; 
+    debugLines[@"isWatchUnlockEnabled"] = [NSString stringWithFormat:@"%hhd", self.isWatchUnlockEnabled]; 
+    debugLines[@"hasPromptedForTouchIdEnrol"] = [NSString stringWithFormat:@"%hhd", self.hasPromptedForTouchIdEnrol]; 
+    debugLines[@"touchIdPasswordExpiryPeriodHours"] = [NSString stringWithFormat:@"%ld", self.touchIdPasswordExpiryPeriodHours]; 
+    debugLines[@"isConvenienceUnlockEnabled"] = [NSString stringWithFormat:@"%hhd", self.isConvenienceUnlockEnabled]; 
+    debugLines[@"conveniencePasswordHasExpired"] = [NSString stringWithFormat:@"%hhd", self.conveniencePasswordHasExpired]; 
+    debugLines[@"hasBeenPromptedForConvenience"] = [NSString stringWithFormat:@"%hhd", self.hasBeenPromptedForConvenience]; 
+    debugLines[@"convenienceExpiryPeriod"] = [NSString stringWithFormat:@"%ld", self.convenienceExpiryPeriod]; 
+    debugLines[@"conveniencePasswordHasBeenStored"] = [NSString stringWithFormat:@"%hhd", self.conveniencePasswordHasBeenStored]; 
+    debugLines[@"autoFillConcealedFieldsAsCreds"] = [NSString stringWithFormat:@"%hhd", self.autoFillConcealedFieldsAsCreds]; 
+    debugLines[@"autoFillUnConcealedFieldsAsCreds"] = [NSString stringWithFormat:@"%hhd", self.autoFillUnConcealedFieldsAsCreds]; 
+    debugLines[@"asyncUpdateId"] = [NSString stringWithFormat:@"%@", self.asyncUpdateId]; 
+    debugLines[@"promptedForAutoFetchFavIcon"] = [NSString stringWithFormat:@"%hhd", self.promptedForAutoFetchFavIcon]; 
+    debugLines[@"iconSet"] = [NSString stringWithFormat:@"%ld", self.keePassIconSet]; 
+    debugLines[@"sideBarNavigationContext"] = [NSString stringWithFormat:@"%ld", self.sideBarNavigationContext]; 
+    debugLines[@"sideBarSelectedSpecial"] = [NSString stringWithFormat:@"%ld", self.sideBarSelectedSpecial]; 
+    debugLines[@"sideBarSelectedAuditCategory"] = [NSString stringWithFormat:@"%ld", self.sideBarSelectedAuditCategory]; 
+    debugLines[@"searchScope"] = [NSString stringWithFormat:@"%ld", self.searchScope]; 
+    debugLines[@"showChildCountOnFolderInSidebar"] = [NSString stringWithFormat:@"%hhd", self.showChildCountOnFolderInSidebar]; 
+    debugLines[@"customSortOrderForFields"] = [NSString stringWithFormat:@"%hhd", self.customSortOrderForFields]; 
+    debugLines[@"autoFillCopyTotp"] = [NSString stringWithFormat:@"%hhd", self.autoFillCopyTotp]; 
+    
+    return debugLines;
+}
 
 - (NSDictionary<NSString*, NSString *> *)debugInfoLines {
     NSMutableDictionary<NSString*, NSString*>* debugLines = NSMutableDictionary.dictionary;
@@ -1146,7 +1250,7 @@
                 debugLines[key] = strValue;
             }
             else {
-                NSLog(@"WARNWARN Unknown iVar Type: %s - %s", type, name);
+                slog(@"WARNWARN Unknown iVar Type: %s - %s", type, name);
             }
         }
         free(ivars);
@@ -1157,13 +1261,13 @@
 
 
 
-- (KeePassIconSet)iconSet {
+- (KeePassIconSet)keePassIconSet {
     return self.metadata.iconSet;
 }
 
-- (void)setIconSet:(KeePassIconSet)iconSet {
+- (void)setKeePassIconSet:(KeePassIconSet)keePassIconSet {
     [self update:^(DatabaseMetadata * _Nonnull metadata) {
-        metadata.iconSet = iconSet;
+        metadata.iconSet = keePassIconSet;
     }];
 }
 
@@ -1259,13 +1363,13 @@
     }];
 }
 
-- (BOOL)showChildCountOnFolderInSidebar {
-    return self.metadata.showChildCountOnFolderInSidebar;
+- (BOOL)searchIncludeGroups {
+    return self.metadata.searchIncludeGroups;
 }
 
-- (void)setShowChildCountOnFolderInSidebar:(BOOL)showChildCountOnFolderInSidebar {
+- (void)setSearchIncludeGroups:(BOOL)searchIncludeGroups {
     [self update:^(DatabaseMetadata * _Nonnull metadata) {
-        metadata.showChildCountOnFolderInSidebar = showChildCountOnFolderInSidebar;
+        metadata.searchIncludeGroups = searchIncludeGroups;
     }];
 }
 
@@ -1276,6 +1380,33 @@
 - (void)setHeaderNodes:(NSArray *)headerNodes {
     [self update:^(DatabaseMetadata * _Nonnull metadata) {
         metadata.headerNodes = headerNodes;
+    }];
+}
+
+- (NSArray<NSNumber *> *)detailsViewCollapsedSections {
+    return [DatabaseMetadata normalizedDetailsViewCollapsedSections:self.metadata.detailsViewCollapsedSections];
+}
+
+- (void)setDetailsViewCollapsedSections:(NSArray<NSNumber *> *)detailsViewCollapsedSections {
+    NSArray<NSNumber *> *normalized = [DatabaseMetadata normalizedDetailsViewCollapsedSections:detailsViewCollapsedSections];
+    [self update:^(DatabaseMetadata * _Nonnull metadata) {
+        metadata.detailsViewCollapsedSections = normalized;
+    }];
+}
+
+- (BOOL)isDetailsViewCollapsedForSection:(DetailsViewCollapsedSection)section {
+    NSParameterAssert(section >= 0 && section < DetailsViewCollapsedSectionCount);
+
+    return self.detailsViewCollapsedSections[section].boolValue;
+}
+
+- (void)setDetailsViewCollapsed:(BOOL)collapsed forSection:(DetailsViewCollapsedSection)section {
+    NSParameterAssert(section >= 0 && section < DetailsViewCollapsedSectionCount);
+
+    [self update:^(DatabaseMetadata * _Nonnull metadata) {
+        NSMutableArray<NSNumber *> *sections = [[DatabaseMetadata normalizedDetailsViewCollapsedSections:metadata.detailsViewCollapsedSections] mutableCopy];
+        sections[section] = @(collapsed);
+        metadata.detailsViewCollapsedSections = [sections copy];
     }];
 }
 
@@ -1296,6 +1427,217 @@
 - (void)setAutoFillCopyTotp:(BOOL)autoFillCopyTotp {
     [self update:^(DatabaseMetadata * _Nonnull metadata) {
         metadata.autoFillCopyTotp = autoFillCopyTotp;
+    }];
+}
+
+- (BOOL)showChildCountOnFolderInSidebar {
+    return self.metadata.showChildCountOnFolderInSidebar;
+}
+
+- (void)setShowChildCountOnFolderInSidebar:(BOOL)showChildCountOnFolderInSidebar {
+    [self update:^(DatabaseMetadata * _Nonnull metadata) {
+        metadata.showChildCountOnFolderInSidebar = showChildCountOnFolderInSidebar;
+    }];
+}
+
+- (SideBarChildCountFormat)sideBarChildCountFormat {
+    return self.metadata.sideBarChildCountFormat;
+}
+
+- (void)setSideBarChildCountFormat:(SideBarChildCountFormat)sideBarChildCountFormat {
+    [self update:^(DatabaseMetadata * _Nonnull metadata) {
+        metadata.sideBarChildCountFormat = sideBarChildCountFormat;
+    }];
+}
+
+- (NSString *)sideBarChildCountGroupPrefix {
+    return self.metadata.sideBarChildCountGroupPrefix;
+}
+
+- (void)setSideBarChildCountGroupPrefix:(NSString *)sideBarChildCountGroupPrefix {
+    [self update:^(DatabaseMetadata * _Nonnull metadata) {
+        metadata.sideBarChildCountGroupPrefix = sideBarChildCountGroupPrefix;
+    }];
+}
+
+- (NSString *)sideBarChildCountSeparator {
+    return self.metadata.sideBarChildCountSeparator;
+}
+
+- (void)setSideBarChildCountSeparator:(NSString *)sideBarChildCountSeparator {
+    [self update:^(DatabaseMetadata * _Nonnull metadata) {
+        metadata.sideBarChildCountSeparator = sideBarChildCountSeparator;
+    }];
+}
+
+- (BOOL)sideBarChildCountShowZero {
+    return self.metadata.sideBarChildCountShowZero;
+}
+
+- (void)setSideBarChildCountShowZero:(BOOL)sideBarChildCountShowZero {
+    [self update:^(DatabaseMetadata * _Nonnull metadata) {
+        metadata.sideBarChildCountShowZero = sideBarChildCountShowZero;
+    }];
+}
+
+- (BOOL)sideBarShowTotalCountOnHierarchy {
+    return self.metadata.sideBarShowTotalCountOnHierarchy;
+}
+
+- (void)setSideBarShowTotalCountOnHierarchy:(BOOL)sideBarShowTotalCountOnHierarchy {
+    [self update:^(DatabaseMetadata * _Nonnull metadata) {
+        metadata.sideBarShowTotalCountOnHierarchy = sideBarShowTotalCountOnHierarchy;
+    }];
+}
+
+
+
+- (NSArray<NSString *> *)legacyFavouritesStore {
+    return self.metadata.legacyFavouritesStore;
+}
+
+- (void)setLegacyFavouritesStore:(NSArray<NSString *> *)legacyFavouritesStore {
+    [self update:^(DatabaseMetadata * _Nonnull metadata) {
+        metadata.legacyFavouritesStore = legacyFavouritesStore;
+    }];
+}
+
+- (NSArray<NSString *> *)autoFillExcludedItems {
+    return self.metadata.autoFillExcludedItems;
+}
+
+- (void)setAutoFillExcludedItems:(NSArray<NSString *> *)autoFillExcludedItems {
+    [self update:^(DatabaseMetadata * _Nonnull metadata) {
+        metadata.autoFillExcludedItems = autoFillExcludedItems;
+    }];
+}
+
+- (NSArray<NSString *> *)auditExcludedItems {
+    return self.metadata.auditExcludedItems;
+}
+
+- (void)setAuditExcludedItems:(NSArray<NSString *> *)auditExcludedItems {
+    [self update:^(DatabaseMetadata * _Nonnull metadata) {
+        metadata.auditExcludedItems = auditExcludedItems;
+    }];
+}
+
+
+
+
+
+- (BOOL)searchDereferencedFields {
+    return YES;
+}
+
+- (BOOL)showKeePass1BackupGroup {
+    return self.showRecycleBinInSearchResults;
+}
+
+- (BOOL)showExpiredInSearch {
+    return YES;
+}
+
+- (BOOL)hardwareKeyCRCaching {
+    BOOL ret = self.metadata.hardwareKeyCRCaching;
+    return ret;
+}
+
+- (void)setHardwareKeyCRCaching:(BOOL)hardwareKeyCRCaching {
+    [self update:^(DatabaseMetadata * _Nonnull metadata) {
+        metadata.hardwareKeyCRCaching = hardwareKeyCRCaching;
+    }];
+    [self clearCachedChallengeResponses];
+}
+
+- (BOOL)doNotRefreshChallengeInAF {
+    return self.metadata.doNotRefreshChallengeInAF;
+}
+
+- (void)setDoNotRefreshChallengeInAF:(BOOL)doNotRefreshChallengeInAF {
+    [self update:^(DatabaseMetadata * _Nonnull metadata) {
+        metadata.doNotRefreshChallengeInAF = doNotRefreshChallengeInAF;
+    }];
+}
+
+- (BOOL)hasOnboardedHardwareKeyCaching {
+    return self.metadata.hasOnboardedHardwareKeyCaching;
+}
+
+- (void)setHasOnboardedHardwareKeyCaching:(BOOL)hasOnboardedHardwareKeyCaching {
+    [self update:^(DatabaseMetadata * _Nonnull metadata) {
+        metadata.hasOnboardedHardwareKeyCaching = hasOnboardedHardwareKeyCaching;
+    }];
+}
+
+- (NSDate *)lastChallengeRefreshAt {
+    return self.metadata.lastChallengeRefreshAt;
+}
+
+- (void)setLastChallengeRefreshAt:(NSDate *)lastChallengeRefreshAt {
+    [self update:^(DatabaseMetadata * _Nonnull metadata) {
+        metadata.lastChallengeRefreshAt = lastChallengeRefreshAt;
+    }];
+}
+
+- (NSInteger)challengeRefreshIntervalSecs {
+    return self.metadata.challengeRefreshIntervalSecs;
+}
+
+- (void)setChallengeRefreshIntervalSecs:(NSInteger)challengeRefreshIntervalSecs {
+    [self update:^(DatabaseMetadata * _Nonnull metadata) {
+        metadata.challengeRefreshIntervalSecs = challengeRefreshIntervalSecs;
+    }];
+}
+
+- (NSInteger)cacheChallengeDurationSecs {
+    return self.metadata.cacheChallengeDurationSecs;
+}
+
+- (void)setCacheChallengeDurationSecs:(NSInteger)cacheChallengeDurationSecs {
+    [self update:^(DatabaseMetadata * _Nonnull metadata) {
+        metadata.cacheChallengeDurationSecs = cacheChallengeDurationSecs;
+    }];
+    [self clearCachedChallengeResponses];
+}
+
+- (NSDictionary<NSData *,NSData *> *)cachedYubiKeyChallengeResponses {
+    return self.metadata.cachedYubiKeyChallengeResponses;
+}
+
+- (void)setCachedYubiKeyChallengeResponses:(NSDictionary<NSData *,NSData *> *)cachedYubiKeyChallengeResponses {
+    self.metadata.cachedYubiKeyChallengeResponses = cachedYubiKeyChallengeResponses; 
+}
+
+- (void)addCachedChallengeResponse:(MMcGPair<NSData *,NSData *> *)challengeResponse {
+    slog(@"🐞 addCachedChallengeResponse [%@] -> [%@]", challengeResponse.a.base64String, challengeResponse.b.base64String );
+    self.cachedYubiKeyChallengeResponses = @{ challengeResponse.a : challengeResponse.b }; 
+}
+
+- (void)removeCachedChallenge:(NSData *)challenge {
+    slog(@"🐞 removeCachedChallenge [%@]", challenge.base64String );
+    [self clearCachedChallengeResponses];
+}
+
+- (void)clearCachedChallengeResponses {
+    self.cachedYubiKeyChallengeResponses = @{};
+}
+
+- (NSData *)getCachedChallengeResponse:(NSData *)challenge {
+    NSData* ret = self.cachedYubiKeyChallengeResponses[challenge];
+    
+    slog(@"🐞 getCachedChallengeResponse [%@] -> [%@]", challenge.base64String, ret.base64String );
+    
+    return ret;
+}
+
+- (BOOL)markDirtyOnExpandCollapseGroups {
+    return self.metadata.markDirtyOnExpandCollapseGroups;
+}
+
+- (void)setMarkDirtyOnExpandCollapseGroups:(BOOL)markDirtyOnExpandCollapseGroups {
+    [self update:^(DatabaseMetadata * _Nonnull metadata) {
+        metadata.markDirtyOnExpandCollapseGroups = markDirtyOnExpandCollapseGroups;
     }];
 }
 

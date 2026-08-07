@@ -18,6 +18,7 @@
 #import "NextNavigationConstants.h"
 #import "SearchScope.h"
 #import "HeaderNodeState.h"
+#import "SideBarChildCountFormat.h"
 
 @class HeaderNodeState;
 
@@ -25,7 +26,20 @@ NS_ASSUME_NONNULL_BEGIN
 
 extern const NSInteger kDefaultPasswordExpiryHours;
 
+typedef NS_ENUM(NSInteger, DetailsViewCollapsedSection) {
+    DetailsViewCollapsedSectionSimpleFields = 0,
+    DetailsViewCollapsedSectionNotes = 1,
+    DetailsViewCollapsedSectionAttachments = 2,
+    DetailsViewCollapsedSectionMetadata = 3,
+    DetailsViewCollapsedSectionOther = 4,
+    DetailsViewCollapsedSectionSshKey = 5,
+    DetailsViewCollapsedSectionCount = 6,
+};
+
 @interface DatabaseMetadata : NSObject
+
++ (NSArray<NSNumber *> *)defaultDetailsViewCollapsedSections;
++ (NSArray<NSNumber *> *)normalizedDetailsViewCollapsedSections:(nullable id)detailsViewCollapsedSections;
 
 - (instancetype)initWithNickName:(NSString *)nickName
                  storageProvider:(StorageProvider)storageProvider
@@ -38,11 +52,9 @@ extern const NSInteger kDefaultPasswordExpiryHours;
 @property (nonatomic, strong, nullable) NSString *storageInfo; 
 @property (nonatomic, strong, nullable) NSString *autoFillStorageInfo; 
 @property (nonatomic) StorageProvider storageProvider;
+@property (nonatomic) BOOL hidden;
 
 @property (nonatomic, strong, nullable) NSString* conveniencePassword;
-@property (nonatomic, strong, nullable) NSString* keyFileBookmark;
-@property (nonatomic, strong, nullable) NSString* autoFillKeyFileBookmark;
-
 @property (nonatomic, strong, nullable) YubiKeyConfiguration* yubiKeyConfiguration;
 
 
@@ -51,7 +63,6 @@ extern const NSInteger kDefaultPasswordExpiryHours;
 @property (nonatomic) BOOL quickTypeEnabled;
 @property (nonatomic) QuickTypeAutoFillDisplayFormat quickTypeDisplayFormat;
 
-@property (nonatomic) BOOL quickWormholeFillEnabled;
 @property (nonatomic) BOOL hasPromptedForAutoFillEnrol;
 
 - (SecretExpiryMode)getConveniencePasswordExpiryMode;
@@ -63,7 +74,6 @@ extern const NSInteger kDefaultPasswordExpiryHours;
 @property (nullable) NSDate* lastSyncRemoteModDate; 
 @property (nullable) NSDate* lastSyncAttempt;
 @property BOOL launchAtStartup;
-@property BOOL autoPromptForConvenienceUnlockOnActivate;
 
 @property (nonatomic, strong, nullable) NSString* autoFillConvenienceAutoUnlockPassword;
 @property NSInteger autoFillConvenienceAutoUnlockTimeout; 
@@ -82,7 +92,7 @@ extern const NSInteger kDefaultPasswordExpiryHours;
 
 @property (readonly) BOOL isLocalDeviceDatabase;
 
-@property BOOL offlineMode; 
+@property BOOL userRequestOfflineOpenEphemeralFlagForDocument; 
 @property BOOL alwaysOpenOffline;
 @property BOOL readOnly;
 
@@ -97,11 +107,9 @@ extern const NSInteger kDefaultPasswordExpiryHours;
 @property BOOL doNotShowAutoCompleteSuggestions;
 @property BOOL doNotShowChangeNotifications;
 @property BOOL outlineViewTitleIsReadonly;
-@property BOOL outlineViewEditableFieldsAreReadonly;
 @property BOOL concealEmptyProtectedFields;
 @property BOOL startWithSearch;
 @property BOOL showAdvancedUnlockOptions;
-@property BOOL lockOnScreenLock;
 @property BOOL expressDownloadFavIconOnNewOrUrlChanged;
 @property BOOL doNotShowRecycleBinInBrowse;
 @property BOOL showRecycleBinInSearchResults;
@@ -111,10 +119,10 @@ extern const NSInteger kDefaultPasswordExpiryHours;
 /* =================================================================================================== */
 
 @property BOOL hasSetInitialWindowPosition;
+@property BOOL hasSetInitialUnlockedFrame;
 
 
 
-@property BOOL autoFillScanAltUrls;
 @property BOOL autoFillScanCustomFields;
 @property BOOL autoFillScanNotes;
 
@@ -122,11 +130,13 @@ extern const NSInteger kDefaultPasswordExpiryHours;
 
 
 @property (nonatomic, strong, nullable) NSString* conveniencePin;
-@property (nullable) NSArray<NSString*>* favourites;
+@property (nullable) NSArray<NSString*>* legacyFavouritesStore;
 @property DatabaseAuditorConfiguration* auditConfig;
 @property (nullable) NSArray<NSString*>* auditExcludedItems;
 @property NSUInteger unlockCount;
 @property DatabaseFormat likelyFormat;
+@property NSString* lastKnownEncryptionSettings;
+@property NSString* serializationPerf;
 @property BOOL emptyOrNilPwPreferNilCheckFirst; 
 
 
@@ -162,6 +172,7 @@ extern const NSInteger kDefaultPasswordExpiryHours;
 
 
 
+@property BOOL includeAssociatedDomains;
 @property BOOL autoFillConcealedFieldsAsCreds;
 @property BOOL autoFillUnConcealedFieldsAsCreds;
 
@@ -184,12 +195,41 @@ extern const NSInteger kDefaultPasswordExpiryHours;
 @property NSArray<NSUUID*> *browseSelectedItems;
 @property NSString* searchText;
 @property SearchScope searchScope;
-@property BOOL showChildCountOnFolderInSidebar;
+@property BOOL searchIncludeGroups;
+
 @property NSArray<HeaderNodeState*>* headerNodes;
+@property NSArray<NSNumber*>* detailsViewCollapsedSections;
 
 @property BOOL customSortOrderForFields;
 
 @property BOOL autoFillCopyTotp;
+
+@property BOOL showChildCountOnFolderInSidebar;
+@property SideBarChildCountFormat sideBarChildCountFormat;
+@property NSString* sideBarChildCountGroupPrefix;
+@property NSString* sideBarChildCountSeparator;
+@property BOOL sideBarChildCountShowZero;
+@property BOOL sideBarShowTotalCountOnHierarchy;
+
+@property (nullable) NSArray<NSString*>* autoFillExcludedItems;
+
+@property BOOL isSharedInCloudKit; 
+@property BOOL isOwnedByMeCloudKit; 
+
+@property (nullable) NSDictionary<NSData*, NSData*> *cachedYubiKeyChallengeResponses;
+@property BOOL hardwareKeyCRCaching;
+@property BOOL doNotRefreshChallengeInAF;
+@property BOOL hasOnboardedHardwareKeyCaching;
+
+@property (nullable) NSDate* lastChallengeRefreshAt;
+@property NSInteger challengeRefreshIntervalSecs;
+@property NSInteger cacheChallengeDurationSecs;
+
+@property BOOL markDirtyOnExpandCollapseGroups;
+
+@property (nonatomic, strong, nullable) NSString* keyFileBookmark;
+@property (nonatomic, strong, nullable) NSString* autoFillKeyFileBookmark;
+@property (nullable) NSString* fallbackLastKnownKeyFileUrl;
 
 @end
 

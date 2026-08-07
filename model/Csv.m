@@ -8,21 +8,36 @@
 
 #import "Csv.h"
 #import "CHCSVParser.h"
+#import "OTPToken+Serialization.h"
 
 @implementation Csv
 
-+ (NSData*)getSafeAsCsv:(DatabaseModel*)database {
-    NSArray<Node*>* nodes = [database.effectiveRootGroup filterChildren:YES predicate:^BOOL(Node * _Nonnull node) {
++ (NSData*)getGroupAsCsv:(Node*)rootGroup {
+    NSArray<Node*>* nodes = [rootGroup filterChildren:YES predicate:^BOOL(Node * _Nonnull node) {
         return !node.isGroup;
     }];
     
+    return [Csv getNodesAsCsv:nodes];
+}
+
++ (NSData*)getNodesAsCsv:(NSArray<Node*>*)nodes {
     NSOutputStream *output = [NSOutputStream outputStreamToMemory];
     CHCSVWriter *writer = [[CHCSVWriter alloc] initWithOutputStream:output encoding:NSUTF8StringEncoding delimiter:','];
     
-    [writer writeLineOfFields:@[kCSVHeaderTitle, kCSVHeaderUsername, kCSVHeaderEmail, kCSVHeaderPassword, kCSVHeaderUrl, kCSVHeaderNotes]];
+    [writer writeLineOfFields:@[kCSVHeaderTitle, kCSVHeaderUsername, kCSVHeaderEmail, kCSVHeaderPassword, kCSVHeaderUrl, kCSVHeaderTotp, kCSVHeaderNotes]];
     
     for(Node* node in nodes) {
-        [writer writeLineOfFields:@[node.title, node.fields.username, node.fields.email, node.fields.password, node.fields.url, node.fields.notes]];
+        if ( node.isGroup) {
+            continue;
+        }
+        
+        NSString *otp = @"";
+        
+        if ( node.fields.otpToken != nil ) {
+            otp = [node.fields.otpToken url:YES].absoluteString;
+        }
+        
+        [writer writeLineOfFields:@[node.title, node.fields.username, node.fields.email, node.fields.password, node.fields.url, otp, node.fields.notes]];
     }
     
     [writer closeStream];

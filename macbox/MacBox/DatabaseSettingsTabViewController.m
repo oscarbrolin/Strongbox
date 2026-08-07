@@ -63,12 +63,12 @@
     if ( self.encryptionChanged ) {
         [self promptToApplyChanges:^(BOOL cancelled) {
             if ( !cancelled ) {
-                [self.view.window close];
+                [self.view.window.sheetParent endSheet:self.view.window];
             }
         }];
     }
     else {
-        [self.view.window close];
+        [self.view.window.sheetParent endSheet:self.view.window];
     }
 }
 
@@ -95,11 +95,7 @@
     self.viewModel = model;
     self.initialTab = initialTab;
     
-    [self initializeTabs];
-    
-    if ( !Settings.sharedInstance.nextGenUI ) {
-        [self removeTabViewItem:self.tabViewItems[4]];
-    }
+    [self initializeTabs];    
 }
 
 - (void)initializeTabs {
@@ -110,6 +106,8 @@
     NSTabViewItem* auditItem = self.tabViewItems[4];
     NSTabViewItem* encryption = self.tabViewItems[5];
     NSTabViewItem* advanced = self.tabViewItems[6];
+ 
+    [self updateConvenienceUnlockTab:convenienceUnlockItem];
 
     GeneralDatabaseSettings* general = (GeneralDatabaseSettings*)generalItem.viewController;
     general.model = self.viewModel;
@@ -133,7 +131,54 @@
     AdvancedDatabasePreferences* advancedPreferences = (AdvancedDatabasePreferences*)advanced.viewController;
     advancedPreferences.model = self.viewModel;
 
+    if ( self.viewModel.database.originalFormat == kKeePass4 && self.viewModel.database.ckfs.yubiKeyCR != nil ) {
+        __weak DatabaseSettingsTabViewController* weakSelf = self;
+        
+        METADATA_PTR metadata = self.viewModel.databaseMetadata;
+        Model* model = self.viewModel.commonModel;
+        
+        NSViewController* hardwareKeySettings = [SwiftUIViewFactory getHardwareKeySettingsViewWithMetadata:metadata
+                                                                                         onSettingsChanged:^(BOOL hardwareKeyCRCaching, NSInteger cacheChallengeDurationSecs, NSInteger challengeRefreshIntervalSecs, BOOL autoFillRefreshSuppressed) {
+            metadata.hardwareKeyCRCaching = hardwareKeyCRCaching;
+            metadata.cacheChallengeDurationSecs = cacheChallengeDurationSecs;
+            metadata.challengeRefreshIntervalSecs = challengeRefreshIntervalSecs;
+            metadata.doNotRefreshChallengeInAF = autoFillRefreshSuppressed;
+            
+            if ( hardwareKeyCRCaching ) {
+                if ( model.ckfs.lastChallengeResponse ) {
+                    [metadata addCachedChallengeResponse:model.ckfs.lastChallengeResponse];
+                }
+                metadata.lastChallengeRefreshAt = NSDate.now;
+            }
+            else {
+                [metadata clearCachedChallengeResponses];
+                metadata.lastChallengeRefreshAt = nil;
+            }
+        } completion:^{
+            [weakSelf cancel:nil];
+        }];
+        
+        NSTabViewItem* hksTab = [NSTabViewItem tabViewItemWithViewController:hardwareKeySettings];
+        [hksTab setLabel:NSLocalizedString(@"generic_hardware_key", @"Hardware Key")];
+        [hksTab setImage:[NSImage imageNamed:@"yubikey"]];
+        [self insertTabViewItem:hksTab atIndex:6];
+    }
+    
     self.selectedTabViewItemIndex = self.initialTab;
+}
+
+- (void)updateConvenienceUnlockTab:(NSTabViewItem*)convenienceUnlockItem {
+    BOOL watchAvailable = BiometricIdHelper.sharedInstance.isWatchUnlockAvailable;
+    BOOL touchAvailable = BiometricIdHelper.sharedInstance.isTouchIdUnlockAvailable;
+    BOOL showBiometricTab = watchAvailable || touchAvailable;
+    
+    if (showBiometricTab) {
+        convenienceUnlockItem.label = NSLocalizedString(@"touchid_tab_title", @"Touch ID");
+        convenienceUnlockItem.image = [NSImage imageWithSystemSymbolName:@"touchid" accessibilityDescription:@"Touch ID"];
+    } else {
+        convenienceUnlockItem.label = NSLocalizedString(@"pin_code_tab_title", @"Pin Code");
+        convenienceUnlockItem.image = [NSImage imageNamed:@"keypad"];
+    }
 }
 
 @end
